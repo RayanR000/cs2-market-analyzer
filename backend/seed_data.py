@@ -11,54 +11,77 @@ logger = logging.getLogger(__name__)
 
 # Sample CS2 market items
 SAMPLE_ITEMS = [
-    {
-        'item_id': 'ak47-phantom-mw',
-        'name': 'AK-47 | Phantom Disruptor',
-        'type': 'skin',
-        'release_date': datetime(2020, 5, 1)
-    },
-    {
-        'item_id': 'dragon-lore-factory',
-        'name': 'Dragon Lore',
-        'type': 'skin',
-        'release_date': datetime(2013, 1, 1)
-    },
-    {
-        'item_id': 'cs2-weapon-case',
-        'name': 'CS2 Weapon Case',
-        'type': 'case',
-        'release_date': datetime(2023, 9, 1)
-    },
-    {
-        'item_id': 'sticker-navi',
-        'name': 'Navi Sticker',
-        'type': 'sticker',
-        'release_date': datetime(2022, 5, 15)
-    },
-    {
-        'item_id': 'deagle-crimson-web',
-        'name': 'Desert Eagle | Crimson Web',
-        'type': 'skin',
-        'release_date': datetime(2014, 1, 21)
-    },
-    {
-        'item_id': 'karambit-doppler',
-        'name': 'Karambit | Doppler',
-        'type': 'skin',
-        'release_date': datetime(2015, 1, 6)
-    },
-    {
-        'item_id': 'm4a1-hyper',
-        'name': 'M4A1-S | Hyper Beast',
-        'type': 'skin',
-        'release_date': datetime(2015, 2, 1)
-    },
-    {
-        'item_id': 'awp-dragon-lore',
-        'name': 'AWP Dragon Lore',
-        'type': 'skin',
-        'release_date': datetime(2013, 1, 1)
-    },
+    # AK-47 Skins
+    {'item_id': 'ak47-phantom-mw', 'name': 'AK-47 | Phantom Disruptor', 'type': 'skin', 'release_date': datetime(2020, 5, 1)},
+    {'item_id': 'ak47-neon-ride', 'name': 'AK-47 | Neon Ride', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    {'item_id': 'ak47-front-side', 'name': 'AK-47 | Frontside Misty', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    {'item_id': 'ak47-phantom', 'name': 'AK-47 | Phantom Disruptor', 'type': 'skin', 'release_date': datetime(2020, 5, 1)},
+    {'item_id': 'ak47-legion', 'name': 'AK-47 | Legion of Anubis', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    
+    # M4A4/M4A1-S Skins
+    {'item_id': 'm4a1-hyper', 'name': 'M4A1-S | Hyper Beast', 'type': 'skin', 'release_date': datetime(2015, 2, 1)},
+    {'item_id': 'm4a4-asiimov', 'name': 'M4A4 | Asiimov', 'type': 'skin', 'release_date': datetime(2014, 1, 1)},
+    {'item_id': 'm4a4-poseidon', 'name': 'M4A4 | Poseidon', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    {'item_id': 'm4a1-masterpiece', 'name': 'M4A1-S | Masterpiece', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    
+    # AWP Dragon Lore Variants
+    {'item_id': 'awp-dragon-lore', 'name': 'AWP Dragon Lore', 'type': 'skin', 'release_date': datetime(2013, 1, 1)},
+    {'item_id': 'awp-asiimov', 'name': 'AWP Asiimov', 'type': 'skin', 'release_date': datetime(2014, 1, 1)},
+    {'item_id': 'awp-medusa', 'name': 'AWP Medusa', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    {'item_id': 'awp-pink-ddpat', 'name': 'AWP Pink DDPAT', 'type': 'skin', 'release_date': datetime(2013, 8, 14)},
+    
+    # Knife Skins
+    {'item_id': 'karambit-doppler', 'name': 'Karambit | Doppler', 'type': 'skin', 'release_date': datetime(2015, 1, 6)},
+    {'item_id': 'karambit-marble', 'name': 'Karambit | Marble Fade', 'type': 'skin', 'release_date': datetime(2015, 1, 6)},
+    {'item_id': 'butterfly-fade', 'name': 'Butterfly Knife | Fade', 'type': 'skin', 'release_date': datetime(2015, 1, 6)},
+    {'item_id': 'bayonet-doppler', 'name': 'Bayonet | Doppler', 'type': 'skin', 'release_date': datetime(2015, 1, 6)},
+    {'item_id': 'bowie-fade', 'name': 'Bowie Knife | Fade', 'type': 'skin', 'release_date': datetime(2015, 1, 6)},
+    
+    # Pistol Skins
+    {'item_id': 'deagle-crimson-web', 'name': 'Desert Eagle | Crimson Web', 'type': 'skin', 'release_date': datetime(2014, 1, 21)},
+    {'item_id': 'deagle-blaze', 'name': 'Desert Eagle | Blaze', 'type': 'skin', 'release_date': datetime(2014, 1, 21)},
+    {'item_id': 'usp-neo-noir', 'name': 'USP-S | Neo-Noir', 'type': 'skin', 'release_date': datetime(2017, 9, 18)},
+    {'item_id': 'glock-dragon-tattoo', 'name': 'Glock-18 | Dragon Tattoo', 'type': 'skin', 'release_date': datetime(2014, 1, 21)},
+    
+    # SMG & Rifle Skins
+    {'item_id': 'ak47-neon', 'name': 'AK-47 | Neon Rider', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    {'item_id': 'famas-djinn', 'name': 'FAMAS | Djinn', 'type': 'skin', 'release_date': datetime(2017, 5, 23)},
+    {'item_id': 'galil-chatterbox', 'name': 'Galil AR | Chatterbox', 'type': 'skin', 'release_date': datetime(2016, 8, 9)},
+    {'item_id': 'mp9-briefcase', 'name': 'MP9 | Briefcase', 'type': 'skin', 'release_date': datetime(2017, 5, 23)},
+    
+    # Low Price Skins
+    {'item_id': 'p250-sand-dune', 'name': 'P250 | Sand Dune', 'type': 'skin', 'release_date': datetime(2013, 8, 14)},
+    {'item_id': 'famas-pulse', 'name': 'FAMAS | Pulse', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    {'item_id': 'ump-primal', 'name': 'UMP-45 | Primal Saber', 'type': 'skin', 'release_date': datetime(2017, 5, 23)},
+    
+    # Cases
+    {'item_id': 'cs2-weapon-case', 'name': 'CS2 Weapon Case', 'type': 'case', 'release_date': datetime(2023, 9, 1)},
+    {'item_id': 'operation-bravo-case', 'name': 'Operation Bravo Case', 'type': 'case', 'release_date': datetime(2014, 8, 28)},
+    {'item_id': 'spectrum-2-case', 'name': 'Spectrum 2 Case', 'type': 'case', 'release_date': datetime(2017, 9, 18)},
+    {'item_id': 'shadow-case', 'name': 'Shadow Case', 'type': 'case', 'release_date': datetime(2017, 5, 23)},
+    {'item_id': 'clutch-case', 'name': 'Clutch Case', 'type': 'case', 'release_date': datetime(2018, 3, 22)},
+    
+    # Collections / Special Items
+    {'item_id': 'dragon-lore-factory', 'name': 'Dragon Lore', 'type': 'skin', 'release_date': datetime(2013, 1, 1)},
+    {'item_id': 'souvenir-packages', 'name': 'Souvenir Packages', 'type': 'case', 'release_date': datetime(2013, 8, 14)},
+    
+    # Stickers (Popular Teams/Events)
+    {'item_id': 'sticker-navi', 'name': 'Navi Sticker', 'type': 'sticker', 'release_date': datetime(2022, 5, 15)},
+    {'item_id': 'sticker-astralis', 'name': 'Astralis Sticker', 'type': 'sticker', 'release_date': datetime(2017, 1, 1)},
+    {'item_id': 'sticker-faze', 'name': 'FaZe Clan Sticker', 'type': 'sticker', 'release_date': datetime(2017, 1, 1)},
+    {'item_id': 'sticker-liquid', 'name': 'Team Liquid Sticker', 'type': 'sticker', 'release_date': datetime(2017, 1, 1)},
+    {'item_id': 'sticker-sk', 'name': 'SK Gaming Sticker', 'type': 'sticker', 'release_date': datetime(2017, 1, 1)},
+    
+    # Major Skins (High Value)
+    {'item_id': 'ak47-point-disarray', 'name': 'AK-47 | Point Disarray', 'type': 'skin', 'release_date': datetime(2017, 9, 18)},
+    {'item_id': 'ak47-nightwish', 'name': 'AK-47 | Nightwish', 'type': 'skin', 'release_date': datetime(2016, 8, 9)},
+    {'item_id': 'm4a1-nightmare', 'name': 'M4A1-S | Nightmare', 'type': 'skin', 'release_date': datetime(2016, 8, 9)},
+    {'item_id': 'deagle-kumicho', 'name': 'Desert Eagle | Kumicho Dragon', 'type': 'skin', 'release_date': datetime(2016, 8, 9)},
+    
+    # Budget Friendly Items
+    {'item_id': 'glock-wasteland', 'name': 'Glock-18 | Wasteland Rebel', 'type': 'skin', 'release_date': datetime(2015, 8, 18)},
+    {'item_id': 'ak47-uncharted', 'name': 'AK-47 | Uncharted', 'type': 'skin', 'release_date': datetime(2018, 12, 6)},
+    {'item_id': 'glock-catacombs', 'name': 'Glock-18 | Catacombs', 'type': 'skin', 'release_date': datetime(2017, 5, 23)},
 ]
 
 # Sample market events
