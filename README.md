@@ -19,7 +19,8 @@ See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for detailed feature descriptions
 - **Frontend**: Next.js 15+ with TypeScript and Tailwind CSS
 - **Backend**: FastAPI (Python) with SQLAlchemy ORM
 - **Database**: Supabase (PostgreSQL)
-- **Data Pipeline**: Python scheduled jobs for daily market data ingestion
+- **Data Pipeline**: Real-time data collection from Steam Community Market API
+- **Data Source**: ✨ **LIVE data** collected automatically from Steam (not synthetic)
 
 ## Project Structure
 
@@ -113,8 +114,8 @@ The frontend will be available at `http://localhost:3000`
 - `GET /items/trending` - Get trending items
 - `GET /items/{item_id}` - Get item details
 - `GET /items/{item_id}/price-history` - Get price history
-- `GET /items/{item_id}/trends` - Get trend analysis
-- `GET /items/{item_id}/prediction` - Get price prediction
+- `GET /items/{item_id}/trends` - Get trend analysis (using real data)
+- `GET /items/{item_id}/prediction` - Get price prediction (based on real data)
 - `GET /items/{item_id}/events` - Get related events
 
 ### Opportunities
@@ -127,6 +128,33 @@ The frontend will be available at `http://localhost:3000`
 - `GET /events/` - List market events
 - `GET /events/recent` - Get recent events
 - `GET /events/timeline` - Get events timeline
+
+### Admin (Data Collection Management)
+- `POST /admin/collect-now` - Trigger real-time data collection
+- `GET /admin/collection-status` - Check collection status
+- `GET /admin/data-stats` - View data statistics
+
+## Real-Time Data Collection 🎯
+
+The platform now automatically collects **real price data from Steam Community Market API**:
+
+- ✨ **Automatic collection** starts on app startup
+- 📊 **Every 1 hour** prices are fetched for all tracked items
+- ✅ **Validated data** with anomaly detection before storage
+- 🔗 **Integrated** with trend analysis and predictions
+- 📈 **Real endpoints** return real, analyzed data (not synthetic)
+
+All API endpoints now use actual market data from Steam. See [REAL_DATA_COLLECTION.md](REAL_DATA_COLLECTION.md) for details.
+
+**Quick Start:**
+```bash
+# Start backend with real data collection
+cd backend && python main.py
+
+# Data collection starts automatically in background
+# Check status: curl http://localhost:8000/admin/collection-status
+# Manually trigger: curl -X POST http://localhost:8000/admin/collect-now
+```
 
 ## Implementation Plan
 
