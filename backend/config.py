@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     api_title: str = "CS2 Market Intelligence"
     api_version: str = "0.1.0"
     
+    # Steam Integration
+    steam_api_key: Optional[str] = None
+    frontend_url: str = "http://localhost:3000"
+    
+    # Security
+    secret_key: str = "your-secret-key-for-sessions"  # Should be changed in production
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

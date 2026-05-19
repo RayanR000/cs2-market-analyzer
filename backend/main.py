@@ -5,8 +5,10 @@ Main application entry point
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import items, opportunities, events
+from starlette.middleware.sessions import SessionMiddleware
+from routers import items, opportunities, events, auth, portfolio
 from database import init_db, SessionLocal
+from config import settings
 from collectors.comprehensive_loader import load_all_cs2_data
 from collectors.real_data_collector import start_real_data_collection, stop_real_data_collection
 import uvicorn
@@ -31,6 +33,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add Session Middleware
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -71,6 +76,8 @@ def shutdown_event():
 app.include_router(items.router)
 app.include_router(opportunities.router)
 app.include_router(events.router)
+app.include_router(auth.router)
+app.include_router(portfolio.router)
 
 # Include admin router (for data collection management)
 from routers import admin

@@ -224,3 +224,44 @@ class TrendIndicatorRepository:
         db.commit()
         db.refresh(indicator)
         return indicator
+
+
+class UserRepository:
+    """Repository for user operations"""
+    
+    @staticmethod
+    def get_user_by_steam_id(db: Session, steam_id: str) -> Optional[User]:
+        """Get user by steam_id"""
+        from database import User
+        return db.query(User).filter(User.steam_id == steam_id).first()
+    
+    @staticmethod
+    def create_user(db: Session, steam_id: str, username: Optional[str] = None, 
+                    avatar_url: Optional[str] = None) -> User:
+        """Create a new user"""
+        from database import User
+        user = User(
+            steam_id=steam_id,
+            username=username,
+            avatar_url=avatar_url
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    
+    @staticmethod
+    def update_user(db: Session, steam_id: str, username: Optional[str] = None,
+                    avatar_url: Optional[str] = None) -> Optional[User]:
+        """Update user profile information"""
+        from database import User
+        user = db.query(User).filter(User.steam_id == steam_id).first()
+        if user:
+            if username:
+                user.username = username
+            if avatar_url:
+                user.avatar_url = avatar_url
+            user.last_login = datetime.utcnow()
+            db.commit()
+            db.refresh(user)
+        return user
