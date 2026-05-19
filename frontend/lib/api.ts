@@ -57,6 +57,22 @@ export interface Opportunity {
   volatility?: number;
 }
 
+export interface SourcePrice {
+  timestamp: string;
+  price: number;
+  volume?: number;
+  median_price?: number;
+}
+
+export interface MultiSourcePrices {
+  item_id: string;
+  name: string;
+  sources: string[];
+  data: {
+    [source: string]: SourcePrice[];
+  };
+}
+
 // Items API
 export async function getItems(type?: string, skip = 0, limit = 50) {
   const url = new URL(`${API_URL}/items/`);
@@ -120,6 +136,21 @@ export async function getItemEvents(itemId: string, limit = 20) {
   return response.json();
 }
 
+export async function getMultiSourcePrices(
+  itemId: string,
+  sources: string[] = ['steam', 'skinport', 'dmarket'],
+  days: number = 30
+): Promise<MultiSourcePrices> {
+  const sourceParam = sources.join(',');
+  const url = new URL(`${API_URL}/items/${itemId}/prices`);
+  url.searchParams.append('source', sourceParam);
+  url.searchParams.append('days', days.toString());
+
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch multi-source prices');
+  return response.json();
+}
+
 // Opportunities API
 export async function getOpportunities(type?: string, limit = 20) {
   const url = new URL(`${API_URL}/opportunities/`);
@@ -176,5 +207,38 @@ export async function getRecentEvents(limit = 20) {
 // Health check
 export async function healthCheck() {
   const response = await fetch(`${API_URL}/health`);
+  return response.json();
+}
+
+// Auth API
+export async function getMe() {
+  const response = await fetch(`${API_URL}/auth/me`, {
+    credentials: 'include',
+  });
+  if (!response.ok) return null;
+  return response.json();
+}
+
+export function getLoginUrl() {
+  return `${API_URL}/auth/steam/login`;
+}
+
+export async function logout() {
+  const response = await fetch(`${API_URL}/auth/logout`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  return response.json();
+}
+
+// Portfolio API
+export async function getInventory() {
+  const response = await fetch(`${API_URL}/portfolio/inventory`, {
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    if (response.status === 401) return { error: 'unauthorized' };
+    return { error: 'failed' };
+  }
   return response.json();
 }
