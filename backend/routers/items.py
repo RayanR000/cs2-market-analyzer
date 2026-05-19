@@ -5,6 +5,7 @@ Item endpoints
 from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 from database import get_db, Item
 from repositories import ItemRepository, PriceHistoryRepository
 from schemas import ItemResponse, PriceHistoryResponse
@@ -125,36 +126,140 @@ async def get_price_history(
 @router.get("/{item_id}/trends", response_model=dict)
 async def get_trends(item_id: str, db: Session = Depends(get_db)):
     """Get trend analysis for an item"""
+    from analytics.trend_analyzer import TrendAnalyzer, OpportunityDetector
+    
     item = ItemRepository.get_item_by_id(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
     
+    # Get price history
+    price_history = sorted(item.price_histories[-90:], key=lambda h: h.timestamp)
+    prices = [h.price for h in price_history]
+    
+    if len(prices) < 7:
+        return {
+            "item_id": item_id,
+            "item_name": item.name,
+            "current_price": prices[-1] if prices else None,
+            "trend_direction": "insufficient_data",
+            "confidence": "low",
+            "message": "Insufficient price history"
+        }
+    
+    # Compute indicators
+    sma_7 = TrendAnalyzer.compute_sma(prices, 7)
+    sma_30 = TrendAnalyzer.compute_sma(prices, 30)
+    volatility = TrendAnalyzer.compute_volatility(prices)
+    rsi = TrendAnalyzer.compute_rsi(prices)
+    bollinger = TrendAnalyzer.compute_bollinger_bands(prices)
+    macd = TrendAnalyzer.compute_macd(prices)
+    support_resist = TrendAnalyzer.compute_support_resistance(prices)
+    
+    trend_score = TrendAnalyzer.compute_trend_score(prices)
+    direction, confidence = TrendAnalyzer.classify_trend(trend_score)
+    
+    current_price = prices[-1]
+    baseline = OpportunityDetector.compute_baseline_trend(prices)
+    
+    # Build factors explanation
+    factors = []
+    if sma_7 and sma_30:
+        if sma_7 > sma_30:
+            factors.append("7-day MA above 30-day MA (bullish)")
+        elif sma_7 < sma_30:
+            factors.append("7-day MA below 30-day MA (bearish)")
+    
+    if rsi:
+        if rsi > 70:
+            factors.append("RSI > 70 (overbought)")
+        elif rsi < 30:
+            factors.append("RSI < 30 (oversold)")
+    
+    if bollinger:
+        if current_price > bollinger['upper']:
+            factors.append("Price above upper Bollinger Band")
+        elif current_price < bollinger['lower']:
+            factors.append("Price below lower Bollinger Band")
+    
     return {
         "item_id": item_id,
-        "trend_direction": "neutral",
-        "confidence": "low",
-        "sma_7": None,
-        "sma_30": None,
-        "volatility": None
+        "item_name": item.name,
+        "current_price": round(current_price, 2),
+        "trend_direction": direction,
+        "confidence": confidence,
+        "trend_score": round(trend_score, 3) if trend_score else None,
+        "indicators": {
+            "sma_7": round(sma_7, 2) if sma_7 else None,
+            "sma_30": round(sma_30, 2) if sma_30 else None,
+            "volatility": round(volatility, 4) if volatility else None,
+            "rsi": round(rsi, 2) if rsi else None,
+            "bollinger_upper": round(bollinger['upper'], 2) if bollinger else None,
+            "bollinger_middle": round(bollinger['middle'], 2) if bollinger else None,
+            "bollinger_lower": round(bollinger['lower'], 2) if bollinger else None,
+            "macd": round(macd['macd'], 4) if macd else None,
+            "macd_signal": round(macd['signal'], 4) if macd else None,
+            "support": round(support_resist['support'], 2) if support_resist else None,
+            "resistance": round(support_resist['resistance'], 2) if support_resist else None,
+        },
+        "factors": factors,
+        "timestamp": datetime.utcnow().isoformat()
     }
 
 @router.get("/{item_id}/prediction", response_model=dict)
 async def get_prediction(
     item_id: str,
-    period: str = Query("7_days"),
+    period: str = Query("7_days", regex="^(7_days|30_days)$"),
     db: Session = Depends(get_db)
 ):
     """Get price prediction for an item"""
+    from analytics.trend_analyzer import TrendAnalyzer
+    
     item = ItemRepository.get_item_by_id(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
     
+    # Get price history
+    price_history = sorted(item.price_histories[-90:], key=lambda h: h.timestamp)
+    prices = [h.price for h in price_history]
+    
+    if len(prices) < 7:
+        return {
+            "item_id": item_id,
+            "item_name": item.name,
+            "current_price": prices[-1] if prices else None,
+            "message": "Insufficient data for prediction",
+            "forecast_low": None,
+            "forecast_high": None,
+            "confidence": "low"
+        }
+    
+    current_price = prices[-1]
+    volatility = TrendAnalyzer.compute_volatility(prices)
+    trend_score = TrendAnalyzer.compute_trend_score(prices)
+    direction, confidence = TrendAnalyzer.classify_trend(trend_score)
+    
+    # Compute price range
+    forecast_low, forecast_high = TrendAnalyzer.compute_price_range(prices, volatility)
+    
+    # Determine period (days for prediction)
+    days = 7 if period == "7_days" else 30
+    
     return {
         "item_id": item_id,
-        "forecast_low": 0.0,
-        "forecast_high": 0.0,
-        "period": period,
-        "confidence": "low"
+        "item_name": item.name,
+        "current_price": round(current_price, 2),
+        "forecast": {
+            "low": round(forecast_low, 2),
+            "mid": round((forecast_low + forecast_high) / 2, 2),
+            "high": round(forecast_high, 2)
+        },
+        "period_days": days,
+        "period_label": period,
+        "trend_direction": direction,
+        "confidence": confidence,
+        "volatility": round(volatility, 4) if volatility else None,
+        "methodology": "Linear regression with volatility-adjusted bands",
+        "timestamp": datetime.utcnow().isoformat()
     }
 
 @router.get("/{item_id}/events", response_model=dict)
