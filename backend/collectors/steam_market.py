@@ -27,7 +27,7 @@ class SteamMarketCollector:
     def __init__(self, rate_limit_delay: float = 1.0):
         """
         Initialize the Steam Market Collector
-        
+
         Args:
             rate_limit_delay: Seconds to wait between requests (default: 1.0)
         """
@@ -35,6 +35,7 @@ class SteamMarketCollector:
         self.session = requests.Session()
         self.session.headers.update(self.HEADERS)
         self.last_request_time = 0
+        self.hash_name_cache = {}  # Maps item_name -> market_hash_name
     
     def _rate_limit(self):
         """Enforce rate limiting between requests"""
@@ -74,41 +75,83 @@ class SteamMarketCollector:
                 else:
                     logger.error(f"All retry attempts failed for {url}")
                     return None
-    
-    def get_item_price_history(self, hash_name: str) -> Optional[Tuple[float, int, datetime]]:
+
+    def resolve_hash_name(self, item_name: str) -> Optional[str]:
         """
-        Get current price and volume for an item
-        
-        Args:
-            hash_name: Market hash name of the item (e.g., 'AK-47 | Aquamarine Revenge (Field-Tested)')
-            
-        Returns:
-            Tuple of (price, volume, timestamp) or None if failed
+        Resolve item name to Steam market hash name.
+        Uses Steam's market search endpoint to find the exact hash.
+        Results are cached to avoid repeated lookups.
         """
-        url = f"{self.BASE_URL}/priceoverview/"
+        # Check cache first
+        if item_name in self.hash_name_cache:
+            return self.hash_name_cache[item_name]
+
+        # Query Steam market search endpoint
+        url = "https://steamcommunity.com/market/search/render/"
         params = {
-            'appid': 730,  # CS2 app ID
-            'market_hash_name': hash_name,
-            'currency': 1  # USD
+            'query': item_name,
+            'start': 0,
+            'count': 10,
+            'search_descriptions': 0,
+            'sort_column': 'name',
+            'sort_dir': 'asc'
         }
-        
-        try:
-            data = self._make_request(url, params)
-            if data and data.get('success'):
-                price = data.get('lowest_price')
-                volume = data.get('volume')
-                
-                # Parse price string (e.g., "$45.32" -> 45.32)
-                if price:
-                    price = float(price.replace('$', '').replace(',', ''))
-                    volume = int(volume.replace(',', '')) if volume else None
-                    
-                    return (price, volume, datetime.utcnow())
-            
+
+        data = self._make_request(url, params)
+        if not data or 'results' not in data or not data['results']:
+            logger.warning(f"No market hash found for: {item_name}")
             return None
-            
-        except Exception as e:
-            logger.error(f"Error getting price history for {hash_name}: {e}")
+
+        # Extract hash name from first result
+        first_result = data['results'][0]
+        hash_name = first_result.get('hash_name')
+
+        if hash_name:
+            # Cache it
+            self.hash_name_cache[item_name] = hash_name
+            logger.debug(f"Resolved {item_name} -> {hash_name}")
+            return hash_name
+
+        logger.warning(f"Could not extract hash_name from result for: {item_name}")
+        return None
+
+    def get_item_price_history(self, item_name_or_hash: str) -> Optional[Tuple[float, int, datetime]]:
+        """
+        Get current price and volume for an item.
+        Accepts either item name or market hash name.
+        """
+        # If it doesn't look like a hash name, resolve it first
+        if '%' not in item_name_or_hash:
+            hash_name = self.resolve_hash_name(item_name_or_hash)
+            if not hash_name:
+                return None
+        else:
+            hash_name = item_name_or_hash
+
+        # Query price history endpoint
+        url = "https://steamcommunity.com/market/pricehistory/"
+        params = {
+            'country': 'US',
+            'currency': 1,  # USD
+            'appid': 730,  # CS2
+            'market_hash_name': hash_name
+        }
+
+        data = self._make_request(url, params)
+        if not data or 'prices' not in data or not data['prices']:
+            logger.warning(f"No price data for: {hash_name}")
+            return None
+
+        # Get most recent price point (last in list)
+        prices = data['prices']
+        last_price_point = prices[-1]  # [timestamp_str, price_str, volume_str]
+
+        try:
+            price = float(last_price_point[1])
+            volume = int(last_price_point[2])
+            return (price, volume, datetime.now())
+        except (ValueError, IndexError) as e:
+            logger.error(f"Error parsing price data: {e}")
             return None
     
     def get_market_listings(self, start: int = 0, count: int = 100) -> Optional[Dict]:
