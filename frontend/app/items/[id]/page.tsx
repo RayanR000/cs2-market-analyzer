@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Header } from '@/components';
+import { Header, PriceSourceFilter } from '@/components';
 import CountUpNumber from '@/components/CountUpNumber';
+import { getMultiSourcePrices, MultiSourcePrices } from '@/lib/api';
 
 const QUALITY_TIERS = [
   { label: 'FN', fullName: 'Factory New', floatRange: [0, 0.07] },
@@ -99,6 +100,8 @@ export default function ItemDetailPage({ params }: { params: { id: string } }) {
   const [selectedQuality, setSelectedQuality] = useState<string>('FN');
   const [floatValue, setFloatValue] = useState<string>('0.0342');
   const [chartKey, setChartKey] = useState(0);
+  const [selectedSources, setSelectedSources] = useState<string[]>(['steam', 'skinport', 'dmarket']);
+  const [multiSourceData, setMultiSourceData] = useState<MultiSourcePrices | null>(null);
 
   const handleFloatChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -123,8 +126,37 @@ export default function ItemDetailPage({ params }: { params: { id: string } }) {
     setChartKey(prev => prev + 1);
   };
 
+  useEffect(() => {
+    if (params.id) {
+      getMultiSourcePrices(params.id, selectedSources, 30)
+        .then(data => setMultiSourceData(data))
+        .catch(error => console.error('Failed to fetch multi-source prices:', error));
+    }
+  }, [params.id, selectedSources]);
+
   const selectedPriceRange = priceRangesByQuality[selectedQuality];
   const priceData = mockPriceData[timeRange];
+
+  const filteredChartData = Object.entries(multiSourceData?.data || {})
+    .filter(([source]) => selectedSources.includes(source))
+    .flatMap(([source, prices]) =>
+      prices.map(p => ({
+        timestamp: new Date(p.timestamp).getTime(),
+        price: p.price,
+        source: source
+      }))
+    )
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .reduce((acc: any[], p) => {
+      const dateStr = new Date(p.timestamp).toLocaleDateString();
+      let entry = acc.find(e => e.timestamp === dateStr);
+      if (!entry) {
+        entry = { timestamp: dateStr };
+        acc.push(entry);
+      }
+      entry[p.source] = p.price;
+      return acc;
+    }, []);
 
   return (
     <div className="min-h-screen bg-[#0f1419]">
@@ -215,6 +247,14 @@ export default function ItemDetailPage({ params }: { params: { id: string } }) {
               ))}
             </div>
 
+            {/* Price Source Filter */}
+            <div className="mb-4">
+              <PriceSourceFilter
+                selectedSources={selectedSources}
+                onSourceChange={setSelectedSources}
+              />
+            </div>
+
             {/* Chart with Animation */}
             <motion.div
               key={chartKey}
@@ -224,29 +264,67 @@ export default function ItemDetailPage({ params }: { params: { id: string } }) {
               className="bg-[#1a1f2e] border border-[#2d3748] p-4 rounded"
             >
               <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={priceData}>
+                <LineChart data={filteredChartData.length > 0 ? filteredChartData : priceData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
-                  <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
+                  <XAxis dataKey={filteredChartData.length > 0 ? 'timestamp' : 'date'} stroke="#6b7280" style={{ fontSize: '12px' }} />
                   <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} domain={['dataMin - 50', 'dataMax + 50']} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#1a1f2e', border: '1px solid #2d3748', color: '#d1d5db', borderRadius: '4px' }}
                     formatter={(value) => `$${value}`}
                   />
-                  <motion.g
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.5, delay: 0.2 }}
-                  >
-                    <Line
-                      type="monotone"
-                      dataKey="price"
-                      stroke="#3b82f6"
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={true}
-                      animationDuration={800}
-                    />
-                  </motion.g>
+                  {filteredChartData.length > 0 ? (
+                    <>
+                      {selectedSources.includes('steam') && (
+                        <Line
+                          type="monotone"
+                          dataKey="steam"
+                          stroke="#1b2838"
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                          name="Steam"
+                        />
+                      )}
+                      {selectedSources.includes('skinport') && (
+                        <Line
+                          type="monotone"
+                          dataKey="skinport"
+                          stroke="#9d2b3f"
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                          name="Skinport"
+                        />
+                      )}
+                      {selectedSources.includes('dmarket') && (
+                        <Line
+                          type="monotone"
+                          dataKey="dmarket"
+                          stroke="#00d4ff"
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                          name="DMarket"
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <motion.g
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.5, delay: 0.2 }}
+                    >
+                      <Line
+                        type="monotone"
+                        dataKey="price"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={false}
+                        isAnimationActive={true}
+                        animationDuration={800}
+                      />
+                    </motion.g>
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </motion.div>
