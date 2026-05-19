@@ -4,10 +4,33 @@ Database models for CS2 Market Intelligence Platform
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Index
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
+from config import settings
 
 Base = declarative_base()
+
+# Create engine
+engine = create_engine(
+    settings.database_url,
+    echo=settings.debug,
+    pool_pre_ping=True,  # Verify connections are alive before using
+)
+
+# Create session factory
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_db():
+    """Dependency for getting database session"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def init_db():
+    """Initialize database - create all tables"""
+    Base.metadata.create_all(bind=engine)
 
 class Item(Base):
     """Item model - skins, cases, stickers"""
@@ -21,8 +44,8 @@ class Item(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    price_histories = relationship("PriceHistory", back_populates="item")
-    trend_indicators = relationship("TrendIndicator", back_populates="item")
+    price_histories = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
+    trend_indicators = relationship("TrendIndicator", back_populates="item", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_item_type', 'type'),

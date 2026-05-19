@@ -6,7 +6,13 @@ Main application entry point
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import items, opportunities, events
+from database import init_db, SessionLocal
+from seed_data import DatabaseSeeder
 import uvicorn
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="CS2 Market Intelligence API",
@@ -24,6 +30,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+def startup_event():
+    """Initialize database on startup"""
+    try:
+        logger.info("Initializing database...")
+        init_db()
+        logger.info("Database initialized successfully")
+        
+        # Seed database if empty
+        db = SessionLocal()
+        try:
+            DatabaseSeeder.seed_all(db)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error during startup: {e}")
+        raise
 
 # Include routers
 app.include_router(items.router)
