@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import items, opportunities, events
 from database import init_db, SessionLocal
-from seed_data import DatabaseSeeder
+from collectors.comprehensive_loader import load_all_cs2_data
 from collectors.real_data_collector import start_real_data_collection, stop_real_data_collection
 import uvicorn
 import logging
@@ -33,29 +33,25 @@ app.add_middleware(
 )
 
 @app.on_event("startup")
-def startup_event():
-    """Initialize database and start data collection on startup"""
+async def startup_event():
+    """Initialize database and load data on startup"""
+    logger.info("Initializing database...")
+    init_db()
+    logger.info("Database initialized successfully")
+
+    logger.info("Loading CS2 catalog and synthetic history...")
     try:
-        logger.info("Initializing database...")
-        init_db()
-        logger.info("Database initialized successfully")
-        
-        # Seed database if empty
-        db = SessionLocal()
-        try:
-            DatabaseSeeder.seed_all(db)
-            logger.info("Database seeding complete")
-        finally:
-            db.close()
-        
-        # Start real-time data collection from Steam API
-        logger.info("Starting real-time market data collection...")
-        start_real_data_collection()
-        logger.info("Real-time data collection started")
-        
+        stats = load_all_cs2_data()
+        logger.info(f"Data load complete: {stats}")
+        logger.info(f"  Items: {stats.get('items_added', 0)} added, {stats.get('items_skipped', 0)} skipped")
+        logger.info(f"  Price records: {stats.get('price_records_added', 0)}")
+        logger.info(f"  Events: {stats.get('events_added', 0)}")
     except Exception as e:
-        logger.error(f"Error during startup: {e}")
-        raise
+        logger.error(f"Error loading data: {e}", exc_info=True)
+
+    logger.info("Starting real-time market data collection...")
+    start_real_data_collection()
+    logger.info("Real-time data collection started")
 
 @app.on_event("shutdown")
 def shutdown_event():
