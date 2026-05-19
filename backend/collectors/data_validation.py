@@ -210,3 +210,124 @@ class DataCleaner:
         except Exception as e:
             logger.error(f"Error filtering outliers: {e}")
             return prices
+    
+    @staticmethod
+    def validate_price_record(price_record: Dict) -> Tuple[bool, Optional[str]]:
+        """
+        Validate a complete price record
+        
+        Args:
+            price_record: Dictionary with price, volume, timestamp, item_name
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        required_fields = ['price', 'volume', 'timestamp', 'item_name']
+        
+        # Check required fields
+        for field in required_fields:
+            if field not in price_record:
+                return (False, f"Missing required field: {field}")
+        
+        # Validate each field
+        price = price_record.get('price')
+        if not DataValidator.validate_price(price):
+            return (False, f"Invalid price: {price}")
+        
+        volume = price_record.get('volume')
+        if not DataValidator.validate_volume(volume):
+            return (False, f"Invalid volume: {volume}")
+        
+        item_name = price_record.get('item_name')
+        if not DataValidator.validate_item_name(item_name):
+            return (False, f"Invalid item name: {item_name}")
+        
+        timestamp = price_record.get('timestamp')
+        if not isinstance(timestamp, datetime):
+            return (False, f"Invalid timestamp: {timestamp}")
+        
+        return (True, None)
+    
+    @staticmethod
+    def compute_anomaly_score(current_price: float, historical_prices: List[float], 
+                              window_size: int = 30) -> float:
+        """
+        Compute anomaly score for a price (0.0 = normal, 1.0 = very anomalous)
+        
+        Args:
+            current_price: Current price to evaluate
+            historical_prices: List of historical prices for context
+            window_size: Number of recent prices to consider
+            
+        Returns:
+            Anomaly score between 0.0 and 1.0
+        """
+        if len(historical_prices) < 2:
+            return 0.0
+        
+        import statistics
+        try:
+            # Use recent prices for comparison
+            recent_prices = historical_prices[-window_size:] if len(historical_prices) > window_size else historical_prices
+            
+            mean = statistics.mean(recent_prices)
+            stdev = statistics.stdev(recent_prices) if len(recent_prices) > 1 else 0
+            
+            if stdev == 0:
+                return 0.0
+            
+            # Calculate z-score
+            z_score = abs((current_price - mean) / stdev)
+            
+            # Convert z-score to anomaly score (0-1 scale)
+            # 0 std dev away = 0.0, 3 std dev away = 1.0
+            anomaly_score = min(z_score / 3.0, 1.0)
+            
+            return round(anomaly_score, 3)
+        except Exception as e:
+            logger.error(f"Error computing anomaly score: {e}")
+            return 0.0
+    
+    @staticmethod
+    def detect_market_manipulation(prices: List[float], volumes: List[int], 
+                                   lookback: int = 7) -> Tuple[bool, Optional[str]]:
+        """
+        Detect potential market manipulation patterns
+        
+        Args:
+            prices: List of recent prices
+            volumes: List of corresponding volumes
+            lookback: Number of days to analyze
+            
+        Returns:
+            Tuple of (is_suspicious, description)
+        """
+        if len(prices) < lookback or len(volumes) < lookback:
+            return (False, None)
+        
+        try:
+            import statistics
+            
+            recent_prices = prices[-lookback:]
+            recent_volumes = volumes[-lookback:]
+            
+            # Check 1: Sudden price spike with low volume (unlikely)
+            price_change = (recent_prices[-1] - recent_prices[0]) / recent_prices[0] if recent_prices[0] > 0 else 0
+            avg_volume = statistics.mean(recent_volumes)
+            
+            if abs(price_change) > 0.50 and recent_volumes[-1] < avg_volume * 0.5:
+                return (True, "Sudden price change with low volume - potential manipulation")
+            
+            # Check 2: Extreme volume spike
+            if recent_volumes[-1] > statistics.mean(recent_volumes) * 5:
+                return (True, "Extreme volume spike detected - may indicate pump/dump")
+            
+            # Check 3: Repeated identical prices (suspicious)
+            unique_prices = len(set(recent_prices))
+            if unique_prices < len(recent_prices) * 0.3:
+                return (True, "Repeated identical prices - potential manipulation")
+            
+            return (False, None)
+        except Exception as e:
+            logger.error(f"Error detecting market manipulation: {e}")
+            return (False, None)

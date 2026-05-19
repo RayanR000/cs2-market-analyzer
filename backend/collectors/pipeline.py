@@ -89,22 +89,84 @@ class DataPipeline:
             # Import here to avoid circular dependencies
             from collectors.steam_market import SteamMarketCollector
             from collectors.data_validation import DataValidator, DataCleaner
+            from database import Item, PriceHistory
             
-            collector = SteamMarketCollector()
+            collector = SteamMarketCollector(rate_limit_delay=1.5)
             validator = DataValidator()
             cleaner = DataCleaner()
             
-            # TODO: Implement actual collection logic
-            # This would:
-            # 1. Fetch market listings from Steam
-            # 2. For each item, collect price and volume
-            # 3. Validate data
-            # 4. Store in database
+            if not self.db_session:
+                logger.error("Database session not available")
+                return {"status": "failed", "error": "No database session"}
             
-            logger.info("Daily market data collection completed")
-            return {"status": "success", "timestamp": datetime.utcnow()}
+            # Get all items to collect
+            items = self.db_session.query(Item).all()
+            logger.info(f"Collecting data for {len(items)} items")
+            
+            successful_collections = 0
+            failed_collections = 0
+            
+            for item in items:
+                try:
+                    # Collect price data
+                    result = collector.get_item_price_history(item.name)
+                    if result:
+                        price, volume, timestamp = result
+                        
+                        # Validate data
+                        price_record = {
+                            'price': price,
+                            'volume': volume,
+                            'timestamp': timestamp,
+                            'item_name': item.name
+                        }
+                        
+                        is_valid, error = validator.validate_price_record(price_record)
+                        if not is_valid:
+                            logger.warning(f"Validation failed for {item.name}: {error}")
+                            failed_collections += 1
+                            continue
+                        
+                        # Check for anomalies
+                        anomaly_score = validator.compute_anomaly_score(
+                            price, 
+                            [h.price for h in item.price_histories[-30:]] if item.price_histories else []
+                        )
+                        
+                        if anomaly_score > 0.9:
+                            logger.warning(f"High anomaly score ({anomaly_score}) for {item.name}")
+                        
+                        # Store in database
+                        price_history = PriceHistory(
+                            item_id=item.id,
+                            timestamp=timestamp,
+                            price=price,
+                            volume=volume
+                        )
+                        self.db_session.add(price_history)
+                        successful_collections += 1
+                        logger.info(f"Collected price for {item.name}: ${price}")
+                    else:
+                        failed_collections += 1
+                        logger.warning(f"Failed to collect price for {item.name}")
+                
+                except Exception as item_error:
+                    failed_collections += 1
+                    logger.error(f"Error collecting {item.name}: {item_error}")
+            
+            self.db_session.commit()
+            
+            logger.info(f"Daily collection completed: {successful_collections} successful, {failed_collections} failed")
+            return {
+                "status": "success",
+                "timestamp": datetime.utcnow(),
+                "successful": successful_collections,
+                "failed": failed_collections
+            }
             
         except Exception as e:
+            if self.db_session:
+                self.db_session.rollback()
             logger.error(f"Error in daily collection: {e}", exc_info=True)
             return {"status": "failed", "error": str(e)}
     
@@ -113,17 +175,58 @@ class DataPipeline:
         try:
             logger.info("Starting feature computation")
             
-            # TODO: Implement feature computation
-            # This would:
-            # 1. Load recent price history for all items
-            # 2. Compute moving averages (7-day, 30-day)
-            # 3. Compute volatility
-            # 4. Store computed features
+            from analytics.trend_analyzer import TrendAnalyzer
+            from database import Item, TrendIndicator
             
-            logger.info("Feature computation completed")
-            return {"status": "success", "timestamp": datetime.utcnow()}
+            if not self.db_session:
+                logger.error("Database session not available")
+                return {"status": "failed", "error": "No database session"}
+            
+            items = self.db_session.query(Item).all()
+            features_computed = 0
+            
+            for item in items:
+                try:
+                    # Get recent price history
+                    prices = sorted([h.price for h in item.price_histories[-90:]], 
+                                   key=lambda p: p.timestamp if hasattr(p, 'timestamp') else 0)
+                    
+                    if len(prices) < 7:
+                        continue
+                    
+                    # Compute indicators
+                    sma_7 = TrendAnalyzer.compute_sma(prices, 7)
+                    sma_30 = TrendAnalyzer.compute_sma(prices, 30)
+                    volatility = TrendAnalyzer.compute_volatility(prices)
+                    rsi = TrendAnalyzer.compute_rsi(prices)
+                    bollinger = TrendAnalyzer.compute_bollinger_bands(prices)
+                    macd = TrendAnalyzer.compute_macd(prices)
+                    support_resist = TrendAnalyzer.compute_support_resistance(prices)
+                    
+                    # Store features
+                    if sma_7 or sma_30:
+                        trend_indicator = TrendIndicator(
+                            item_id=item.id,
+                            sma_7=sma_7,
+                            sma_30=sma_30,
+                            volatility=volatility,
+                            rsi=rsi,
+                            timestamp=datetime.utcnow()
+                        )
+                        self.db_session.add(trend_indicator)
+                        features_computed += 1
+                
+                except Exception as item_error:
+                    logger.error(f"Error computing features for {item.name}: {item_error}")
+            
+            self.db_session.commit()
+            
+            logger.info(f"Feature computation completed: {features_computed} items processed")
+            return {"status": "success", "timestamp": datetime.utcnow(), "items_processed": features_computed}
             
         except Exception as e:
+            if self.db_session:
+                self.db_session.rollback()
             logger.error(f"Error in feature computation: {e}", exc_info=True)
             return {"status": "failed", "error": str(e)}
     
@@ -132,15 +235,55 @@ class DataPipeline:
         try:
             logger.info("Starting trend analysis")
             
-            # TODO: Implement trend analysis
-            # This would:
-            # 1. Load features for all items
-            # 2. Compute trend scores
-            # 3. Detect opportunities
-            # 4. Update trend indicators in database
+            from analytics.trend_analyzer import TrendAnalyzer, OpportunityDetector
+            from database import Item
             
-            logger.info("Trend analysis completed")
-            return {"status": "success", "timestamp": datetime.utcnow()}
+            if not self.db_session:
+                logger.error("Database session not available")
+                return {"status": "failed", "error": "No database session"}
+            
+            items = self.db_session.query(Item).all()
+            opportunities_detected = 0
+            
+            for item in items:
+                try:
+                    # Get price history
+                    price_history = sorted(item.price_histories, key=lambda h: h.timestamp)
+                    prices = [h.price for h in price_history[-90:]]
+                    
+                    if len(prices) < 7:
+                        continue
+                    
+                    # Compute trend
+                    trend_score = TrendAnalyzer.compute_trend_score(prices)
+                    if trend_score is not None:
+                        direction, confidence = TrendAnalyzer.classify_trend(trend_score)
+                        
+                        # Detect opportunities
+                        baseline = OpportunityDetector.compute_baseline_trend(prices)
+                        current_price = prices[-1]
+                        
+                        if baseline:
+                            is_undervalued, discount = OpportunityDetector.detect_undervalued(current_price, baseline)
+                            is_overheated, premium = OpportunityDetector.detect_overheated(current_price, baseline)
+                            has_momentum, change_pct, momentum_dir = OpportunityDetector.detect_momentum(prices)
+                            
+                            if is_undervalued or is_overheated or has_momentum:
+                                opportunities_detected += 1
+                                logger.info(f"{item.name}: {direction} ({confidence}) | "
+                                          f"Undervalued: {is_undervalued} | "
+                                          f"Overheated: {is_overheated} | "
+                                          f"Momentum: {has_momentum}")
+                
+                except Exception as item_error:
+                    logger.error(f"Error analyzing {item.name}: {item_error}")
+            
+            logger.info(f"Trend analysis completed: {opportunities_detected} opportunities detected")
+            return {
+                "status": "success",
+                "timestamp": datetime.utcnow(),
+                "opportunities_detected": opportunities_detected
+            }
             
         except Exception as e:
             logger.error(f"Error in trend analysis: {e}", exc_info=True)

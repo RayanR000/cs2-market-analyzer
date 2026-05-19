@@ -155,6 +155,70 @@ class SteamMarketCollector:
         except Exception as e:
             logger.error(f"Error getting nameid for {item_name}: {e}")
             return None
+    
+    def collect_batch_items(self, item_names: List[str]) -> Dict[str, Optional[Tuple[float, int, datetime]]]:
+        """
+        Collect price data for multiple items
+        
+        Args:
+            item_names: List of item market hash names
+            
+        Returns:
+            Dictionary mapping item names to (price, volume, timestamp) tuples
+        """
+        results = {}
+        successful_items = 0
+        failed_items = 0
+        
+        for item_name in item_names:
+            try:
+                result = self.get_item_price_history(item_name)
+                if result:
+                    results[item_name] = result
+                    successful_items += 1
+                    logger.info(f"Successfully collected price for: {item_name}")
+                else:
+                    results[item_name] = None
+                    failed_items += 1
+                    logger.warning(f"Failed to collect price for: {item_name}")
+            except Exception as e:
+                results[item_name] = None
+                failed_items += 1
+                logger.error(f"Error collecting {item_name}: {e}")
+        
+        logger.info(f"Batch collection completed: {successful_items} successful, {failed_items} failed out of {len(item_names)}")
+        return results
+    
+    def get_price_trend(self, item_name: str) -> Optional[Dict]:
+        """
+        Get price trend data (low/high) for an item
+        
+        Args:
+            item_name: Item market hash name
+            
+        Returns:
+            Dictionary with low, high, volume trend or None if failed
+        """
+        url = f"{self.BASE_URL}/priceoverview/"
+        params = {
+            'appid': 730,
+            'market_hash_name': item_name,
+            'currency': 1
+        }
+        
+        try:
+            data = self._make_request(url, params)
+            if data and data.get('success'):
+                return {
+                    'lowest_price': float(data.get('lowest_price', '0').replace('$', '').replace(',', '')) or None,
+                    'highest_price': float(data.get('median_price', '0').replace('$', '').replace(',', '')) or None,
+                    'volume': data.get('volume'),
+                    'timestamp': datetime.utcnow()
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error getting price trend for {item_name}: {e}")
+            return None
 
 
 class MockSteamMarketCollector(SteamMarketCollector):

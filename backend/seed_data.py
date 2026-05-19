@@ -91,36 +91,69 @@ SAMPLE_EVENTS = [
 ]
 
 
-def generate_sample_price_history(item_id: str, num_days: int = 30) -> List[Dict]:
+def generate_sample_price_history(item_id: str, num_days: int = 90) -> List[Dict]:
     """
-    Generate sample price history for demonstration
+    Generate realistic sample price history with market patterns
     
     Args:
         item_id: Item identifier
         num_days: Number of days of history to generate
         
     Returns:
-        List of price data points
+        List of price data points with realistic patterns
     """
     import random
+    import math
     
     history = []
-    base_price = random.uniform(10, 500)
     
-    for i in range(num_days):
-        timestamp = datetime.utcnow() - timedelta(days=num_days - i)
+    # Create realistic base prices by item type
+    base_prices = {
+        'ak47-phantom-mw': 45.0,
+        'dragon-lore-factory': 1200.0,
+        'cs2-weapon-case': 2.50,
+        'sticker-navi': 8.50,
+        'deagle-crimson-web': 95.0,
+        'karambit-doppler': 380.0,
+        'm4a1-hyper': 65.0,
+        'awp-dragon-lore': 950.0,
+    }
+    
+    base_price = base_prices.get(item_id, random.uniform(20, 500))
+    current_price = base_price
+    
+    # Add overall trend (slight upward or downward)
+    trend = random.uniform(-0.001, 0.002)  # Daily trend
+    volatility = random.uniform(0.01, 0.05)  # Daily volatility
+    
+    for day in range(num_days):
+        timestamp = datetime.utcnow() - timedelta(days=num_days - day - 1)
         
-        # Add slight random walk
-        price_change = random.uniform(-0.05, 0.05)
-        base_price = base_price * (1 + price_change)
-        base_price = max(1, base_price)  # Ensure positive
+        # Random walk with drift
+        random_component = random.gauss(0, volatility)
+        price_change = trend + random_component
+        
+        # Add occasional spikes (market events)
+        if random.random() < 0.05:  # 5% chance of event
+            price_change += random.uniform(-0.15, 0.15)
+        
+        current_price = current_price * (1 + price_change)
+        current_price = max(0.01, current_price)  # Ensure positive
+        
+        # Volume patterns: higher on weekends, lower on weekdays
+        day_of_week = timestamp.weekday()
+        base_volume = 500 if day_of_week >= 4 else 200  # Higher on weekends
+        volume = int(base_volume * random.uniform(0.5, 2.0))
+        
+        # Median price is typically close to current price
+        median_price = current_price * random.uniform(0.95, 1.05)
         
         history.append({
             'item_id': item_id,
             'timestamp': timestamp,
-            'price': round(base_price, 2),
-            'volume': random.randint(50, 5000),
-            'median_price': round(base_price * 0.95, 2)
+            'price': round(current_price, 2),
+            'volume': volume,
+            'median_price': round(median_price, 2)
         })
     
     return history

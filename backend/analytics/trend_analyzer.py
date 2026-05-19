@@ -77,6 +77,149 @@ class TrendAnalyzer:
             return None
     
     @staticmethod
+    def compute_bollinger_bands(prices: List[float], period: int = 20, std_dev: float = 2.0) -> Optional[Dict[str, float]]:
+        """
+        Compute Bollinger Bands
+        
+        Args:
+            prices: List of prices
+            period: Period for moving average (default 20)
+            std_dev: Number of standard deviations (default 2.0)
+            
+        Returns:
+            Dictionary with upper, middle, lower bands or None
+        """
+        if len(prices) < period:
+            return None
+        
+        try:
+            recent_prices = prices[-period:]
+            middle = statistics.mean(recent_prices)
+            stdev = statistics.stdev(recent_prices) if len(recent_prices) > 1 else 0
+            
+            return {
+                'upper': round(middle + (std_dev * stdev), 2),
+                'middle': round(middle, 2),
+                'lower': round(middle - (std_dev * stdev), 2)
+            }
+        except Exception as e:
+            logger.error(f"Error computing Bollinger Bands: {e}")
+            return None
+    
+    @staticmethod
+    def compute_rsi(prices: List[float], period: int = 14) -> Optional[float]:
+        """
+        Compute Relative Strength Index (RSI)
+        
+        Args:
+            prices: List of prices
+            period: RSI period (default 14)
+            
+        Returns:
+            RSI value (0-100) or None if insufficient data
+        """
+        if len(prices) < period + 1:
+            return None
+        
+        try:
+            deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+            gains = [d if d > 0 else 0 for d in deltas]
+            losses = [-d if d < 0 else 0 for d in deltas]
+            
+            avg_gain = statistics.mean(gains[-period:])
+            avg_loss = statistics.mean(losses[-period:])
+            
+            if avg_loss == 0:
+                return 100.0 if avg_gain > 0 else 50.0
+            
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            
+            return round(rsi, 2)
+        except Exception as e:
+            logger.error(f"Error computing RSI: {e}")
+            return None
+    
+    @staticmethod
+    def compute_macd(prices: List[float]) -> Optional[Dict[str, float]]:
+        """
+        Compute MACD (Moving Average Convergence Divergence)
+        
+        Args:
+            prices: List of prices
+            
+        Returns:
+            Dictionary with macd, signal, histogram or None
+        """
+        if len(prices) < 26:
+            return None
+        
+        try:
+            # Compute exponential moving averages
+            def ema(data: List[float], period: int) -> float:
+                if len(data) < period:
+                    return statistics.mean(data)
+                alpha = 2 / (period + 1)
+                ema_val = data[0]
+                for price in data[1:]:
+                    ema_val = price * alpha + ema_val * (1 - alpha)
+                return ema_val
+            
+            ema_12 = ema(prices[-26:], 12) if len(prices) >= 12 else 0
+            ema_26 = ema(prices[-26:], 26) if len(prices) >= 26 else 0
+            
+            macd_line = ema_12 - ema_26
+            
+            # Signal line is 9-period EMA of MACD
+            signal_line = ema([macd_line], 9) if macd_line != 0 else 0
+            histogram = macd_line - signal_line
+            
+            return {
+                'macd': round(macd_line, 4),
+                'signal': round(signal_line, 4),
+                'histogram': round(histogram, 4)
+            }
+        except Exception as e:
+            logger.error(f"Error computing MACD: {e}")
+            return None
+    
+    @staticmethod
+    def compute_support_resistance(prices: List[float], lookback: int = 20) -> Optional[Dict[str, float]]:
+        """
+        Detect support and resistance levels
+        
+        Args:
+            prices: List of prices
+            lookback: Number of periods to look back
+            
+        Returns:
+            Dictionary with support and resistance or None
+        """
+        if len(prices) < lookback:
+            return None
+        
+        try:
+            recent = prices[-lookback:]
+            
+            support = min(recent)
+            resistance = max(recent)
+            current = prices[-1]
+            
+            # Calculate distance from support and resistance
+            support_dist = ((current - support) / support * 100) if support > 0 else 0
+            resistance_dist = ((resistance - current) / current * 100) if current > 0 else 0
+            
+            return {
+                'support': round(support, 2),
+                'resistance': round(resistance, 2),
+                'distance_to_support': round(support_dist, 2),
+                'distance_to_resistance': round(resistance_dist, 2)
+            }
+        except Exception as e:
+            logger.error(f"Error computing support/resistance: {e}")
+            return None
+    
+    @staticmethod
     def compute_trend_score(prices: List[float]) -> Optional[float]:
         """
         Compute trend score from -1 (bearish) to 1 (bullish)
