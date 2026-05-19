@@ -1,0 +1,82 @@
+"""
+Database models for CS2 Market Intelligence Platform
+"""
+
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Index
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
+from datetime import datetime
+
+Base = declarative_base()
+
+class Item(Base):
+    """Item model - skins, cases, stickers"""
+    __tablename__ = "items"
+    
+    id = Column(Integer, primary_key=True)
+    item_id = Column(String(255), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    type = Column(String(50), nullable=False)  # skin, case, sticker
+    release_date = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    price_histories = relationship("PriceHistory", back_populates="item")
+    trend_indicators = relationship("TrendIndicator", back_populates="item")
+    
+    __table_args__ = (
+        Index('idx_item_type', 'type'),
+    )
+
+class PriceHistory(Base):
+    """Price history model - time-series price data"""
+    __tablename__ = "price_history"
+    
+    id = Column(Integer, primary_key=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    price = Column(Float, nullable=False)
+    volume = Column(Integer, nullable=True)
+    median_price = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    item = relationship("Item", back_populates="price_histories")
+    
+    __table_args__ = (
+        Index('idx_price_history_item_timestamp', 'item_id', 'timestamp'),
+    )
+
+class Event(Base):
+    """Event model - market-moving events"""
+    __tablename__ = "events"
+    
+    id = Column(Integer, primary_key=True)
+    type = Column(String(50), nullable=False)  # major, update, case_drop, operation
+    timestamp = Column(DateTime, nullable=False, index=True)
+    description = Column(String(500), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_event_type_timestamp', 'type', 'timestamp'),
+    )
+
+class TrendIndicator(Base):
+    """Trend indicators model - computed analytics"""
+    __tablename__ = "trend_indicators"
+    
+    id = Column(Integer, primary_key=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, nullable=False)
+    sma_7 = Column(Float, nullable=True)  # 7-day simple moving average
+    sma_30 = Column(Float, nullable=True)  # 30-day simple moving average
+    volatility = Column(Float, nullable=True)  # Volatility measure
+    trend_score = Column(Float, nullable=True)  # -1 (bearish) to 1 (bullish)
+    trend_direction = Column(String(20), nullable=True)  # bullish, neutral, bearish
+    confidence = Column(String(20), nullable=True)  # low, medium, high
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    item = relationship("Item", back_populates="trend_indicators")
+    
+    __table_args__ = (
+        Index('idx_trend_item_timestamp', 'item_id', 'timestamp'),
+    )
