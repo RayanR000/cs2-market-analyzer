@@ -5,8 +5,8 @@ Item endpoints
 from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime
-from database import get_db, Item
+from datetime import datetime, timedelta
+from database import get_db, Item, PriceHistory
 from repositories import ItemRepository, PriceHistoryRepository
 from schemas import ItemResponse, PriceHistoryResponse
 
@@ -274,8 +274,65 @@ async def get_item_events(
     item = ItemRepository.get_item_by_id(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
-    
+
     return {
         "item_id": item_id,
         "events": []
+    }
+
+@router.get("/{item_id}/prices", response_model=dict)
+async def get_multi_source_prices(
+    item_id: str,
+    source: str = Query("steam,skinport,dmarket", description="Comma-separated sources"),
+    days: int = Query(30, ge=1, le=365, description="Days of history"),
+    db: Session = Depends(get_db)
+):
+    """Get multi-source price history for an item
+
+    Query Parameters:
+    - source: Comma-separated list of sources (steam, skinport, dmarket)
+    - days: Number of days of history to return (1-365)
+
+    Returns price history grouped by source.
+    """
+    # Parse requested sources
+    requested_sources = [s.strip().lower() for s in source.split(",")]
+    valid_sources = {"steam", "skinport", "dmarket"}
+    requested_sources = [s for s in requested_sources if s in valid_sources]
+
+    if not requested_sources:
+        requested_sources = ["steam", "skinport", "dmarket"]
+
+    # Get item
+    item = ItemRepository.get_item_by_id(db, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Get price history for all requested sources
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+    price_data = db.query(PriceHistory).filter(
+        PriceHistory.item_id == item.id,
+        PriceHistory.timestamp >= cutoff_date,
+        PriceHistory.source.in_(requested_sources)
+    ).order_by(PriceHistory.timestamp.asc()).all()
+
+    # Group by source
+    by_source = {}
+    for source_name in requested_sources:
+        by_source[source_name] = [
+            {
+                "timestamp": p.timestamp.isoformat(),
+                "price": p.price,
+                "volume": p.volume,
+                "median_price": p.median_price
+            }
+            for p in price_data if p.source == source_name
+        ]
+
+    return {
+        "item_id": item.item_id,
+        "name": item.name,
+        "data": by_source,
+        "sources": requested_sources
     }
