@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers import items, opportunities, events
 from database import init_db, SessionLocal
 from seed_data import DatabaseSeeder
+from collectors.real_data_collector import start_real_data_collection, stop_real_data_collection
 import uvicorn
 import logging
 
@@ -33,7 +34,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup_event():
-    """Initialize database on startup"""
+    """Initialize database and start data collection on startup"""
     try:
         logger.info("Initializing database...")
         init_db()
@@ -43,16 +44,34 @@ def startup_event():
         db = SessionLocal()
         try:
             DatabaseSeeder.seed_all(db)
+            logger.info("Database seeding complete")
         finally:
             db.close()
+        
+        # Start real-time data collection from Steam API
+        logger.info("Starting real-time market data collection...")
+        start_real_data_collection()
+        logger.info("Real-time data collection started")
+        
     except Exception as e:
         logger.error(f"Error during startup: {e}")
         raise
+
+@app.on_event("shutdown")
+def shutdown_event():
+    """Clean up on shutdown"""
+    logger.info("Shutting down...")
+    stop_real_data_collection()
+    logger.info("Real-time data collection stopped")
 
 # Include routers
 app.include_router(items.router)
 app.include_router(opportunities.router)
 app.include_router(events.router)
+
+# Include admin router (for data collection management)
+from routers import admin
+app.include_router(admin.router)
 
 @app.get("/health")
 def health_check():
@@ -65,7 +84,8 @@ def root():
     return {
         "message": "CS2 Market Intelligence API",
         "version": "0.1.0",
-        "docs": "/api/docs"
+        "docs": "/api/docs",
+        "data_source": "Real-time Steam API + Initial seed data"
     }
 
 if __name__ == "__main__":
