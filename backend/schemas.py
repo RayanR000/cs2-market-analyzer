@@ -26,10 +26,11 @@ class ItemResponse(ItemBase):
 
 # Price history schemas
 class PriceHistoryBase(BaseModel):
-    timestamp: datetime
     price: float
     volume: Optional[int] = None
     median_price: Optional[float] = None
+    source: str = "steam"  # steam, skinport, dmarket
+    timestamp: datetime
 
 class PriceHistoryCreate(PriceHistoryBase):
     item_id: int
@@ -130,3 +131,32 @@ class SearchResultItem(BaseModel):
 class SearchResponse(BaseModel):
     results: List[SearchResultItem]
     total: int
+
+# User schemas
+class UserBase(BaseModel):
+    steam_id: str
+    username: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+class UserResponse(UserBase):
+    id: int
+    created_at: datetime
+    last_login: datetime
+
+    class Config:
+        from_attributes = True
+
+# Portfolio inventory schemas
+class InventoryItem(BaseModel):
+    id: str  # asset_id from steam
+    name: str
+    market_hash_name: str
+    quantity: int = 1
+    current_price: Optional[float] = None
+    image_url: Optional[str] = None
+    type: str
+
+class InventoryResponse(BaseModel):
+    items: List[InventoryItem]
+    total_value: float
+    user_id: str
