@@ -29,7 +29,7 @@ class PriceHistoryBase(BaseModel):
     price: float
     volume: Optional[int] = None
     median_price: Optional[float] = None
-    source: str = "steam"  # steam, skinport, dmarket
+    source: str = "steam"  # steam, csfloat, synthetic_demo, cs2sh_archive
     timestamp: datetime
 
 class PriceHistoryCreate(PriceHistoryBase):

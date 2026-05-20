@@ -4,11 +4,12 @@
 
 The codebase is in a mixed state:
 
-- `backend/main.py` still loads the full catalog and synthetic history on startup through `load_all_cs2_data()`.
-- `backend/collectors/real_data_collector.py` does collect live Steam data, but the lifecycle, observability, and source coverage still need hardening.
-- `frontend/app/market/page.tsx` is still sample-driven.
-- `frontend/app/items/[id]/page.tsx` still mixes mock chart data with live multi-source fetches.
-- `backend/routers/items.py` exposes a multi-source prices route, but the backend currently only has real Steam ingestion.
+- `backend/main.py` separates demo bootstrap from production startup, and production no longer generates synthetic history.
+- `backend/collectors/real_data_collector.py` persists source-tagged live rows and exposes run metrics plus coverage reporting, but still needs ongoing production hardening.
+- `backend/collectors/free_data_importer.py` can backfill history from the free cs2.sh archive and import official Steam announcements, with synthetic rows only for uncovered gaps.
+- `frontend/app/market/page.tsx` now reads backend market data instead of hardcoded sample rows.
+- `frontend/app/items/[id]/page.tsx` now reads backend item, history, trend, prediction, and source data instead of mock chart data.
+- `backend/routers/items.py` exposes a multi-source prices route backed by source-tagged rows, with actual coverage depending on what the collectors have populated.
 
 This plan turns that into a clear production path.
 
@@ -18,6 +19,7 @@ The platform is considered to have "real data" when:
 
 - Production startup does not generate synthetic history.
 - Steam live snapshots are stored reliably and are visible in the UI.
+- Historical charts are backfilled from a real archive source where available, with any fallback rows clearly marked as synthetic.
 - Historical charts are clearly labeled if they are incomplete or demo-generated.
 - Frontend market and item pages read from the backend API instead of hardcoded sample data.
 - Any source shown in the UI has a real ingestion path or is removed/hidden.

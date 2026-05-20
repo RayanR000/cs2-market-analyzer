@@ -2,28 +2,26 @@
 
 ## Overview
 
-The CS2 Market Intelligence Platform includes **automatic real-time data collection** from the Steam Community Market API. The system collects actual CS2 item prices, volumes, and trends automatically.
+The CS2 Market Intelligence Platform includes **automatic real-time data collection** from the Steam Community Market and CSFloat APIs. The system stores actual CS2 item prices, volumes, and trends as source-tagged rows.
 
-Demo and development environments can also seed synthetic catalog/history data for local testing. That synthetic history is not live market data and should not be described as such.
+Demo and development environments can also seed synthetic catalog/history data for local testing. That synthetic history is not live market data and should not be described as such. Production startup should not generate synthetic backfill.
 
 ## Architecture
 
 ### Data Flow
 
 ```
-Steam API
+Steam API / CSFloat API
     ↓
-SteamMarketCollector (collectors/steam_market.py)
+Source collectors (Steam, CSFloat)
     ↓
-DataValidator (validates prices, detects anomalies)
-    ↓
-DataCleaner (sanitizes and normalizes data)
+DataValidator and DataCleaner
     ↓
 PostgreSQL Database
     ↓
-TrendAnalyzer (computes indicators)
+TrendAnalyzer and OpportunityDetector
     ↓
-API Endpoints (returns analyzed data)
+API Endpoints and admin verification
 ```
 
 ### Components
@@ -32,7 +30,8 @@ API Endpoints (returns analyzed data)
 - Main service managing automatic data collection
 - Runs as background daemon thread
 - Collects data on configurable intervals (default: 1 hour)
-- Handles retry logic and error recovery
+- Coordinates Steam and CSFloat collectors
+- Tracks last run time, failures, source breakdown, and coverage
 - Validates all data before saving
 
 #### 2. **Steam Market Collector** (`collectors/steam_market.py`)
@@ -89,8 +88,8 @@ The application will:
 1. Initialize the database
 2. Load the catalog
 3. In demo/development environments, seed synthetic history for local exploration
-4. **Automatically start real-time data collection from Steam API**
-5. Collection runs every 1 hour in the background
+4. Start real-time collection in the background
+5. Collect from live sources that are available in the configured environment
 
 ### Manual Collection
 
@@ -152,6 +151,22 @@ Response:
 }
 ```
 
+### Check Coverage Report
+
+```bash
+curl http://localhost:8000/admin/coverage-report
+```
+
+Shows which tracked items have at least one source-tagged price row, plus per-source coverage counts.
+
+### Check Verification Status
+
+```bash
+curl http://localhost:8000/admin/verification-status
+```
+
+Returns a compact summary for dashboards: collector status, last success time, price record counts, coverage, and synthetic-history mode.
+
 ## Data Collection Schedule
 
 ### Default Schedule
@@ -163,17 +178,17 @@ Response:
 ### Collection Process
 
 For each collection cycle (every 1 hour):
-1. Query all 49 CS2 items from database
-2. Fetch current price/volume from Steam API for each item
+1. Query all tracked CS2 items from database
+2. Fetch current price/volume from each configured live source
 3. Validate data (check anomalies, bounds)
 4. Clean and normalize values
-5. Store in `price_histories` table
-6. Log results and statistics
+5. Store in `price_histories` table with a `source` tag
+6. Log results, coverage, and statistics
 
 ### Example Collection Cycle
 
 ```
-13:00 - Collection cycle started for 49 items
+13:00 - Collection cycle started for 49 items across 3 sources
 13:00 - Collecting: AK-47 | Phantom Disruptor
 13:01 - Collected: $28.50 (vol: 1200) ✓
 13:02 - Collecting: AWP | Dragon Lore
@@ -225,7 +240,8 @@ environments may still surface synthetic bootstrap history for local testing:
 ```bash
 GET /items/
 ```
-Returns items with live price data in production, or synthetic bootstrap data in demo/dev
+Returns items with live price data in production, or synthetic bootstrap data in demo/dev.
+The UI should not treat synthetic rows as live history.
 
 ### Trends Analysis
 ```bash
@@ -249,6 +265,12 @@ Forecasts future prices based on the available historical data
 GET /opportunities/undervalued
 ```
 Identifies undervalued items using the available baseline trends
+
+### Source Coverage
+```bash
+GET /admin/coverage-report
+```
+Summarizes how many tracked items have at least one source-tagged price row.
 
 ## Configuration
 

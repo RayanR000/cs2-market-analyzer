@@ -5,10 +5,13 @@
 ✅ **Phase 1**: Foundation Complete, with env-driven bootstrap in progress (2,413 lines of code)
 ✅ **Phase 2**: Data Pipeline Complete (1,702 new lines of code)
 ✅ **Phase 3**: API Endpoints Complete (569 lines, 15 endpoints)
-✅ **Phase 3+**: Real Data Collection Active (225 lines)
-📋 **Phases 4-8**: Planned & Ready to Execute
+✅ **Phase 3+**: Real Data Collection Active with source-tagged snapshots, coverage reporting, and free historical backfill tooling (225 lines)
+✅ **Phase 4**: Frontend now reads backend data instead of hardcoded samples
+✅ **Phase 6**: Verification and coverage checks added
+✅ **Phase 7**: Documentation updated to match current behavior
+📋 **Phase 5**: Planned if additional real external sources need deeper ingest support
 
-**Data Source**: Real-time Steam Community Market API, with synthetic demo bootstrap retained for local development ✨
+**Data Source**: Live Steam Community Market snapshots, free cs2.sh archive backfill where available, official Steam announcements for events, plus synthetic demo bootstrap retained only for local gaps and development ✨
 
 ---
 
@@ -29,6 +32,7 @@
 ✅ Pydantic schemas for request/response validation
 ✅ Environment configuration
 ✅ Environment-driven bootstrap mode separating demo synthetic history from production startup
+✅ Source-tagged price rows and admin coverage reporting
 
 ### Key Architecture Decisions
 - **Backend**: FastAPI for high performance async APIs
@@ -97,7 +101,8 @@
 ### Technical Achievements
 - **6 technical indicators**: SMA, EMA, RSI, Bollinger Bands, MACD, Support/Resistance
 - **Anomaly detection**: Z-score based scoring and manipulation pattern recognition
-- **Realistic data**: 90-day synthetic price histories with statistically sound properties
+- **Realistic data**: 90-day synthetic price histories for demo/backfill use
+- **Live coverage**: source-tagged rows with admin coverage metrics for Steam and marketplace collectors
 - **Production patterns**: Full error handling, logging, transaction management
 
 ### Testing & Verification

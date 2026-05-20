@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     
     # Steam Integration
     steam_api_key: Optional[str] = None
+    cs2sh_api_key: Optional[str] = None
     frontend_url: str = "http://localhost:3000"
     
     # Security

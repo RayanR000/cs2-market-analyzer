@@ -283,25 +283,25 @@ async def get_item_events(
 @router.get("/{item_id}/prices", response_model=dict)
 async def get_multi_source_prices(
     item_id: str,
-    source: str = Query("steam,skinport,dmarket", description="Comma-separated sources"),
+    source: str = Query("steam,csfloat", description="Comma-separated sources"),
     days: int = Query(30, ge=1, le=365, description="Days of history"),
     db: Session = Depends(get_db)
 ):
     """Get multi-source price history for an item
 
     Query Parameters:
-    - source: Comma-separated list of sources (steam, skinport, dmarket)
+    - source: Comma-separated list of sources (steam, csfloat)
     - days: Number of days of history to return (1-365)
 
     Returns price history grouped by source.
     """
     # Parse requested sources
     requested_sources = [s.strip().lower() for s in source.split(",")]
-    valid_sources = {"steam", "skinport", "dmarket"}
+    valid_sources = {"steam", "csfloat"}
     requested_sources = [s for s in requested_sources if s in valid_sources]
 
     if not requested_sources:
-        requested_sources = ["steam", "skinport", "dmarket"]
+        requested_sources = ["steam", "csfloat"]
 
     # Get item
     item = ItemRepository.get_item_by_id(db, item_id)

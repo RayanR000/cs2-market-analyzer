@@ -19,8 +19,8 @@ See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for detailed feature descriptions
 - **Frontend**: Next.js 15+ with TypeScript and Tailwind CSS
 - **Backend**: FastAPI (Python) with SQLAlchemy ORM
 - **Database**: Supabase (PostgreSQL)
-- **Data Pipeline**: Real-time data collection from Steam Community Market API
-- **Data Source**: ✨ **LIVE Steam collection** with explicit demo bootstrap for local synthetic history only
+- **Data Pipeline**: Real-time data collection from Steam Community Market and CSFloat, with source-tagged coverage
+- **Data Source**: ✨ **Live Steam + CSFloat collection** with explicit demo bootstrap for local synthetic history only
 
 ## Project Structure
 
@@ -133,16 +133,19 @@ The frontend will be available at `http://localhost:3000`
 - `POST /admin/collect-now` - Trigger real-time data collection
 - `GET /admin/collection-status` - Check collection status
 - `GET /admin/data-stats` - View data statistics
+- `GET /admin/coverage-report` - Inspect per-item and per-source coverage
+- `GET /admin/verification-status` - Compact operational summary for dashboards
 
 ## Real-Time Data Collection 🎯
 
-The platform collects **real price data from Steam Community Market API** in both demo and production modes:
+The platform collects **real market data from Steam Community Market API** and can supplement it with additional marketplace collectors where available:
 
 - ✨ **Automatic collection** starts on app startup
 - 📊 **Every 1 hour** prices are fetched for all tracked items
 - ✅ **Validated data** with anomaly detection before storage
 - 🔗 **Integrated** with trend analysis and predictions
 - 📈 **Production endpoints** return real, analyzed data; demo/dev may still show synthetic bootstrap history
+- 🧭 **Coverage endpoints** expose which tracked items and sources are actually populated
 
 Demo and development environments also load a synthetic catalog/history backfill so the UI has data to render locally. Production startup skips the synthetic history and relies on live Steam collection.
 

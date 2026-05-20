@@ -10,11 +10,8 @@ import threading
 import time
 from copy import deepcopy
 from collectors.steam_market import SteamMarketCollector
-from collectors.marketplace_sources import (
-    SkinportMarketCollector,
-    DMarketCollector,
-    build_marketplace_name_candidates,
-)
+from collectors.csfloat_market import CSFloatMarketCollector
+from collectors.name_candidates import build_marketplace_name_candidates
 from collectors.data_validation import DataValidator, DataCleaner
 from database import SessionLocal, Item, PriceHistory, CollectionRun
 from sqlalchemy.exc import SQLAlchemyError
@@ -34,8 +31,7 @@ class RealDataCollector:
         self.enabled = enabled
         self.collectors = {
             "steam": SteamMarketCollector(rate_limit_delay=2.0),
-            "skinport": SkinportMarketCollector(),
-            "dmarket": DMarketCollector(),
+            "csfloat": CSFloatMarketCollector(),
         }
         self.collector = self.collectors["steam"]
         self.validator = DataValidator()

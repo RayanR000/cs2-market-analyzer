@@ -6,17 +6,23 @@ import styles from './PriceSourceFilter.module.css';
 interface PriceSourceFilterProps {
   selectedSources: string[];
   onSourceChange: (sources: string[]) => void;
+  availableSources?: string[];
 }
 
-const AVAILABLE_SOURCES = [
-  { id: 'steam', label: 'Steam', color: '#1b2838' },
-  { id: 'skinport', label: 'Skinport', color: '#9d2b3f' },
-  { id: 'dmarket', label: 'DMarket', color: '#00d4ff' }
+const SOURCE_META: Record<string, { label: string; color: string }> = {
+  steam: { label: 'Steam', color: '#1b2838' },
+  csfloat: { label: 'CSFloat', color: '#ff6b35' },
+};
+
+const DEFAULT_SOURCES = [
+  'steam',
+  'csfloat',
 ];
 
 export default function PriceSourceFilter({
   selectedSources,
-  onSourceChange
+  onSourceChange,
+  availableSources = DEFAULT_SOURCES,
 }: PriceSourceFilterProps) {
   const handleToggle = (sourceId: string) => {
     if (selectedSources.includes(sourceId)) {
@@ -30,23 +36,27 @@ export default function PriceSourceFilter({
     <div className={styles.filterContainer}>
       <label className={styles.label}>Price Sources</label>
       <div className={styles.toggleGroup}>
-        {AVAILABLE_SOURCES.map(source => (
-          <button
-            key={source.id}
-            className={`${styles.toggle} ${
-              selectedSources.includes(source.id) ? styles.active : ''
-            }`}
-            onClick={() => handleToggle(source.id)}
-            style={{
-              borderColor: selectedSources.includes(source.id) ? source.color : undefined,
-              backgroundColor: selectedSources.includes(source.id)
-                ? `${source.color}15`
-                : undefined
-            }}
-          >
-            {source.label}
-          </button>
-        ))}
+        {availableSources.map(sourceId => {
+          const source = SOURCE_META[sourceId] ?? { label: sourceId, color: '#6b7280' };
+
+          return (
+            <button
+              key={sourceId}
+              className={`${styles.toggle} ${
+                selectedSources.includes(sourceId) ? styles.active : ''
+              }`}
+              onClick={() => handleToggle(sourceId)}
+              style={{
+                borderColor: selectedSources.includes(sourceId) ? source.color : undefined,
+                backgroundColor: selectedSources.includes(sourceId)
+                  ? `${source.color}15`
+                  : undefined,
+              }}
+            >
+              {source.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

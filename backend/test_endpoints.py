@@ -3,19 +3,56 @@ Comprehensive tests for all Phase 3 API endpoints
 Tests all 15 endpoints with various parameters and error cases
 """
 
+import asyncio
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from datetime import datetime
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+import database as database_module
 from main import app
-from database import SessionLocal, init_db
+from database import SessionLocal, init_db, Item, PriceHistory
 from seed_data import DatabaseSeeder
 from routers import admin as admin_router
+from collectors.real_data_collector import RealDataCollector
 
 client = TestClient(app)
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_db():
     """Initialize and seed database once for all tests"""
+    test_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    test_session_factory = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+    database_module.engine = test_engine
+    database_module.SessionLocal = test_session_factory
+    admin_router.SessionLocal = test_session_factory
+
+    import collectors.real_data_collector as real_data_collector_module
+
+    real_data_collector_module.SessionLocal = test_session_factory
+    database_module.Base.metadata.create_all(bind=test_engine)
+    global SessionLocal
+    SessionLocal = test_session_factory
+
+    # Keep startup from touching external services during tests.
+    import main as main_module
+    main_module.load_all_cs2_data = lambda generate_history=False: {
+        "items_added": 0,
+        "items_skipped": 0,
+        "price_records_added": 0,
+        "events_added": 0,
+    }
+    main_module.start_real_data_collection = lambda: None
+
     init_db()
     db = SessionLocal()
     try:
@@ -402,6 +439,157 @@ class TestAdminEndpoints:
         assert "covered_items" in data
         assert "coverage_ratio" in data
         assert "source_coverage" in data
+
+    def test_verification_status_combines_health_and_coverage(self):
+        """Test GET /admin/verification-status returns a dashboard summary."""
+        response = client.get("/admin/verification-status")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "collection_enabled" in data
+        assert "collection_status" in data
+        assert "total_items" in data
+        assert "total_price_records" in data
+        assert "source_breakdown" in data
+        assert "coverage" in data
+        assert "synthetic_history_enabled" in data
+
+    def test_import_free_history_endpoint(self, monkeypatch):
+        """Test POST /admin/import-free-history returns import stats."""
+
+        class FakeImporter:
+            def __init__(self, api_key=None):
+                self.api_key = api_key
+
+            def run_full_import(self, db=None, history_start=None):
+                return {
+                    "catalog": {"items_added": 1},
+                    "history": {"archive_rows_added": 2, "synthetic_rows_added": 1},
+                    "events": {"events_added": 3},
+                }
+
+        monkeypatch.setattr(admin_router, "FreeDataBackfillImporter", FakeImporter)
+
+        response = client.post("/admin/import-free-history")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "completed"
+        assert data["stats"]["history"]["archive_rows_added"] == 2
+
+    def test_import_official_events_endpoint(self, monkeypatch):
+        """Test POST /admin/import-official-events returns event import stats."""
+
+        class FakeImporter:
+            def __init__(self, api_key=None):
+                self.api_key = api_key
+
+            def import_official_events(self, db=None):
+                return {"events_added": 4, "events_skipped": 0, "source": "steam_announcements"}
+
+        monkeypatch.setattr(admin_router, "FreeDataBackfillImporter", FakeImporter)
+
+        response = client.post("/admin/import-official-events")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "completed"
+        assert data["stats"]["events_added"] == 4
+
+
+class TestPhase6Verification:
+    """Tests for bootstrap guards, live collection path, and frontend API contracts."""
+
+    def test_production_bootstrap_disables_synthetic_history(self, monkeypatch):
+        """Production startup should load the catalog without synthetic history."""
+        import main
+
+        calls = []
+
+        def fake_load_all_cs2_data(*, generate_history=False):
+            calls.append(generate_history)
+            return {
+                "items_added": 0,
+                "items_skipped": 0,
+                "price_records_added": 0,
+                "events_added": 0,
+            }
+
+        monkeypatch.setattr(main.settings, "environment", "production")
+        monkeypatch.setattr(main, "init_db", lambda: None)
+        monkeypatch.setattr(main, "load_all_cs2_data", fake_load_all_cs2_data)
+        monkeypatch.setattr(main, "start_real_data_collection", lambda: None)
+
+        asyncio.run(main.startup_event())
+
+        assert calls == [False]
+        assert main.settings.demo_bootstrap_enabled() is False
+
+    def test_real_collection_writes_live_source_rows(self, monkeypatch):
+        """RealDataCollector should persist a live snapshot with a source tag."""
+        db = SessionLocal()
+        try:
+            items = db.query(Item).all()
+            assert items, "expected seeded items for live collection test"
+            target_item = next((item for item in items if item.name == "Clutch Case"), items[0])
+            source_name = "steam_live_test"
+
+            class FakeCollector:
+                def __init__(self, target_name):
+                    self.target_name = target_name
+
+                def collect_batch_items(self, item_names):
+                    now = datetime.utcnow()
+                    results = {name: None for name in item_names}
+                    if self.target_name in item_names:
+                        results[self.target_name] = (42.5, 9, now)
+                    return results
+
+            collector = RealDataCollector(enabled=False)
+            monkeypatch.setattr(
+                collector,
+                "collectors",
+                {source_name: FakeCollector(target_item.name)},
+            )
+
+            stats = collector.collect_all_items()
+
+            live_rows = db.query(PriceHistory).filter(
+                PriceHistory.source == source_name
+            ).all()
+
+            assert stats["successful"] >= 1
+            assert stats["source_breakdown"][source_name] == 1
+            assert stats["covered_items"] == 1
+            assert len(live_rows) == 1
+            assert live_rows[0].price == 42.5
+            assert live_rows[0].source == source_name
+        finally:
+            db.query(PriceHistory).filter(
+                PriceHistory.source == "steam_live_test"
+            ).delete(synchronize_session=False)
+            db.commit()
+            db.close()
+
+    def test_frontend_pages_use_backend_contracts_only(self):
+        """Frontend market and item pages should not reintroduce hardcoded mock market data."""
+        repo_root = Path(__file__).resolve().parents[1]
+
+        market_page = (repo_root / "frontend/app/market/page.tsx").read_text()
+        item_page = (repo_root / "frontend/app/items/[id]/page.tsx").read_text()
+
+        for required in ["getItems", "getTrendingItems", "getPriceHistory"]:
+            assert required in market_page
+
+        for required in ["getItem", "getPriceHistory", "getItemTrends", "getItemPrediction", "getMultiSourcePrices"]:
+            assert required in item_page
+
+        forbidden_market_tokens = ["SAMPLE_ITEMS", "mockPriceData", "itemData"]
+        forbidden_item_tokens = ["mockPriceData", "itemData", "priceRangesByQuality"]
+
+        for token in forbidden_market_tokens:
+            assert token not in market_page
+
+        for token in forbidden_item_tokens:
+            assert token not in item_page
 
 
 class TestErrorHandling:

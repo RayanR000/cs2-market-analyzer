@@ -138,7 +138,7 @@ export async function getItemEvents(itemId: string, limit = 20) {
 
 export async function getMultiSourcePrices(
   itemId: string,
-  sources: string[] = ['steam', 'skinport', 'dmarket'],
+  sources: string[] = ['steam', 'csfloat'],
   days: number = 30
 ): Promise<MultiSourcePrices> {
   const sourceParam = sources.join(',');

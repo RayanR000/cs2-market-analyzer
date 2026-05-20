@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from sqlalchemy import func, distinct
 from typing import Optional
 from collectors.real_data_collector import get_collector
+from collectors.free_data_importer import FreeDataBackfillImporter
 from config import settings
 from database import SessionLocal, Item, PriceHistory, CollectionRun
 
@@ -83,6 +84,36 @@ async def trigger_collection():
         "stats": stats,
         "metrics": collector.get_collection_metrics()
     }
+
+
+@router.post("/import-free-history")
+async def import_free_history():
+    """Backfill free historical market data and official events."""
+    importer = FreeDataBackfillImporter(api_key=settings.cs2sh_api_key)
+    db = SessionLocal()
+    try:
+        stats = importer.run_full_import(db=db)
+        return {
+            "status": "completed",
+            "stats": stats,
+        }
+    finally:
+        db.close()
+
+
+@router.post("/import-official-events")
+async def import_official_events():
+    """Import only official Steam announcement events."""
+    importer = FreeDataBackfillImporter(api_key=settings.cs2sh_api_key)
+    db = SessionLocal()
+    try:
+        stats = importer.import_official_events(db=db)
+        return {
+            "status": "completed",
+            "stats": stats,
+        }
+    finally:
+        db.close()
 
 @router.get("/collection-status")
 async def get_collection_status():
@@ -169,5 +200,36 @@ async def get_coverage_report():
     db = SessionLocal()
     try:
         return _build_coverage_report(db)
+    finally:
+        db.close()
+
+
+@router.get("/verification-status")
+async def get_verification_status():
+    """Get a compact operational summary for dashboard verification."""
+    collector = get_collector()
+    db = SessionLocal()
+    try:
+        coverage = _build_coverage_report(db)
+        total_items = db.query(Item).count()
+        total_price_records = db.query(PriceHistory).count()
+        metrics = collector.get_collection_metrics()
+
+        return {
+            "collection_enabled": collector.enabled,
+            "collection_status": metrics.get("status", "inactive"),
+            "last_success_at": metrics.get("last_success_at").isoformat()
+            if metrics.get("last_success_at")
+            else None,
+            "last_error_at": metrics.get("last_error_at").isoformat()
+            if metrics.get("last_error_at")
+            else None,
+            "last_error": metrics.get("last_error"),
+            "total_items": total_items,
+            "total_price_records": total_price_records,
+            "source_breakdown": metrics.get("source_breakdown", {}),
+            "coverage": coverage,
+            "synthetic_history_enabled": settings.demo_bootstrap_enabled(),
+        }
     finally:
         db.close()

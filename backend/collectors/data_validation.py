@@ -82,6 +82,28 @@ class DataValidator:
         """
         valid_types = {'skin', 'case', 'sticker', 'agent', 'glove', 'graffiti', 'patch', 'other'}
         return item_type.lower() in valid_types
+
+    @staticmethod
+    def validate_price_record(price_record: Dict) -> Tuple[bool, Optional[str]]:
+        """Validate a complete price record."""
+        return DataCleaner.validate_price_record(price_record)
+
+    @staticmethod
+    def compute_anomaly_score(current_price: float, historical_prices: List[float], 
+                              window_size: int = 30) -> float:
+        """Compatibility wrapper for anomaly scoring."""
+        return DataCleaner.compute_anomaly_score(current_price, historical_prices, window_size)
+
+    @staticmethod
+    def detect_market_manipulation(prices: List[float], volumes: List[int], 
+                                   lookback: int = 7) -> Tuple[bool, Optional[str]]:
+        """Compatibility wrapper for market manipulation detection."""
+        return DataCleaner.detect_market_manipulation(prices, volumes, lookback)
+
+    @staticmethod
+    def filter_outliers(prices: List[float], threshold: float = 3.0) -> List[float]:
+        """Compatibility wrapper for outlier filtering."""
+        return DataCleaner.filter_outliers(prices, threshold)
     
     @staticmethod
     def parse_item_name(market_hash_name: str) -> Tuple[str, Optional[str]]:
@@ -162,6 +184,21 @@ class DataCleaner:
         import unicodedata
         name = unicodedata.normalize('NFKD', name)
         return name.strip()
+
+    @staticmethod
+    def sanitize_price(price: float) -> float:
+        """Compatibility wrapper for older collector code."""
+        return DataCleaner.clean_price_data(price)
+
+    @staticmethod
+    def sanitize_volume(volume: Optional[int]) -> Optional[int]:
+        """Compatibility wrapper for older collector code."""
+        return DataCleaner.clean_volume_data(volume)
+
+    @staticmethod
+    def sanitize_item_name(name: str) -> str:
+        """Compatibility wrapper for older collector code."""
+        return DataCleaner.clean_item_name(name)
     
     @staticmethod
     def deduplicate_items(items: List[Dict]) -> List[Dict]:
