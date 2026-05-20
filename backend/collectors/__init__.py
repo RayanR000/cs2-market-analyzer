@@ -1,4 +1,5 @@
 from .steam_market import SteamMarketCollector, MockSteamMarketCollector
+from .marketplace_sources import SkinportMarketCollector, DMarketCollector
 from .data_validation import DataValidator, DataCleaner
 from .pipeline import DataPipeline, PipelineMonitor
 from .cs2_data_sources import CS2ItemCatalog, CS2GameEvents, HistoricalDataGenerator
@@ -7,6 +8,8 @@ from .comprehensive_loader import ComprehensiveDataLoader, load_all_cs2_data, lo
 __all__ = [
     'SteamMarketCollector',
     'MockSteamMarketCollector',
+    'SkinportMarketCollector',
+    'DMarketCollector',
     'DataValidator',
     'DataCleaner',
     'DataPipeline',

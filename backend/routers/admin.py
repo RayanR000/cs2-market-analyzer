@@ -3,7 +3,7 @@ Admin endpoints for data collection management
 """
 
 from fastapi import APIRouter
-from sqlalchemy import func
+from sqlalchemy import func, distinct
 from typing import Optional
 from collectors.real_data_collector import get_collector
 from config import settings
@@ -28,6 +28,48 @@ def _serialize_collection_run(run: Optional[CollectionRun]) -> Optional[dict]:
         "duration_seconds": run.duration_seconds,
         "error_message": run.error_message,
         "source_breakdown": run.source_breakdown or {},
+    }
+
+
+def _build_coverage_report(db: SessionLocal) -> dict:
+    """Summarize which tracked items have at least one price record per source."""
+    total_items = db.query(Item).count()
+
+    source_coverage_rows = db.query(
+        PriceHistory.source,
+        func.count(distinct(PriceHistory.item_id))
+    ).group_by(PriceHistory.source).all()
+
+    covered_item_ids = db.query(distinct(PriceHistory.item_id)).all()
+    covered_item_id_set = {row[0] for row in covered_item_ids}
+    covered_items = db.query(Item).filter(Item.id.in_(covered_item_id_set)).all() if covered_item_id_set else []
+    covered_item_names = sorted({item.name for item in covered_items})
+
+    uncovered_items = db.query(Item).filter(~Item.id.in_(covered_item_id_set)).all() if covered_item_id_set else db.query(Item).all()
+    uncovered_item_names = sorted(item.name for item in uncovered_items)
+
+    per_item_source_rows = db.query(
+        Item.name,
+        PriceHistory.source
+    ).join(PriceHistory, PriceHistory.item_id == Item.id).distinct().all()
+
+    per_item_sources = {}
+    for item_name, source in per_item_source_rows:
+        per_item_sources.setdefault(item_name, []).append(source)
+
+    for sources in per_item_sources.values():
+        sources.sort()
+
+    return {
+        "total_items": total_items,
+        "covered_items": len(covered_item_names),
+        "coverage_ratio": round(len(covered_item_names) / total_items, 4) if total_items else 0,
+        "source_coverage": {
+            source: count for source, count in source_coverage_rows
+        },
+        "covered_item_names": covered_item_names,
+        "uncovered_item_names": uncovered_item_names,
+        "per_item_sources": per_item_sources,
     }
 
 @router.post("/collect-now")
@@ -90,6 +132,7 @@ async def get_data_statistics():
             PriceHistory.source,
             func.count(PriceHistory.id)
         ).group_by(PriceHistory.source).all()
+        coverage = _build_coverage_report(db)
         
         # Get price range
         all_prices = db.query(PriceHistory).all()
@@ -109,6 +152,7 @@ async def get_data_statistics():
             "source_breakdown": {
                 source: count for source, count in source_rows
             },
+            "coverage": coverage,
             "price_statistics": {
                 "min": round(min_price, 2),
                 "max": round(max_price, 2),
@@ -116,5 +160,14 @@ async def get_data_statistics():
                 "count": total_prices
             }
         }
+    finally:
+        db.close()
+
+@router.get("/coverage-report")
+async def get_coverage_report():
+    """Get item-level source coverage for the tracked catalog."""
+    db = SessionLocal()
+    try:
+        return _build_coverage_report(db)
     finally:
         db.close()

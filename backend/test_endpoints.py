@@ -392,6 +392,17 @@ class TestAdminEndpoints:
         assert data["collector"]["status"] == "idle"
         assert "steam" in data["source_breakdown"]
 
+    def test_coverage_report_exposes_item_coverage(self):
+        """Test GET /admin/coverage-report includes tracked item coverage."""
+        response = client.get("/admin/coverage-report")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "total_items" in data
+        assert "covered_items" in data
+        assert "coverage_ratio" in data
+        assert "source_coverage" in data
+
 
 class TestErrorHandling:
     """Tests for error handling across endpoints"""
