@@ -14,32 +14,23 @@ logger = logging.getLogger(__name__)
 class CS2ItemCatalog:
     """Complete CS2 item catalog with historical metadata"""
     
-    # Complete weapon skin families by rarity
+    # deduplicated skin lists
     AK47_SKINS = [
-        ('AK-47 | Dragon Lore', 2013, 1),  # legendary, early
         ('AK-47 | Bloodsport', 2020, 2),
         ('AK-47 | Neon Rider', 2015, 2),
         ('AK-47 | Phantom Disruptor', 2020, 2),
         ('AK-47 | Frontside Misty', 2015, 2),
         ('AK-47 | Legion of Anubis', 2015, 2),
-        ('AK-47 | Phantom Disruptor', 2020, 2),
         ('AK-47 | Uncharted', 2020, 2),
         ('AK-47 | Neon Cherimoya', 2020, 2),
         ('AK-47 | Bloodhound', 2016, 2),
-        ('AK-47 | Frontside Misty', 2015, 2),
-        ('AK-47 | Phantom Disruptor', 2020, 2),
-        ('AK-47 | Neon Rider', 2015, 2),
-        ('AK-47 | Phantom Disruptor', 2020, 2),
         ('AK-47 | Aquamarine Revenge', 2015, 1),
-        ('AK-47 | Phantom Disruptor', 2020, 2),
-        ('AK-47 | Bloodsport', 2020, 2),
-        ('AK-47 | Neon Rider', 2015, 2),
     ]
     
     M4_SKINS = [
         ('M4A4 | Asiimov', 2014, 2),
         ('M4A4 | Poseidon', 2015, 2),
-        ('M4A4 | Howl', 2014, 1),  # legendary
+        ('M4A4 | Howl', 2014, 1),
         ('M4A4 | Royal Paladin', 2017, 2),
         ('M4A4 | Daybreak', 2017, 2),
         ('M4A4 | Buzz Kill', 2020, 2),
@@ -58,24 +49,24 @@ class CS2ItemCatalog:
     ]
     
     AWP_SKINS = [
-        ('AWP Dragon Lore', 2013, 1),  # legendary
-        ('AWP Asiimov', 2014, 2),
-        ('AWP Medusa', 2015, 1),
-        ('AWP Pink DDPAT', 2013, 2),
-        ('AWP Boom', 2013, 2),
-        ('AWP Lightning Strike', 2014, 2),
-        ('AWP Phantom Disruptor', 2020, 2),
-        ('AWP Containment Breach', 2020, 2),
-        ('AWP Gungnir', 2017, 2),
-        ('AWP Graphite', 2017, 2),
-        ('AWP Oni Taiji', 2019, 2),
-        ('AWP Marble Fade', 2015, 1),
-        ('AWP Chromatic Aberration', 2020, 2),
-        ('AWP Fade', 2013, 2),
-        ('AWP The Prince', 2016, 2),
-        ('AWP Exoskeleton', 2016, 2),
-        ('AWP Duality', 2017, 2),
-        ('AWP Hyperbeast', 2015, 2),
+        ('AWP | Dragon Lore', 2013, 1),
+        ('AWP | Asiimov', 2014, 2),
+        ('AWP | Medusa', 2015, 1),
+        ('AWP | Pink DDPAT', 2013, 2),
+        ('AWP | Boom', 2013, 2),
+        ('AWP | Lightning Strike', 2014, 2),
+        ('AWP | Phantom Disruptor', 2020, 2),
+        ('AWP | Containment Breach', 2020, 2),
+        ('AWP | Gungnir', 2017, 2),
+        ('AWP | Graphite', 2017, 2),
+        ('AWP | Oni Taiji', 2019, 2),
+        ('AWP | Marble Fade', 2015, 1),
+        ('AWP | Chromatic Aberration', 2020, 2),
+        ('AWP | Fade', 2013, 2),
+        ('AWP | The Prince', 2016, 2),
+        ('AWP | Exoskeleton', 2016, 2),
+        ('AWP | Duality', 2017, 2),
+        ('AWP | Hyperbeast', 2015, 2),
     ]
     
     KNIFE_SKINS = [
@@ -165,7 +156,6 @@ class CS2ItemCatalog:
         ('AUG | Bengal Tiger', 2014, 2),
     ]
     
-    # Cases (popular/recent)
     CASES = [
         ('CS2 Weapon Case', 2023, 1),
         ('Recoil Case', 2022, 1),
@@ -184,7 +174,6 @@ class CS2ItemCatalog:
         ('Chop Shop Collection', 2016, 1),
     ]
     
-    # Stickers (popular teams, events, regular)
     STICKERS = [
         ('Navi Sticker', 2022, 2),
         ('Astralis Sticker', 2017, 2),
