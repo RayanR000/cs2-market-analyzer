@@ -7,7 +7,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "postgresql://user:password@localhost:5432/cs2_market"
+    database_url: str = "sqlite:///backend/cs2_market.db"
     
     # Application
     app_name: str = "CS2 Market Intelligence API"

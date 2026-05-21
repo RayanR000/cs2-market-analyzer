@@ -31,7 +31,7 @@
 - **Font stack:** 'IBM Plex Mono' for data (professional, precise), Inter for UI (clean, modern)
 - **Headline:** Inter, 600 weight, sentence case (no unnecessary caps)
 - **Body:** Inter, 14px, 1.5 line-height, letter-spacing: normal
-- **Data:** IBM Plex Mono or system monospace, 13px (prices, floats, numbers)
+- **Data:** IBM Plex Mono or system monospace, 13px (prices, numbers)
 - **Scale:**
   - H1: 28px, 600 weight
   - H2: 20px, 600 weight

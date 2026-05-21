@@ -153,8 +153,8 @@ export default function Home() {
               accent="primary"
             />
             <FeatureCard
-              title="Quality & Float Analysis"
-              description="Examine item conditions from Factory New to Battle-Scarred. Price variations by float value and condition tiers."
+              title="Quality Tier Analysis"
+              description="Examine item conditions from Factory New to Battle-Scarred. Track price variations across different condition tiers."
               icon="💎"
               accent="secondary"
             />
