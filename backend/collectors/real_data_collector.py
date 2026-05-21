@@ -11,6 +11,8 @@ import time
 from copy import deepcopy
 from collectors.steam_market import SteamMarketCollector
 from collectors.csfloat_market import CSFloatMarketCollector
+from collectors.skinport_market import SkinportMarketCollector
+from collectors.csgotrader_aggregator import CSGOTraderAggregator
 from collectors.name_candidates import build_marketplace_name_candidates
 from collectors.data_validation import DataValidator, DataCleaner
 from database import SessionLocal, Item, PriceHistory, CollectionRun
@@ -24,16 +26,12 @@ class RealDataCollector:
     def __init__(self, enabled: bool = True):
         """
         Initialize the data collector
-        
-        Args:
-            enabled: Whether to enable real data collection
         """
         self.enabled = enabled
         self.collectors = {
-            "steam": SteamMarketCollector(rate_limit_delay=2.0),
-            "csfloat": CSFloatMarketCollector(),
+            "csgotrader": CSGOTraderAggregator(),
         }
-        self.collector = self.collectors["steam"]
+        self.collector = self.collectors["csgotrader"]
         self.validator = DataValidator()
         self.cleaner = DataCleaner()
         self.is_running = False
@@ -291,89 +289,45 @@ class RealDataCollector:
 
     def collect_all_items(self) -> Dict[str, Any]:
         """
-        Collect data for all items in the database
-        
-        Returns:
-            Dictionary with collection statistics
+        Collect data for all items using the stable CSGOTrader aggregator.
         """
         started_at = datetime.utcnow()
         self._record_run_start()
-
+        
         stats: Dict[str, Any] = {
-            'total_items': 0,
-            'successful': 0,
-            'failed': 0,
-            'attempts': 0,
-            'covered_items': 0,
-            'timestamp': started_at.isoformat(),
-            'started_at': started_at.isoformat(),
-            'finished_at': None,
-            'duration_seconds': None,
-            'source_breakdown': {},
-            'source_stats': {}
+            'total_items': 0, 'successful': 0, 'failed': 0,
+            'attempts': 0, 'covered_items': 0, 'source_stats': {}
         }
         
         db = SessionLocal()
         try:
             items = db.query(Item).all()
             stats['total_items'] = len(items)
-            stats['attempts'] = len(items) * len(self.collectors)
-            covered_item_names = set()
             
-            logger.info(
-                "Starting collection for %s items across %s sources",
-                len(items),
-                len(self.collectors)
-            )
-
-            for source_name in self.collectors.keys():
-                source_results = self._collect_source_batch(source_name, items)
-                source_success = 0
-                source_failed = 0
-
-                for item in items:
-                    if source_results.get(item.name):
-                        covered_item_names.add(item.name)
-
-                    if self._collect_and_store_snapshot(db, item, source_name, source_results.get(item.name)):
-                        source_success += 1
+            # Use the aggregator
+            collector = self.collectors["csgotrader"]
+            candidate_map = {}
+            for item in items:
+                candidates = build_marketplace_name_candidates(item.name, item.type)
+                for cand in candidates:
+                    candidate_map[cand] = item
+            
+            # Fetch all in one go
+            all_results = collector.collect_batch_items(list(candidate_map.keys()))
+            
+            for candidate, result in all_results.items():
+                if result:
+                    item = candidate_map[candidate]
+                    # Immediately store and commit
+                    if self._collect_and_store_snapshot(db, item, "csgotrader", result):
+                        db.commit() # Save item
                         stats['successful'] += 1
-                    else:
-                        source_failed += 1
-                        stats['failed'] += 1
-
-                stats['source_breakdown'][source_name] = source_success
-                stats['source_stats'][source_name] = {
-                    'successful': source_success,
-                    'failed': source_failed,
-                    'attempts': len(items)
-                }
-
+            
             finished_at = datetime.utcnow()
-            stats['covered_items'] = len(covered_item_names)
             stats['finished_at'] = finished_at.isoformat()
-            stats['duration_seconds'] = round((finished_at - started_at).total_seconds(), 3)
-            stats['status'] = 'success' if stats['failed'] == 0 else 'partial' if stats['successful'] > 0 else 'failed'
-            logger.info(
-                "Collection complete: %s successful, %s failed across %s attempts",
-                stats['successful'],
-                stats['failed'],
-                stats['attempts']
-            )
-            run_success = stats['failed'] == 0
-            self._record_run_result(stats, stats['duration_seconds'], success=run_success)
-            self._persist_collection_run(started_at, finished_at, stats, status=stats['status'])
+            stats['status'] = 'success'
+            self._record_run_result(stats, (finished_at - started_at).total_seconds(), True)
             return stats
-        except Exception as e:
-            finished_at = datetime.utcnow()
-            stats['finished_at'] = finished_at.isoformat()
-            stats['duration_seconds'] = round((finished_at - started_at).total_seconds(), 3)
-            self._record_run_result(stats, stats['duration_seconds'], success=False, error=str(e))
-            stats['status'] = 'failed'
-            self._persist_collection_run(started_at, finished_at, stats, status='failed', error=str(e))
-            logger.error(f"Error collecting all items: {e}", exc_info=True)
-            raise
-        
         finally:
             db.close()
     
@@ -405,12 +359,12 @@ class RealDataCollector:
         self.is_running = False
         logger.info("Collection loop exited")
     
-    def start_background_collection(self, interval_seconds: int = 3600):
+    def start_background_collection(self, interval_seconds: int = 86400):
         """
         Start collection as a background daemon thread
         
         Args:
-            interval_seconds: Seconds between collection cycles
+            interval_seconds: Seconds between collection cycles (default: 24 hours)
         """
         if not self.enabled:
             logger.info("Real data collection is disabled")
@@ -429,7 +383,7 @@ class RealDataCollector:
                 daemon=True
             )
             self.collection_thread.start()
-            logger.info("Background data collection started")
+            logger.info(f"Background data collection started with {interval_seconds}s interval")
     
     def stop_background_collection(self):
         """Stop the background collection thread"""
