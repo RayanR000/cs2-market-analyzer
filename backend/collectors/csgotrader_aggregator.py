@@ -1,0 +1,81 @@
+"""
+CSGOTrader market aggregator.
+Fetches comprehensive price data from public JSON endpoints.
+"""
+
+import logging
+import requests
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+class CSGOTraderAggregator:
+    """Aggregator that fetches prices from public CSGOTrader endpoints."""
+    
+    # Standard public endpoints
+    STEAM_URL = "https://prices.csgotrader.app/latest/steam.json"
+    SKINPORT_URL = "https://prices.csgotrader.app/latest/skinport.json"
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; CS2Analyzer/1.0)"})
+        self._price_cache = {}
+
+    def fetch_all_prices(self) -> Dict[str, float]:
+        """Fetch latest prices from public endpoints and merge them."""
+        prices = {}
+        for url in [self.STEAM_URL, self.SKINPORT_URL]:
+            try:
+                response = self.session.get(url, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+                
+                # CSGOTrader price data is nested under a "data" key in some versions
+                if "data" in data:
+                    data = data["data"]
+                    
+                # Iterate and extract
+                for item_name, info in data.items():
+                    if isinstance(info, dict):
+                        # CSGOTrader price data is often under 'last_24h'
+                        price = info.get('last_24h') or info.get('price')
+                        if price is not None:
+                            prices[item_name] = float(price)
+                    elif isinstance(info, (int, float)):
+                        prices[item_name] = float(info)
+            except Exception as e:
+                logger.error(f"Failed to fetch {url}: {e}")
+        return prices
+
+    def collect_batch_items(self, item_names: List[str]) -> Dict[str, Optional[Tuple[float, int, datetime]]]:
+        """Fetch prices for a list of items using fuzzy matching."""
+        if not self._price_cache:
+            self._price_cache = self.fetch_all_prices()
+            
+        results = {}
+        # Pre-process cache keys to lower-case
+        cache_keys = {k.lower(): k for k in self._price_cache.keys()}
+        
+        qualities = ["(Factory New)", "(Minimal Wear)", "(Field-Tested)", "(Well-Worn)", "(Battle-Scarred)"]
+            
+        for name in item_names:
+            name_lower = name.lower()
+            found_key = None
+            
+            # 1. Direct/Exact match
+            if name_lower in cache_keys:
+                found_key = cache_keys[name_lower]
+            else:
+                # 2. Try adding quality suffix
+                for q in qualities:
+                    candidate = f"{name_lower} {q.lower()}".replace("  ", " ")
+                    if candidate in cache_keys:
+                        found_key = cache_keys[candidate]
+                        break
+            
+            if found_key:
+                price = self._price_cache[found_key]
+                results[name] = (float(price), 0, datetime.utcnow())
+        
+        return results
