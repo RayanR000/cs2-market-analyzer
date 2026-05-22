@@ -30,6 +30,7 @@ class RealDataCollector:
         self.enabled = enabled
         self.collectors = {
             "csgotrader": CSGOTraderAggregator(),
+            "steam": SteamMarketCollector(rate_limit_delay=15.0),
         }
         self.collector = self.collectors["csgotrader"]
         self.validator = DataValidator()
@@ -286,6 +287,85 @@ class RealDataCollector:
         except Exception as e:
             logger.error("Error collecting batch from %s: %s", source_name, e, exc_info=True)
             return {item.name: None for item in items}
+
+    def discover_new_items_from_steam(self, max_items: int = 5000) -> Dict[str, Any]:
+        """
+        Discover new items from Steam Community Market by browsing listings.
+        This discovers items that don't exist in our database yet.
+        """
+        logger.info(f"Starting Steam marketplace discovery (max {max_items} items)...")
+        steam_collector = self.collectors["steam"]
+        stats = {
+            'discovered': 0,
+            'added_to_db': 0,
+            'already_exists': 0,
+            'errors': 0,
+            'items': []
+        }
+
+        db = SessionLocal()
+        try:
+            # Browse Steam market listings to find items
+            start = 0
+            discovered_names = set()
+
+            while stats['discovered'] < max_items:
+                logger.info(f"Fetching listings from offset {start}...")
+                listings = steam_collector.get_market_listings(start=start, count=100)
+
+                if not listings or 'results' not in listings or not listings['results']:
+                    logger.info("No more listings found")
+                    break
+
+                for item_data in listings['results']:
+                    if 'hash_name' not in item_data:
+                        continue
+
+                    hash_name = item_data['hash_name']
+                    if hash_name in discovered_names:
+                        continue
+
+                    discovered_names.add(hash_name)
+                    stats['discovered'] += 1
+
+                    # Check if item already exists
+                    existing = db.query(Item).filter(Item.name == hash_name).first()
+                    if existing:
+                        stats['already_exists'] += 1
+                        continue
+
+                    # Add new item
+                    try:
+                        new_item = Item(
+                            item_id=f"steam_{hash_name.lower().replace(' ', '_')}",
+                            name=hash_name,
+                            type='skin',
+                            release_date=None
+                        )
+                        db.add(new_item)
+                        db.commit()
+                        stats['added_to_db'] += 1
+                        stats['items'].append(hash_name)
+                        logger.info(f"Added new item: {hash_name}")
+                    except Exception as e:
+                        db.rollback()
+                        logger.error(f"Error adding item {hash_name}: {e}")
+                        stats['errors'] += 1
+
+                start += 100
+
+                if stats['discovered'] >= max_items:
+                    break
+
+            logger.info(f"Steam discovery complete: {stats}")
+            return stats
+
+        except Exception as e:
+            logger.error(f"Error during Steam discovery: {e}")
+            stats['errors'] += 1
+            return stats
+        finally:
+            db.close()
 
     def collect_all_items(self) -> Dict[str, Any]:
         """
