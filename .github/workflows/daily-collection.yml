@@ -36,12 +36,12 @@ jobs:
           python -c "
           import sys
           sys.path.insert(0, '.')
-          from collectors.base_collector import run_collection_cycle
+          from collectors.real_data_collector import start_real_data_collection
           from config import settings
 
           print('[Collection] Starting daily data collection...')
           try:
-              run_collection_cycle()
+              start_real_data_collection()
               print('[Collection] ✓ Collection completed successfully')
           except Exception as e:
               print(f'[Collection] ✗ Collection failed: {e}')
