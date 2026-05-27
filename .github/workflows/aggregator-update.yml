@@ -36,11 +36,3 @@ jobs:
           ENVIRONMENT: production
           DEBUG: false
         run: python scripts/run_task.py aggregate
-
-      - name: Run Trend Analysis
-        working-directory: ./backend
-        env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          ENVIRONMENT: production
-          DEBUG: false
-        run: python scripts/run_task.py trends
