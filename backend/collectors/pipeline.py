@@ -100,49 +100,63 @@ class DataPipeline:
             logger.info("Data pipeline stopped")
     
     def run_priority_collection(self):
-        """Execute priority collection for top 2000 items every 6 hours"""
+        """Execute priority collection for top 2000 items using fast aggregator"""
+        return self.run_full_aggregator_collection(limit=2000)
+
+    def run_full_aggregator_collection(self, limit: Optional[int] = None):
+        """
+        Execute collection for items using fast aggregator.
+        If limit is None, updates ALL items in the database.
+        """
         try:
-            logger.info("Starting priority market data collection (Top 2000)")
+            logger.info(f"Starting aggregator collection (limit: {limit if limit else 'ALL'})")
             
             from collectors.csgotrader_aggregator import CSGOTraderAggregator
-            from repositories import ItemRepository
-            from database import PriceHistory
+            from database import Item, PriceHistory
             
             if not self.db_session:
                 logger.error("Database session not available")
                 return {"status": "failed", "error": "No database session"}
                 
-            # 1. Identify top 2000 items
-            logger.info("Identifying top 2000 items based on liquidity...")
-            top_items = ItemRepository.get_top_items(self.db_session, limit=2000)
-            if not top_items:
+            # 1. Fetch items
+            query = self.db_session.query(Item)
+            if limit:
+                # Use liquidity-based sorting for limited runs
+                from repositories import ItemRepository
+                items = ItemRepository.get_top_items(self.db_session, limit=limit)
+            else:
+                items = query.all()
+                
+            if not items:
                 logger.warning("No items found to update.")
                 return {"status": "skipped", "reason": "no_items"}
                 
             # 2. Fetch prices from aggregator
             aggregator = CSGOTraderAggregator()
-            item_names = [item.name for item in top_items]
-            results = aggregator.collect_batch_items(item_names)
+            # Map names to items for fast lookup
+            item_map = {item.name: item for item in items}
+            results = aggregator.collect_batch_items(list(item_map.keys()))
             
             # 3. Store results
             price_records = []
             now = datetime.utcnow()
             
-            for item in top_items:
-                res = results.get(item.name)
+            for name, item in item_map.items():
+                res = results.get(name)
                 if res and res[0] > 0:
                     price_records.append(PriceHistory(
                         item_id=item.id,
                         timestamp=now,
                         price=res[0],
                         volume=res[1],
-                        source='aggregator_priority'
+                        source='aggregator_sync'
                     ))
             
             if price_records:
+                # Use bulk save for efficiency
                 self.db_session.bulk_save_objects(price_records)
                 self.db_session.commit()
-                logger.info(f"Priority collection complete: {len(price_records)} items updated.")
+                logger.info(f"Aggregator collection complete: {len(price_records)} items updated.")
                 return {"status": "success", "count": len(price_records)}
                 
             return {"status": "success", "count": 0}
@@ -150,7 +164,7 @@ class DataPipeline:
         except Exception as e:
             if self.db_session:
                 self.db_session.rollback()
-            logger.error(f"Error in priority collection: {e}", exc_info=True)
+            logger.error(f"Error in aggregator collection: {e}", exc_info=True)
             return {"status": "failed", "error": str(e)}
 
     def run_daily_collection(self):
@@ -377,10 +391,10 @@ class DataPipeline:
                 logger.error("Database session not available")
                 return {"status": "failed", "error": "No database session"}
             
-            # Use defaults: 1 year for history, 180 days for trends, 30 days for granularity
+            # Use defaults: 1 year for history, 180 days for trends, 7 days for granularity
             pruned_history = prune_price_history(self.db_session, days_to_keep=365, dry_run=False)
             pruned_trends = prune_trend_indicators(self.db_session, days_to_keep=180, dry_run=False)
-            downsampled = downsample_price_history(self.db_session, days_to_keep_granular=30, dry_run=False)
+            downsampled = downsample_price_history(self.db_session, days_to_keep_granular=7, dry_run=False)
             
             logger.info(f"Database pruning completed: "
                       f"Deleted {pruned_history} old history, "
