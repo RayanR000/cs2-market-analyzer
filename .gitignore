@@ -4,6 +4,9 @@
 .env.*.local
 # NOTE: .env.example is NOT ignored - it's committed as a template
 
+# Local documentation (keep locally but don't commit)
+WORKFLOW_MONITORING.md
+
 # Backend - Python
 backend/venv/
 backend/__pycache__/
