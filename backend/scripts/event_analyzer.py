@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import numpy as np
 from scipy import stats
+from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -27,15 +28,43 @@ class EventAnalyzer:
     def __init__(self, db_session):
         self.db = db_session
         self.analysis_date = datetime.utcnow().date()
+        self.price_cache = {}  # Cache prices to avoid repeated queries
+
+    def batch_load_prices(self, item_ids, start_date, end_date):
+        """
+        Batch load all prices for items in date range (single query instead of thousands).
+        Stores in memory for fast lookups.
+        """
+        logger.info(f"Batch loading prices for {len(item_ids)} items from {start_date} to {end_date}...")
+
+        start_dt = datetime.combine(start_date, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.max.time())
+
+        prices = self.db.query(PriceHistory).filter(
+            PriceHistory.item_id.in_(item_ids),
+            PriceHistory.timestamp >= start_dt,
+            PriceHistory.timestamp <= end_dt
+        ).order_by(PriceHistory.item_id, PriceHistory.timestamp.desc()).all()
+
+        # Organize by item_id for fast lookup
+        for price in prices:
+            if price.item_id not in self.price_cache:
+                self.price_cache[price.item_id] = []
+            self.price_cache[price.item_id].append(price)
+
+        logger.info(f"Loaded {len(prices)} price records into cache")
 
     def get_price_on_date(self, item_id, target_date):
-        """Get the closest price to a target date."""
-        price = self.db.query(PriceHistory).filter(
-            PriceHistory.item_id == item_id,
-            PriceHistory.timestamp <= datetime.combine(target_date, datetime.max.time())
-        ).order_by(PriceHistory.timestamp.desc()).first()
+        """Get the closest price to a target date from cache."""
+        if item_id not in self.price_cache:
+            return None
 
-        return price.price if price else None
+        # Find closest price on or before target_date
+        for price in self.price_cache[item_id]:
+            if price.timestamp.date() <= target_date:
+                return price.price
+
+        return None
 
     def get_price_change_percentage(self, price_before, price_after):
         """Calculate percentage change between two prices."""
@@ -121,31 +150,42 @@ class EventAnalyzer:
         return impact
 
     def learn_event_patterns(self, event_type, item_id=None):
-        """Learn patterns from historical events of a type."""
-        impacts = self.db.query(EventImpact).join(Event).filter(
-            Event.type == event_type,
-            EventImpact.item_id == item_id if item_id else True
-        ).all()
+        """Learn patterns from historical events of a type using database aggregations."""
+        # Use database aggregations instead of pulling all impacts to Python
+        query_sql = """
+        SELECT
+            COUNT(*) as sample_size,
+            AVG(impact_pct_1day) as avg_1day,
+            AVG(impact_pct_3day) as avg_3day,
+            AVG(impact_pct_7day) as avg_7day,
+            STDDEV_POP(impact_pct_1day) as std_dev
+        FROM event_impacts
+        JOIN events ON event_impacts.event_id = events.id
+        WHERE events.type = :event_type
+        """
 
-        if not impacts or len(impacts) < 2:
+        params = {'event_type': event_type}
+
+        if item_id is not None:
+            query_sql += " AND event_impacts.item_id = :item_id"
+            params['item_id'] = item_id
+
+        result = self.db.execute(text(query_sql), params).fetchone()
+
+        if not result or result[0] < 2:
             return None  # Not enough data
 
-        impacts_1day = [i.impact_pct_1day for i in impacts if i.impact_pct_1day is not None]
-        impacts_3day = [i.impact_pct_3day for i in impacts if i.impact_pct_3day is not None]
-        impacts_7day = [i.impact_pct_7day for i in impacts if i.impact_pct_7day is not None]
+        sample_size, avg_1day, avg_3day, avg_7day, std_dev = result
 
-        if not impacts_1day:
+        if avg_1day is None:
             return None
 
-        # Calculate statistics
-        avg_1day = float(np.mean(impacts_1day))
-        avg_3day = float(np.mean(impacts_3day)) if impacts_3day else None
-        avg_7day = float(np.mean(impacts_7day)) if impacts_7day else None
-        std_dev = float(np.std(impacts_1day))
+        avg_1day = float(avg_1day)
+        std_dev = float(std_dev) if std_dev else 0.0
 
-        # Consistency score: how consistent is the pattern? (inverse of coefficient of variation)
+        # Consistency score: inverse of coefficient of variation
         if avg_1day != 0:
-            cv = abs(std_dev / avg_1day)  # Coefficient of variation
+            cv = abs(std_dev / avg_1day)
             consistency_score = float(np.clip(1.0 - min(cv, 1.0), 0, 1))
         else:
             consistency_score = 0.5
@@ -153,13 +193,13 @@ class EventAnalyzer:
         pattern = EventPattern(
             event_type=event_type,
             item_id=item_id,
-            sample_size=len(impacts),
+            sample_size=int(sample_size),
             avg_impact_1day=avg_1day,
-            avg_impact_3day=avg_3day,
-            avg_impact_7day=avg_7day,
+            avg_impact_3day=float(avg_3day) if avg_3day else None,
+            avg_impact_7day=float(avg_7day) if avg_7day else None,
             std_dev=std_dev,
             consistency_score=consistency_score,
-            holdout_accuracy=consistency_score  # Placeholder: would compute with holdout set
+            holdout_accuracy=consistency_score
         )
 
         return pattern
@@ -297,10 +337,19 @@ class EventAnalyzer:
         total_events = len(events)
         logger.info(f"Analyzing {total_events} events...")
 
-        # Process each event for a sample of items
-        # To keep compute manageable, analyze top 100 items by trading volume
-        top_items = self.db.query(Item.id).limit(100).all()
+        # Analyze top 1000 items by trading volume (can adjust this number)
+        top_items = self.db.query(Item.id).limit(1000).all()
         item_ids = [item[0] for item in top_items]
+        logger.info(f"Analyzing {len(item_ids)} items")
+
+        # Batch load all prices needed for analysis (single query vs thousands)
+        # Get date range: earliest event minus 1 day to latest event plus 7 days
+        if events:
+            earliest_event = min(e.timestamp.date() for e in events)
+            latest_event = max(e.timestamp.date() for e in events)
+            start_date = earliest_event - timedelta(days=1)
+            end_date = latest_event + timedelta(days=7)
+            self.batch_load_prices(item_ids, start_date, end_date)
 
         impacts_recorded = 0
         patterns_learned = 0

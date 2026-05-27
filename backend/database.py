@@ -68,6 +68,7 @@ class PriceHistory(Base):
 
     __table_args__ = (
         Index('idx_price_history_item_timestamp', 'item_id', 'timestamp'),
+        Index('idx_price_history_item_timestamp_desc', 'item_id', 'timestamp', postgresql_ops={'timestamp': 'DESC'}),
         Index('idx_price_history_source', 'source'),
     )
 
