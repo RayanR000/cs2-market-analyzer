@@ -206,29 +206,30 @@ class SteamMarketCollector:
             Dictionary containing processed results and total count
         """
         url = f"{self.BASE_URL}/search/render/"
+        # Removed query to allow Steam to return the default list
         params = {
-            'query': '',
             'appid': 730,
             'search_descriptions': 0,
             'sort_column': 'name',
             'sort_dir': 'asc',
             'start': start,
             'count': min(count, 100),
-            'norender': 1,
-            'currency': 1  # USD
+            'norender': 1
         }
         
+        logger.info(f"Fetching from: {url} with params: {params}")
         data = self._make_request(url, params)
-        if not data or not data.get('success') or 'results' not in data:
+        if not data or not data.get('success'):
+            logger.warning(f"Steam API returned unsuccessful response. Data: {data}")
             return None
             
         processed_results = []
-        for res in data['results']:
+        for res in data.get('results', []):
             processed_results.append({
                 'hash_name': res.get('hash_name'),
                 'price': self._parse_price(res.get('sell_price_text')),
                 'volume': int(res.get('sell_listings', 0)),
-                'median_price': self._parse_price(res.get('sell_price_text')) # Render doesn't give median easily
+                'median_price': self._parse_price(res.get('sell_price_text'))
             })
             
         return {
@@ -292,13 +293,13 @@ class SteamMarketCollector:
     
     def get_price_trend(self, item_name: str) -> Optional[Dict]:
         """
-        Get price trend data (low/high) for an item
+        Get price trend data (low/high/volume) for an item using Price Overview API.
         
         Args:
             item_name: Item market hash name
             
         Returns:
-            Dictionary with low, high, volume trend or None if failed
+            Dictionary with lowest_price, volume, and timestamp
         """
         url = f"{self.BASE_URL}/priceoverview/"
         params = {
@@ -310,10 +311,20 @@ class SteamMarketCollector:
         try:
             data = self._make_request(url, params)
             if data and data.get('success'):
+                # Extract volume safely
+                volume_str = data.get('volume', '0')
+                if isinstance(volume_str, str):
+                    volume = int(volume_str.replace(',', ''))
+                else:
+                    volume = int(volume_str or 0)
+                
+                # Extract lowest price safely
+                price_str = data.get('lowest_price', '0')
+                price = self._parse_price(price_str)
+                
                 return {
-                    'lowest_price': float(data.get('lowest_price', '0').replace('$', '').replace(',', '')) or None,
-                    'highest_price': float(data.get('median_price', '0').replace('$', '').replace(',', '')) or None,
-                    'volume': data.get('volume'),
+                    'lowest_price': price,
+                    'volume': volume,
                     'timestamp': datetime.utcnow()
                 }
             return None
