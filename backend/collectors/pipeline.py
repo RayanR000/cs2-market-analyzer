@@ -149,12 +149,14 @@ class DataPipeline:
 
             for name, item in item_map.items():
                 res = results.get(name)
-                if res and res[0] > 0:
+                if res and len(res) >= 2 and res[0] > 0:
+                    # Aggregator returns (price, volume, timestamp)
+                    price, volume = res[0], res[1]
                     price_records.append(PriceHistory(
                         item_id=item.id,
                         timestamp=now,
-                        price=res[0],
-                        volume=res[1],
+                        price=price,
+                        volume=volume,
                         source='aggregator_sync'
                     ))
                     items_collected += 1
