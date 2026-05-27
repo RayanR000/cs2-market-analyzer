@@ -29,49 +29,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Test database connectivity
-        env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-        run: |
-          echo "Testing Supabase connection..."
-          python3 << 'EOF'
-          import os
-          from urllib.parse import urlparse
-          import socket
-
-          db_url = os.getenv('DATABASE_URL')
-          print(f"Connection string present: {bool(db_url)}")
-
-          if db_url:
-            parsed = urlparse(db_url)
-            print(f"Host: {parsed.hostname}")
-            print(f"Port: {parsed.port}")
-            print(f"Database: {parsed.path}")
-            print(f"User: {parsed.username}")
-            print(f"Password: {'*' * 5}...")
-
-            # Try to resolve hostname
-            try:
-              ip = socket.gethostbyname(parsed.hostname)
-              print(f"✅ DNS resolved {parsed.hostname} to {ip}")
-            except Exception as e:
-              print(f"❌ DNS resolution failed: {e}")
-
-            # Try actual connection
-            print("\nAttempting database connection...")
-            try:
-              import psycopg2
-              conn = psycopg2.connect(db_url)
-              cursor = conn.cursor()
-              cursor.execute("SELECT 1")
-              result = cursor.fetchone()
-              print(f"✅ Database connection successful! Query returned: {result}")
-              cursor.close()
-              conn.close()
-            except Exception as e:
-              print(f"❌ Connection failed: {e}")
-          EOF
-
       - name: Run Aggregator Task
         working-directory: ./backend
         env:
