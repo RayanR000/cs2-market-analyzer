@@ -7,6 +7,7 @@ Used by GitHub Actions to trigger specific pipeline tasks.
 import sys
 import logging
 from pathlib import Path
+from datetime import datetime
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -23,35 +24,59 @@ logger = logging.getLogger("task_runner")
 def run_task(task_name):
     db = SessionLocal()
     pipeline = DataPipeline(db_session=db)
-    
+
     try:
+        start_time = datetime.now()
+
         if task_name == "aggregate":
-            logger.info("Task: Full Aggregator Scrape (All 17k items)")
+            logger.info("="*60)
+            logger.info("TASK: Full Aggregator Scrape (All 17k items)")
+            logger.info("="*60)
             result = pipeline.run_full_aggregator_collection()
+
+            if isinstance(result, dict):
+                logger.info(f"✅ SUCCESS - Items collected: {result.get('items_collected', 'N/A')}")
+                logger.info(f"  Errors: {result.get('errors', 0)}")
+                logger.info(f"  Duration: {result.get('duration_seconds', 'N/A')}s")
+
             print(f"RESULT: {result}")
-            
+
         elif task_name == "priority":
-            logger.info("Task: Priority Aggregator Scrape (Top 2000)")
+            logger.info("="*60)
+            logger.info("TASK: Priority Aggregator Scrape (Top 2000)")
+            logger.info("="*60)
             result = pipeline.run_priority_collection()
             print(f"RESULT: {result}")
-            
+
         elif task_name == "prune":
-            logger.info("Task: Database Pruning & Downsampling")
+            logger.info("="*60)
+            logger.info("TASK: Database Pruning & Downsampling")
+            logger.info("="*60)
             result = pipeline.run_database_pruning()
+
+            if isinstance(result, dict):
+                logger.info(f"✅ SUCCESS - Records pruned: {result.get('records_pruned', 'N/A')}")
+                logger.info(f"  Duration: {result.get('duration_seconds', 'N/A')}s")
+
             print(f"RESULT: {result}")
-            
+
         elif task_name == "trends":
-            logger.info("Task: Trend Analysis & Opportunity Detection")
+            logger.info("="*60)
+            logger.info("TASK: Trend Analysis & Opportunity Detection")
+            logger.info("="*60)
             result = pipeline.run_feature_computation()
             result2 = pipeline.run_trend_analysis()
             print(f"RESULT: {result}, {result2}")
-            
+
         else:
             logger.error(f"Unknown task: {task_name}")
             sys.exit(1)
-            
+
+        elapsed = (datetime.now() - start_time).total_seconds()
+        logger.info(f"Total task time: {elapsed:.1f} seconds")
+
     except Exception as e:
-        logger.error(f"Task failed: {e}", exc_info=True)
+        logger.error(f"❌ TASK FAILED: {e}", exc_info=True)
         sys.exit(1)
     finally:
         db.close()

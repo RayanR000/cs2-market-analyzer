@@ -32,4 +32,16 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           ENVIRONMENT: production
           DEBUG: false
-        run: python scripts/run_task.py prune
+        run: |
+          echo "🧹 Starting database maintenance..."
+          python scripts/run_task.py prune 2>&1 | tee maintenance.log
+          EXIT_CODE=$?
+          echo "✅ Maintenance task completed with exit code: $EXIT_CODE"
+
+      - name: Upload maintenance logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maintenance-logs-${{ github.run_id }}
+          path: backend/maintenance.log
+          retention-days: 7

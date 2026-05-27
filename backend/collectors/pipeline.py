@@ -107,17 +107,22 @@ class DataPipeline:
         """
         Execute collection for items using fast aggregator.
         If limit is None, updates ALL items in the database.
+        Records execution to collection_runs table for monitoring.
         """
+        from collectors.csgotrader_aggregator import CSGOTraderAggregator
+        from database import Item, PriceHistory, CollectionRun
+
+        start_time = datetime.utcnow()
+        items_collected = 0
+        errors_count = 0
+
         try:
             logger.info(f"Starting aggregator collection (limit: {limit if limit else 'ALL'})")
-            
-            from collectors.csgotrader_aggregator import CSGOTraderAggregator
-            from database import Item, PriceHistory
-            
+
             if not self.db_session:
                 logger.error("Database session not available")
                 return {"status": "failed", "error": "No database session"}
-                
+
             # 1. Fetch items
             query = self.db_session.query(Item)
             if limit:
@@ -126,21 +131,22 @@ class DataPipeline:
                 items = ItemRepository.get_top_items(self.db_session, limit=limit)
             else:
                 items = query.all()
-                
+
             if not items:
                 logger.warning("No items found to update.")
                 return {"status": "skipped", "reason": "no_items"}
-                
+
+            logger.info(f"Found {len(items)} items to update")
+
             # 2. Fetch prices from aggregator
             aggregator = CSGOTraderAggregator()
-            # Map names to items for fast lookup
             item_map = {item.name: item for item in items}
             results = aggregator.collect_batch_items(list(item_map.keys()))
-            
+
             # 3. Store results
             price_records = []
             now = datetime.utcnow()
-            
+
             for name, item in item_map.items():
                 res = results.get(name)
                 if res and res[0] > 0:
@@ -151,21 +157,68 @@ class DataPipeline:
                         volume=res[1],
                         source='aggregator_sync'
                     ))
-            
+                    items_collected += 1
+                else:
+                    errors_count += 1
+
+            # 4. Save prices
             if price_records:
-                # Use bulk save for efficiency
                 self.db_session.bulk_save_objects(price_records)
-                self.db_session.commit()
-                logger.info(f"Aggregator collection complete: {len(price_records)} items updated.")
-                return {"status": "success", "count": len(price_records)}
-                
-            return {"status": "success", "count": 0}
-            
+                logger.info(f"Saving {len(price_records)} price records...")
+
+            # 5. Record collection run for monitoring
+            end_time = datetime.utcnow()
+            duration_seconds = (end_time - start_time).total_seconds()
+
+            collection_run = CollectionRun(
+                started_at=start_time,
+                finished_at=end_time,
+                status='completed',
+                total_items=len(items),
+                successful=items_collected,
+                failed=errors_count,
+                duration_seconds=duration_seconds,
+                source_breakdown={'aggregator': items_collected}
+            )
+            self.db_session.add(collection_run)
+            self.db_session.commit()
+
+            logger.info(f"✅ Collection complete: {items_collected}/{len(items)} items in {duration_seconds:.1f}s")
+            return {
+                "status": "success",
+                "items_collected": items_collected,
+                "total_items": len(items),
+                "errors": errors_count,
+                "duration_seconds": duration_seconds
+            }
+
         except Exception as e:
             if self.db_session:
                 self.db_session.rollback()
-            logger.error(f"Error in aggregator collection: {e}", exc_info=True)
-            return {"status": "failed", "error": str(e)}
+
+            end_time = datetime.utcnow()
+            duration_seconds = (end_time - start_time).total_seconds()
+
+            # Try to record failed run
+            try:
+                from database import CollectionRun
+                failed_run = CollectionRun(
+                    started_at=start_time,
+                    finished_at=end_time,
+                    status='failed',
+                    total_items=0,
+                    successful=0,
+                    failed=1,
+                    duration_seconds=duration_seconds,
+                    error_message=str(e)
+                )
+                self.db_session.add(failed_run)
+                self.db_session.commit()
+            except Exception as record_error:
+                logger.error(f"Could not record failed run: {record_error}")
+
+            logger.error(f"❌ Aggregator collection failed: {e}", exc_info=True)
+            return {"status": "failed", "error": str(e), "duration_seconds": duration_seconds}
 
     def run_daily_collection(self):
         """Execute daily market data collection using high-efficiency batch method"""
@@ -381,39 +434,82 @@ class DataPipeline:
             return {"status": "failed", "error": str(e)}
 
     def run_database_pruning(self):
-        """Execute weekly database pruning and downsampling"""
+        """Execute weekly database pruning and downsampling with run tracking"""
+        from scripts.prune_database import prune_price_history, prune_trend_indicators, downsample_price_history
+        from database import CollectionRun
+
+        start_time = datetime.utcnow()
+
         try:
             logger.info("Starting weekly database pruning")
-            
-            from scripts.prune_database import prune_price_history, prune_trend_indicators, downsample_price_history
-            
+
             if not self.db_session:
                 logger.error("Database session not available")
                 return {"status": "failed", "error": "No database session"}
-            
+
             # Use defaults: 1 year for history, 180 days for trends, 7 days for granularity
             pruned_history = prune_price_history(self.db_session, days_to_keep=365, dry_run=False)
             pruned_trends = prune_trend_indicators(self.db_session, days_to_keep=180, dry_run=False)
             downsampled = downsample_price_history(self.db_session, days_to_keep_granular=7, dry_run=False)
-            
-            logger.info(f"Database pruning completed: "
+
+            # Record the run
+            end_time = datetime.utcnow()
+            duration_seconds = (end_time - start_time).total_seconds()
+            total_pruned = pruned_history + pruned_trends + downsampled
+
+            collection_run = CollectionRun(
+                started_at=start_time,
+                finished_at=end_time,
+                status='completed',
+                total_items=total_pruned,
+                successful=total_pruned,
+                failed=0,
+                duration_seconds=duration_seconds,
+                source_breakdown={'pruned_history': pruned_history, 'pruned_trends': pruned_trends, 'downsampled': downsampled}
+            )
+            self.db_session.add(collection_run)
+            self.db_session.commit()
+
+            logger.info(f"✅ Database pruning completed: "
                       f"Deleted {pruned_history} old history, "
                       f"{pruned_trends} old trends, "
-                      f"{downsampled} redundant history records")
-            
+                      f"{downsampled} redundant records in {duration_seconds:.1f}s")
+
             return {
                 "status": "success",
-                "timestamp": datetime.utcnow(),
+                "timestamp": end_time,
                 "pruned_history": pruned_history,
                 "pruned_trends": pruned_trends,
-                "downsampled": downsampled
+                "downsampled": downsampled,
+                "duration_seconds": duration_seconds
             }
-            
+
         except Exception as e:
             if self.db_session:
                 self.db_session.rollback()
-            logger.error(f"Error in database pruning: {e}", exc_info=True)
-            return {"status": "failed", "error": str(e)}
+
+            end_time = datetime.utcnow()
+            duration_seconds = (end_time - start_time).total_seconds()
+
+            # Try to record failed run
+            try:
+                failed_run = CollectionRun(
+                    started_at=start_time,
+                    finished_at=end_time,
+                    status='failed',
+                    total_items=0,
+                    successful=0,
+                    failed=1,
+                    duration_seconds=duration_seconds,
+                    error_message=str(e)
+                )
+                self.db_session.add(failed_run)
+                self.db_session.commit()
+            except Exception as record_error:
+                logger.error(f"Could not record failed pruning run: {record_error}")
+
+            logger.error(f"❌ Database pruning failed: {e}", exc_info=True)
+            return {"status": "failed", "error": str(e), "duration_seconds": duration_seconds}
     
     def get_scheduled_jobs(self) -> List[Dict]:
         """Get list of scheduled jobs"""

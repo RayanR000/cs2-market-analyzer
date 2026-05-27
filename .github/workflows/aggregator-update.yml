@@ -35,4 +35,16 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           ENVIRONMENT: production
           DEBUG: false
-        run: python scripts/run_task.py aggregate
+        run: |
+          echo "🚀 Starting aggregator market update..."
+          python scripts/run_task.py aggregate 2>&1 | tee aggregator.log
+          EXIT_CODE=$?
+          echo "✅ Aggregator task completed with exit code: $EXIT_CODE"
+
+      - name: Upload aggregator logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aggregator-logs-${{ github.run_id }}
+          path: backend/aggregator.log
+          retention-days: 7
