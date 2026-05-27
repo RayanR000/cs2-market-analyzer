@@ -1,0 +1,46 @@
+name: Discover New Items
+
+on:
+  schedule:
+    # Every Monday at 12:00 UTC
+    - cron: '0 12 * * 1'
+  workflow_dispatch: # Allow manual trigger if needed
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Discover new Steam items
+        working-directory: ./backend
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          ENVIRONMENT: production
+          DEBUG: false
+        run: |
+          echo "🔍 Starting item discovery..."
+          python scripts/discover_steam_items.py 2>&1 | tee discovery.log
+          EXIT_CODE=$?
+          echo "✅ Item discovery completed with exit code: $EXIT_CODE"
+
+      - name: Upload discovery logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: discovery-logs-${{ github.run_id }}
+          path: backend/discovery.log
+          retention-days: 7
