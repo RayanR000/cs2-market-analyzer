@@ -1,8 +1,8 @@
-# Environment variables
+# Environment variables (secrets - never commit)
 .env
 .env.local
 .env.*.local
-.env.example
+# NOTE: .env.example is NOT ignored - it's committed as a template
 
 # Backend - Python
 backend/venv/
@@ -47,11 +47,6 @@ backend/data/*.csv
 backend/data/*.json
 !backend/data/historical_prices_template.json
 !backend/data/historical_prices_template.csv
-
-# Maintenance Scripts
-backend/scripts/check_db_health.py
-backend/scripts/prune_database.py
-backend/scripts/vacuum_db.py
 
 # OS
 Thumbs.db
