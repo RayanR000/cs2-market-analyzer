@@ -62,11 +62,20 @@ def run_task(task_name):
 
         elif task_name == "trends":
             logger.info("="*60)
-            logger.info("TASK: Trend Analysis & Opportunity Detection")
+            logger.info("TASK: Trend Analysis & Opportunity Detection (90-day)")
             logger.info("="*60)
             result = pipeline.run_feature_computation()
             result2 = pipeline.run_trend_analysis()
             print(f"RESULT: {result}, {result2}")
+
+        elif task_name == "long_term_trends":
+            logger.info("="*60)
+            logger.info("TASK: Long-Term Trend Analysis (Full History)")
+            logger.info("="*60)
+            from scripts.long_term_trend_analyzer import LongTermTrendAnalyzer
+            analyzer = LongTermTrendAnalyzer(db_session=db)
+            result = analyzer.run_analysis()
+            print(f"RESULT: {result}")
 
         else:
             logger.error(f"Unknown task: {task_name}")
