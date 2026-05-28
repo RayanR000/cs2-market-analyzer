@@ -5,6 +5,7 @@
 # NOTE: .env.example is NOT ignored - it's committed as a template
 
 # Local documentation (keep locally but don't commit)
+DESIGN.md
 WORKFLOW_MONITORING.md
 
 # Backend - Python
