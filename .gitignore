@@ -3,6 +3,7 @@
 .env.local
 .env.*.local
 # NOTE: .env.example is NOT ignored - it's committed as a template
+backend/.env
 
 # Local documentation (keep locally but don't commit)
 DESIGN.md
