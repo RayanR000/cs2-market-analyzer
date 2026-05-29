@@ -196,10 +196,30 @@ Recommended checks before merging:
 
 ## Security
 
-- Never commit `.env` files or secrets.
-- Replace the default backend `SECRET_KEY` in production.
+- Never commit `.env` files or secrets. The repository now ignores `backend/.env` and includes `backend/.env.example` as a template.
+- Replace the default backend `SECRET_KEY` in production and rotate any exposed credentials immediately.
 - Restrict database credentials to the minimum required permissions.
 - Review workflow secrets before enabling scheduled jobs in a production repository.
+
+Security hardening steps applied:
+
+1. Added `backend/.env` to `.gitignore` and created `backend/.env.example` (sanitized template).
+2. Performed a git-history search for the exposed DB host and `DATABASE_URL`; no matches were found in commits (the secret existed only in the working tree).
+3. Added a `pre-commit` configuration with `detect-secrets` to detect accidental secret commits. Install it locally with:
+
+```bash
+pip install pre-commit detect-secrets
+pre-commit install
+# (Optional) create an initial baseline:
+detect-secrets scan > .secrets.baseline
+```
+
+Recommended next steps (must do now):
+
+- Rotate/revoke the exposed database credential in Supabase/Postgres immediately.
+- If the secret was accidentally pushed historically (unlikely per scan), rewrite history with `git-filter-repo` or BFG and force-push; coordinate with collaborators.
+- Enable GitHub Secret Scanning in the repository settings and add repository/organization-level protections.
+- Consider adding CI checks to block merging of secrets and require passing pre-commit checks in your pipeline.
 
 ## License
 
