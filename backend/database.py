@@ -37,8 +37,8 @@ class Item(Base):
     __tablename__ = "items"
     
     id = Column(Integer, primary_key=True)
-    item_id = Column(String(255), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
+    item_id = Column(String(255), unique=True, nullable=False)
+    name = Column(String(255), nullable=False, index=True)
     type = Column(String(50), nullable=False)  # skin, case, sticker
     release_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -56,7 +56,7 @@ class PriceHistory(Base):
     __tablename__ = "price_history"
 
     id = Column(Integer, primary_key=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
     timestamp = Column(DateTime, nullable=False, index=True)
     price = Column(Float, nullable=False)
     volume = Column(Integer, nullable=True)
@@ -77,9 +77,9 @@ class CollectionRun(Base):
     __tablename__ = "collection_runs"
 
     id = Column(Integer, primary_key=True)
-    started_at = Column(DateTime, nullable=False, index=True)
+    started_at = Column(DateTime, nullable=False)
     finished_at = Column(DateTime, nullable=True, index=True)
-    status = Column(String(50), nullable=False, index=True)
+    status = Column(String(50), nullable=False)
     total_items = Column(Integer, nullable=False, default=0)
     successful = Column(Integer, nullable=False, default=0)
     failed = Column(Integer, nullable=False, default=0)
@@ -112,7 +112,7 @@ class TrendIndicator(Base):
     __tablename__ = "trend_indicators"
     
     id = Column(Integer, primary_key=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
     timestamp = Column(DateTime, nullable=False)
     sma_7 = Column(Float, nullable=True)  # 7-day simple moving average
     sma_30 = Column(Float, nullable=True)  # 30-day simple moving average
@@ -145,8 +145,8 @@ class EventImpact(Base):
     __tablename__ = "event_impacts"
 
     id = Column(Integer, primary_key=True)
-    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=True)
     price_day_before = Column(Float, nullable=True)
     price_day_1 = Column(Float, nullable=True)
     price_day_3 = Column(Float, nullable=True)
@@ -170,8 +170,8 @@ class EventPattern(Base):
     __tablename__ = "event_patterns"
 
     id = Column(Integer, primary_key=True)
-    event_type = Column(String(50), nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=True, index=True)
+    event_type = Column(String(50), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=True)
     sample_size = Column(Integer, nullable=False, default=0)
     avg_impact_1day = Column(Float, nullable=True)
     avg_impact_3day = Column(Float, nullable=True)
@@ -192,8 +192,8 @@ class EventCorrelation(Base):
     __tablename__ = "event_correlations"
 
     id = Column(Integer, primary_key=True)
-    event_id = Column(Integer, ForeignKey("events.id"), nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=True)
 
     # Raw measurements
     price_change_pct = Column(Float, nullable=True)

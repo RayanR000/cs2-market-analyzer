@@ -7,6 +7,7 @@ Computes moving averages, momentum, volatility, and opportunity scores.
 import sys
 import logging
 from pathlib import Path
+from collections import defaultdict
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
@@ -14,7 +15,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import SessionLocal, Item, PriceHistory
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +38,46 @@ class TrendAnalyzer:
         ).order_by(PriceHistory.timestamp).all()
 
         return [(p.timestamp, p.price) for p in prices]
+
+    def get_recent_price_history_bulk(self, item_ids, days=90):
+        """Fetch recent price history for many items in one query."""
+        if not item_ids:
+            return {}
+
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        rows = self.db.query(
+            PriceHistory.item_id,
+            PriceHistory.timestamp,
+            PriceHistory.price
+        ).filter(
+            PriceHistory.item_id.in_(item_ids),
+            PriceHistory.timestamp >= cutoff_date
+        ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
+
+        prices_by_item = defaultdict(list)
+        for item_id, timestamp, price in rows:
+            prices_by_item[item_id].append((timestamp, price))
+
+        return prices_by_item
+
+    def get_update_counts_bulk(self, item_ids, start_dt, end_dt=None):
+        """Fetch per-item update counts for a date window in one query."""
+        if not item_ids:
+            return {}
+
+        query = self.db.query(
+            PriceHistory.item_id,
+            func.count(PriceHistory.id)
+        ).filter(
+            PriceHistory.item_id.in_(item_ids),
+            PriceHistory.timestamp >= start_dt
+        )
+
+        if end_dt is not None:
+            query = query.filter(PriceHistory.timestamp < end_dt)
+
+        rows = query.group_by(PriceHistory.item_id).all()
+        return {item_id: count for item_id, count in rows}
 
     def calculate_moving_average(self, prices, days):
         """Calculate moving average for last N days."""
@@ -124,10 +165,11 @@ class TrendAnalyzer:
 
         return float(np.clip(opportunity, -100, 100))
 
-    def analyze_item(self, item_id):
+    def analyze_item(self, item_id, prices=None, recent_updates=None, older_updates=None):
         """Analyze a single item."""
         try:
-            prices = self.get_item_price_history(item_id, days=90)
+            if prices is None:
+                prices = self.get_item_price_history(item_id, days=90)
 
             if not prices or len(prices) < 7:
                 return None  # Not enough data
@@ -148,19 +190,22 @@ class TrendAnalyzer:
             )
 
             # Simple volume trend (more price updates = more trading)
-            seven_days_ago = datetime.utcnow() - timedelta(days=7)
-            fourteen_days_ago = datetime.utcnow() - timedelta(days=14)
+            if recent_updates is None or older_updates is None:
+                seven_days_ago = datetime.utcnow() - timedelta(days=7)
+                fourteen_days_ago = datetime.utcnow() - timedelta(days=14)
 
-            recent_updates = self.db.query(PriceHistory).filter(
-                PriceHistory.item_id == item_id,
-                PriceHistory.timestamp >= seven_days_ago
-            ).count()
+                if recent_updates is None:
+                    recent_updates = self.db.query(PriceHistory).filter(
+                        PriceHistory.item_id == item_id,
+                        PriceHistory.timestamp >= seven_days_ago
+                    ).count()
 
-            older_updates = self.db.query(PriceHistory).filter(
-                PriceHistory.item_id == item_id,
-                PriceHistory.timestamp >= fourteen_days_ago,
-                PriceHistory.timestamp < seven_days_ago
-            ).count()
+                if older_updates is None:
+                    older_updates = self.db.query(PriceHistory).filter(
+                        PriceHistory.item_id == item_id,
+                        PriceHistory.timestamp >= fourteen_days_ago,
+                        PriceHistory.timestamp < seven_days_ago
+                    ).count()
 
             volume_trend = 0.0
             if older_updates > 0:
@@ -198,7 +243,8 @@ class TrendAnalyzer:
 
         # Get all items
         items = self.db.query(Item.id).all()
-        total_items = len(items)
+        item_ids = [item_id for (item_id,) in items]
+        total_items = len(item_ids)
 
         logger.info(f"Analyzing {total_items} items...")
 
@@ -206,8 +252,41 @@ class TrendAnalyzer:
         skipped = 0
         results = []
 
-        for (item_id,) in items:
-            result = self.analyze_item(item_id)
+        # Only pull full history for items that already have enough recent data.
+        ninety_day_cutoff = datetime.utcnow() - timedelta(days=90)
+        ninety_day_counts = self.db.query(
+            PriceHistory.item_id,
+            func.count(PriceHistory.id)
+        ).filter(
+            PriceHistory.item_id.in_(item_ids),
+            PriceHistory.timestamp >= ninety_day_cutoff
+        ).group_by(PriceHistory.item_id).all()
+        ninety_day_counts = {item_id: count for item_id, count in ninety_day_counts}
+
+        eligible_item_ids = [
+            item_id for item_id in item_ids
+            if ninety_day_counts.get(item_id, 0) >= 7
+        ]
+
+        logger.info(f"Eligible items with enough recent history: {len(eligible_item_ids)}")
+
+        prices_by_item = self.get_recent_price_history_bulk(eligible_item_ids, days=90)
+
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        fourteen_days_ago = datetime.utcnow() - timedelta(days=14)
+        recent_update_counts = self.get_update_counts_bulk(eligible_item_ids, seven_days_ago)
+        older_update_counts = self.get_update_counts_bulk(eligible_item_ids, fourteen_days_ago, seven_days_ago)
+
+        skipped = total_items - len(eligible_item_ids)
+        processed = 0
+
+        for item_id in eligible_item_ids:
+            result = self.analyze_item(
+                item_id,
+                prices=prices_by_item.get(item_id, []),
+                recent_updates=recent_update_counts.get(item_id, 0),
+                older_updates=older_update_counts.get(item_id, 0)
+            )
 
             if result:
                 results.append(result)
@@ -216,8 +295,9 @@ class TrendAnalyzer:
                 skipped += 1
 
             # Log progress every 1000 items
-            if (analyzed + skipped) % 1000 == 0:
-                logger.info(f"Progress: {analyzed + skipped}/{total_items}")
+            processed += 1
+            if processed % 1000 == 0:
+                logger.info(f"Progress: {processed}/{len(eligible_item_ids)} eligible items")
 
         # Bulk insert results
         if results:
