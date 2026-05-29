@@ -4,336 +4,285 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Header } from '@/components';
 import StatCard from '@/components/StatCard';
+import ItemCard from '@/components/ItemCard';
 
 export default function Home() {
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--background-primary)' }}>
+    <div className="min-h-screen bg-background-primary selection:bg-accent-primary/30 selection:text-white">
       <Header />
 
-      {/* Hero Section */}
-      <div
-        style={{
-          backgroundColor: 'var(--background-tertiary)',
-          borderBottomColor: 'var(--border)',
-          borderBottomWidth: '1px'
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="text-center mb-14"
-          >
-            <div className="mb-6 inline-block">
-              <span
-                className="px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wide"
-                style={{
-                  backgroundColor: 'var(--data-up-subtle)',
-                  color: 'var(--data-up)',
-                  border: '1px solid var(--data-up)'
-                }}
-              >
-                ✦ Live Market Data
-              </span>
-            </div>
-
-            <h1 className="text-5xl md:text-6xl font-bold mb-6 tracking-tight" style={{ color: 'var(--text-primary)' }}>
-              Professional Market Intelligence
-            </h1>
-
-            <p
-              className="text-lg max-w-3xl mx-auto mb-10 leading-relaxed"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              Real-time analytics for Counter-Strike 2 items. Track prices, analyze trends, and optimize your portfolio with institutional-grade market data.
-            </p>
-
-            <div className="flex justify-center gap-4">
-              <Link
-                href="/market"
-                className="px-7 py-3.5 font-semibold rounded-lg transition-all duration-200 text-white"
-                style={{
-                  backgroundColor: 'var(--accent-primary)',
-                  boxShadow: '0 8px 24px rgba(59, 130, 246, 0.25)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = '0 12px 32px rgba(59, 130, 246, 0.35)';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = '0 8px 24px rgba(59, 130, 246, 0.25)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                Launch Market
-              </Link>
-              <Link
-                href="/portfolio"
-                className="px-7 py-3.5 font-semibold rounded-lg transition-all duration-200"
-                style={{
-                  backgroundColor: 'var(--surface)',
-                  color: 'var(--accent-primary)',
-                  border: '1.5px solid var(--accent-primary)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--surface-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--surface)';
-                }}
-              >
-                View Portfolio
-              </Link>
-            </div>
-          </motion.div>
-
-          {/* Hero Stats */}
-          <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto"
-          >
-            <StatCard label="Live Items" value="1,247" />
-            <StatCard label="Avg Volume" value="856K/day" highlight="secondary" />
-            <StatCard label="Analysis Points" value="12K+" />
-          </motion.div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        {/* Navigation Section */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          transition={{ duration: 0.6 }}
-          viewport={{ once: true }}
-          className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-20"
-        >
-          <NavCard
-            href="/market"
-            title="Market Overview"
-            description="Browse all items with real-time prices, volatility metrics, and 24h performance. Sort, search, and analyze market dynamics."
-            accent="primary"
-            icon="📊"
-          />
-          <NavCard
-            href="/portfolio"
-            title="Portfolio Tracker"
-            description="Monitor your holdings, cost basis, and portfolio performance. Track gains/losses and returns in real-time."
-            accent="secondary"
-            icon="💼"
-          />
-        </motion.div>
-
-        {/* Features Section */}
-        <div className="mb-20">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="mb-12"
-          >
-            <h2 className="text-4xl font-bold mb-4" style={{ color: 'var(--text-primary)' }}>
-              Advanced Analytics
-            </h2>
-            <p style={{ color: 'var(--text-secondary)' }}>
-              Everything you need to make informed trading decisions
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <FeatureCard
-              title="Price Charts & Analysis"
-              description="Interactive charts with 24h, 7d, 30d, and all-time views. Track price movements, moving averages, and trend patterns."
-              icon="📈"
-              accent="primary"
-            />
-            <FeatureCard
-              title="Quality Tier Analysis"
-              description="Examine item conditions from Factory New to Battle-Scarred. Track price variations across different condition tiers."
-              icon="💎"
-              accent="secondary"
-            />
-            <FeatureCard
-              title="Technical Indicators"
-              description="Moving averages, volatility metrics, momentum indicators, and market sentiment analysis for deeper insights."
-              icon="🎯"
-              accent="tertiary"
-            />
-            <FeatureCard
-              title="Real-time Data Feed"
-              description="Live market data, volume metrics, and instant price updates. Professional-grade market intelligence."
-              icon="⚡"
-              accent="primary"
-            />
+      {/* Hero Section - Boutique Minimalism */}
+      <section className="relative overflow-hidden pt-32 pb-24 border-b border-border/40">
+        {/* Subtle Background Asset Pattern (Faint) */}
+        <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none grayscale select-none">
+          <div className="grid grid-cols-6 gap-8 p-12">
+            {[...Array(24)].map((_, i) => (
+              <div key={i} className="aspect-square border border-white rounded-sm" />
+            ))}
           </div>
         </div>
 
-        {/* Stats Showcase */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          viewport={{ once: true }}
-          style={{
-            backgroundColor: 'var(--background-tertiary)',
-            borderColor: 'var(--border)',
-            borderWidth: '1px',
-            borderRadius: '12px',
-            padding: '48px 32px',
-            textAlign: 'center'
-          }}
-        >
-          <h3 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
-            Ready to master the CS2 market?
-          </h3>
-          <p className="mb-8 text-base" style={{ color: 'var(--text-secondary)' }}>
-            Start tracking prices, analyzing trends, and optimizing your portfolio today.
-          </p>
-          <Link
-            href="/market"
-            className="inline-block px-8 py-3.5 font-semibold rounded-lg text-white transition-all duration-200"
-            style={{
-              backgroundColor: 'var(--accent-primary)',
-              boxShadow: '0 8px 24px rgba(59, 130, 246, 0.25)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 12px 32px rgba(59, 130, 246, 0.35)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 24px rgba(59, 130, 246, 0.25)';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }}
+        <div className="max-w-7xl mx-auto px-6 relative z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            className="max-w-4xl"
           >
-            Explore Market →
-          </Link>
-        </motion.div>
-      </div>
+            <div className="mb-8 flex items-center gap-3">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse" />
+              <span className="font-data text-[10px] font-bold uppercase tracking-[0.3em] text-accent-primary">
+                Institutional Market Intelligence
+              </span>
+            </div>
+
+            <h1 className="text-6xl md:text-7xl font-semibold mb-8 tracking-tighter leading-[0.9] text-primary">
+              The Boutique <br />
+              <span className="text-tertiary">CS2 Data Terminal.</span>
+            </h1>
+
+            <p className="text-lg md:text-xl text-secondary max-w-2xl mb-12 leading-relaxed">
+              Medium to long-term market analytics for professional speculators. 
+              Precision trends, asset-grounded insights, and portfolio optimization 
+              for the Counter-Strike 2 ecosystem.
+            </p>
+
+            <div className="flex flex-wrap gap-6">
+              <Link
+                href="/market"
+                className="px-8 py-4 bg-accent-primary text-background-primary font-bold text-xs uppercase tracking-[0.2em] rounded-sm hover:bg-white transition-all active:scale-95"
+              >
+                Launch Terminal
+              </Link>
+              <Link
+                href="/portfolio"
+                className="px-8 py-4 border border-border text-primary font-bold text-xs uppercase tracking-[0.2em] rounded-sm hover:bg-surface transition-all active:scale-95"
+              >
+                Access Portfolio
+              </Link>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Market Pulse - Real-time Stats */}
+      <section className="py-24 border-b border-border/40 bg-background-secondary/30">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-8">
+            <div>
+              <span className="font-data text-[10px] font-bold uppercase tracking-[0.2em] text-tertiary mb-3 block">
+                01 — Market Pulse
+              </span>
+              <h2 className="text-3xl font-semibold tracking-tight text-primary">
+                Current Equilibrium.
+              </h2>
+            </div>
+            <p className="text-sm text-muted max-w-xs font-medium">
+              Real-time snapshot of the global CS2 economy across primary trading volumes.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <StatCard 
+              label="Active Indices" 
+              value="14,282" 
+              subvalue="Live Trackers" 
+              highlight="primary"
+            />
+            <StatCard 
+              label="24H Volume" 
+              value="$2.4M" 
+              subvalue="Estimated Net" 
+              isPositive={true}
+              change={4.2}
+            />
+            <StatCard 
+              label="Market Sentiment" 
+              value="Neutral" 
+              subvalue="Volatility Index" 
+              highlight="secondary"
+            />
+            <StatCard 
+              label="Data Points" 
+              value="1.2B" 
+              subvalue="Historical Logs" 
+              highlight="accent"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Featured Assets - The "What" */}
+      <section className="py-24">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-8">
+            <div>
+              <span className="font-data text-[10px] font-bold uppercase tracking-[0.2em] text-tertiary mb-3 block">
+                02 — Featured Assets
+              </span>
+              <h2 className="text-3xl font-semibold tracking-tight text-primary">
+                High-Volatility Opportunities.
+              </h2>
+            </div>
+            <Link 
+              href="/market" 
+              className="text-[10px] font-bold uppercase tracking-[0.2em] text-accent-primary hover:text-white transition-colors"
+            >
+              View Full Market →
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <ItemCard 
+              itemId="ak47-vulcan-fn"
+              name="AK-47 | Vulcan"
+              type="Weapon Skin"
+              rarity="Covert"
+              currentPrice={942.50}
+              priceChange7d={2.4}
+              imageUrl="https://community.cloudflare.steamstatic.com/economy/image/-9a81dlWLwJ2UUGcVs_nsVtzdOEdtWwKGZZLQHTxDZ7I56KU0Zwwo4NUX4oFJZEHLbXH5ApeO4YmlhxYQknCRvCo04DEVlxkKgpot7HxfDhjxszJemkV092lnYmGmOHLPr7Vn35cppR32-qS99SmiwS3_hU6Y236ctfDclM6YF_U_lXrk-7shZC8u8zBmnVguyZ25S3cmBfihB9SaeM60_veWAtXOnvE/512fx512f"
+            />
+            <ItemCard 
+              itemId="awp-asiimov-ft"
+              name="AWP | Asiimov"
+              type="Weapon Skin"
+              rarity="Covert"
+              currentPrice={164.20}
+              priceChange7d={-1.2}
+              imageUrl="https://community.cloudflare.steamstatic.com/economy/image/-9a81dlWLwJ2UUGcVs_nsVtzdOEdtWwKGZZLQHTxDZ7I56KU0Zwwo4NUX4oFJZEHLbXH5ApeO4YmlhxYQknCRvCo04DEVlxkKgpot621FBRw7P7NYjV96t2ykZOfqODmNr_ulWhE18l4mLP--InlgUGw_0VvMNj2IdSRclA-M1_SrFW4krq9hZ_v75_MzCRkvXF34X7cnxa0hUwbafZshvveWAvp4K3Dsw/512fx512f"
+            />
+            <ItemCard 
+              itemId="m4a1s-printstream-mw"
+              name="M4A1-S | Printstream"
+              type="Weapon Skin"
+              rarity="Covert"
+              currentPrice={428.15}
+              priceChange7d={5.8}
+              imageUrl="https://community.cloudflare.steamstatic.com/economy/image/-9a81dlWLwJ2UUGcVs_nsVtzdOEdtWwKGZZLQHTxDZ7I56KU0Zwwo4NUX4oFJZEHLbXH5ApeO4YmlhxYQknCRvCo04DEVlxkKgpou-6kejhjxszFJTwW09Kzm7-FmP7mDLfYkW5u5Mx2gv2P89-m2w3gr0s4ajzycITAdlA7N1vS_gTvyevp1sS0uMzAnXU2vXQm4ivezBa-1RkYarNxxavJGZ6S_vY/512fx512f"
+            />
+            <ItemCard 
+              itemId="butterfly-knife-fade-fn"
+              name="Butterfly Knife | Fade"
+              type="Knife"
+              rarity="Covert"
+              currentPrice={3240.00}
+              priceChange7d={0.8}
+              imageUrl="https://community.cloudflare.steamstatic.com/economy/image/-9a81dlWLwJ2UUGcVs_nsVtzdOEdtWwKGZZLQHTxDZ7I56KU0Zwwo4NUX4oFJZEHLbXH5ApeO4YmlhxYQknCRvCo04DEVlxkKgpovbSsLQJf1f_BYi59_9S_mYmDkvPLPr7Vn35cppN0i-zEpdX0iwHhqkZuNmilddScclM6aVDWqFa9wr2-1JW1u8zAm3VvunYm43rD30vgoS7N6Q/512fx512f"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Terminal Features */}
+      <section className="py-24 bg-background-secondary/20">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-8">
+            <div>
+              <span className="font-data text-[10px] font-bold uppercase tracking-[0.2em] text-tertiary mb-3 block">
+                03 — Analytical Depth
+              </span>
+              <h2 className="text-3xl font-semibold tracking-tight text-primary">
+                Engineered for Alpha.
+              </h2>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <FeatureBlock 
+              title="Time-Series Precision"
+              description="Institutional-grade charts with candle analysis, volume delta, and moving averages across 5-year historical windows."
+              icon="T01"
+            />
+            <FeatureBlock 
+              title="Wear Convergence"
+              description="Sophisticated algorithms tracking price spreads across float values from Factory New to Battle-Scarred."
+              icon="T02"
+            />
+            <FeatureBlock 
+              title="Liquidity Analytics"
+              description="Deep-dive into supply dynamics across all major skin aggregators to identify real buy/sell walls."
+              icon="T03"
+            />
+            <FeatureBlock 
+              title="Portfolio Valuation"
+              description="Professional inventory tracking with cost-basis analysis, unrealized P&L, and risk distribution metrics."
+              icon="T04"
+            />
+          </div>
+        </div>
+      </section>
 
       {/* Footer */}
-      <footer
-        style={{
-          borderTopColor: 'var(--border)',
-          borderTopWidth: '1px',
-          backgroundColor: 'var(--background-secondary)',
-          marginTop: '80px'
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 text-center text-sm" style={{ color: 'var(--text-tertiary)' }}>
-          <p>CS2 Market Analyzer — Professional trading intelligence for Counter-Strike 2</p>
+      <footer className="py-24 border-t border-border/40">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex flex-col md:flex-row justify-between items-start gap-12">
+            <div className="max-w-xs">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 rounded-sm border border-border flex items-center justify-center bg-background-secondary">
+                  <span className="font-data font-bold text-[8px] text-accent-primary tracking-tighter">CS2</span>
+                </div>
+                <span className="font-semibold text-xs tracking-widest uppercase text-primary">Market Analyzer</span>
+              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                A professional-grade analytical tool for Counter-Strike 2 item speculators. 
+                Data-driven insights for the modern skin investor.
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-12">
+              <FooterGroup title="Platform" links={['Market', 'Portfolio', 'Analytics', 'Trends']} />
+              <FooterGroup title="Resources" links={['Documentation', 'API Guide', 'Market Report', 'Status']} />
+              <FooterGroup title="Legal" links={['Terms', 'Privacy', 'Cookies']} />
+            </div>
+          </div>
+          
+          <div className="mt-24 pt-12 border-t border-border/20 flex flex-col md:flex-row justify-between gap-6">
+            <p className="text-[10px] font-data text-muted uppercase tracking-widest">
+              © 2026 CS2 MARKET ANALYZER — ALL RIGHTS RESERVED.
+            </p>
+            <p className="text-[10px] font-data text-muted uppercase tracking-widest">
+              DESIGNED FOR THE MODERN SPECULATOR.
+            </p>
+          </div>
         </div>
       </footer>
     </div>
   );
 }
 
-function NavCard({
-  href,
-  title,
-  description,
-  accent,
-  icon
-}: {
-  href: string;
-  title: string;
-  description: string;
-  accent: 'primary' | 'secondary';
-  icon?: string;
-}) {
-  const accentColor = accent === 'secondary' ? 'var(--accent-secondary)' : 'var(--accent-primary)';
-  const accentBg = accent === 'secondary' ? 'rgba(245, 158, 11, 0.08)' : 'rgba(59, 130, 246, 0.08)';
-
+function FeatureBlock({ title, description, icon }: { title: string; description: string; icon: string }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      viewport={{ once: true }}
-    >
-      <Link
-        href={href}
-        className="group relative p-8 rounded-lg block transition-all duration-300"
-        style={{
-          backgroundColor: 'var(--surface)',
-          borderWidth: '1.5px',
-          borderColor: 'var(--border)'
-        }}
-        onMouseEnter={(e) => {
-          const el = e.currentTarget as HTMLElement;
-          el.style.borderColor = accentColor;
-          el.style.backgroundColor = accentBg;
-        }}
-        onMouseLeave={(e) => {
-          const el = e.currentTarget as HTMLElement;
-          el.style.borderColor = 'var(--border)';
-          el.style.backgroundColor = 'var(--surface)';
-        }}
-      >
-        {icon && <span className="text-3xl mb-4 block">{icon}</span>}
-        <h3 className="text-xl font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
-          {title}
-        </h3>
-        <p className="text-sm leading-relaxed mb-5" style={{ color: 'var(--text-secondary)' }}>
-          {description}
-        </p>
-        <div className="flex items-center gap-2 text-sm font-semibold" style={{ color: accentColor }}>
-          Explore →
+    <div className="card-boutique group">
+      <div className="flex items-start gap-6">
+        <div className="font-data text-[10px] font-bold text-accent-primary border border-accent-primary/20 w-10 h-10 rounded-sm flex items-center justify-center bg-accent-primary/5 group-hover:bg-accent-primary group-hover:text-background-primary transition-all">
+          {icon}
         </div>
-      </Link>
-    </motion.div>
+        <div>
+          <h3 className="text-base font-semibold text-primary mb-2 group-hover:text-accent-primary transition-colors">
+            {title}
+          </h3>
+          <p className="text-sm text-secondary leading-relaxed">
+            {description}
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function FeatureCard({
-  title,
-  description,
-  icon,
-  accent
-}: {
-  title: string;
-  description: string;
-  icon?: string;
-  accent: 'primary' | 'secondary' | 'tertiary';
-}) {
-  let accentColor = 'var(--accent-primary)';
-  let accentBg = 'rgba(59, 130, 246, 0.08)';
-
-  if (accent === 'secondary') {
-    accentColor = 'var(--accent-secondary)';
-    accentBg = 'rgba(245, 158, 11, 0.08)';
-  } else if (accent === 'tertiary') {
-    accentColor = 'var(--accent-tertiary)';
-    accentBg = 'rgba(99, 102, 241, 0.08)';
-  }
-
+function FooterGroup({ title, links }: { title: string; links: string[] }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      viewport={{ once: true }}
-      style={{
-        backgroundColor: accentBg,
-        borderColor: accentColor,
-        borderWidth: '1px',
-        borderRadius: '10px',
-        padding: '24px'
-      }}
-      className="group hover:shadow-md transition-all duration-300"
-    >
-      {icon && <span className="text-3xl block mb-4">{icon}</span>}
-      <h3 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
-        {title}
-      </h3>
-      <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-        {description}
-      </p>
-    </motion.div>
+    <div className="flex flex-col gap-4">
+      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-tertiary">{title}</span>
+      <ul className="flex flex-col gap-2">
+        {links.map(link => (
+          <li key={link}>
+            <Link href="#" className="text-xs text-muted hover:text-accent-primary transition-colors">
+              {link}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
-

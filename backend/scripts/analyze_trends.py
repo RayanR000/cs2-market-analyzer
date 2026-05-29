@@ -326,8 +326,7 @@ class TrendAnalyzer:
                     price_stability = EXCLUDED.price_stability
             """
 
-            for result in results:
-                self.db.execute(text(insert_sql), result)
+            self.db.execute(text(insert_sql), results)
 
             self.db.commit()
 

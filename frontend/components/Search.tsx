@@ -7,32 +7,37 @@ interface SearchProps {
   placeholder?: string;
 }
 
-export default function Search({ onSearch, placeholder = 'Search items...' }: SearchProps) {
+export default function Search({ onSearch, placeholder = 'SEARCH ASSETS...' }: SearchProps) {
   const [query, setQuery] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) {
-      onSearch(query);
-    }
+    onSearch(query);
   };
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <div className="relative">
+      <div className="relative group">
+        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+          <svg className="w-4 h-4 text-tertiary group-focus-within:text-accent-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
         <input
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            onSearch(e.target.value);
+          }}
           placeholder={placeholder}
-          className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full pl-12 pr-24 py-4 bg-background-secondary border border-border rounded-sm text-sm text-primary placeholder:text-muted focus:border-accent-primary focus:bg-surface transition-all outline-none uppercase tracking-widest font-bold"
         />
-        <button
-          type="submit"
-          className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700 transition"
-        >
-          Search
-        </button>
+        <div className="absolute inset-y-0 right-4 flex items-center">
+          <span className="text-[10px] font-data font-bold text-muted tracking-widest uppercase border border-border px-2 py-1 rounded-sm">
+            Terminal
+          </span>
+        </div>
       </div>
     </form>
   );
