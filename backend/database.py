@@ -2,7 +2,7 @@
 Database models for CS2 Market Intelligence Platform
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Index, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Date, ForeignKey, Index, JSON, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
@@ -46,6 +46,7 @@ class Item(Base):
     
     price_histories = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
     trend_indicators = relationship("TrendIndicator", back_populates="item", cascade="all, delete-orphan")
+    daily_analyses = relationship("DailyAnalysis", back_populates="item", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_item_type', 'type'),
@@ -68,7 +69,6 @@ class PriceHistory(Base):
 
     __table_args__ = (
         Index('idx_price_history_item_timestamp', 'item_id', 'timestamp'),
-        Index('idx_price_history_item_timestamp_desc', 'item_id', 'timestamp', postgresql_ops={'timestamp': 'DESC'}),
         Index('idx_price_history_source', 'source'),
     )
 
@@ -126,6 +126,37 @@ class TrendIndicator(Base):
     
     __table_args__ = (
         Index('idx_trend_item_timestamp', 'item_id', 'timestamp'),
+        UniqueConstraint('item_id', 'timestamp', name='uq_trend_indicator_item_timestamp'),
+    )
+
+
+class DailyAnalysis(Base):
+    """Daily analysis model - per-item daily computed signals."""
+    __tablename__ = "daily_analysis"
+
+    id = Column(Integer, primary_key=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    analysis_date = Column(Date, nullable=False)
+    current_price = Column(Float, nullable=True)
+    ma_7day = Column(Float, nullable=True)
+    ma_30day = Column(Float, nullable=True)
+    ma_90day = Column(Float, nullable=True)
+    momentum_7day = Column(Float, nullable=True)
+    momentum_30day = Column(Float, nullable=True)
+    volatility = Column(Float, nullable=True)
+    trend_direction = Column(String(20), nullable=True)
+    momentum_score = Column(Float, nullable=True)
+    opportunity_score = Column(Float, nullable=True)
+    trading_volume_trend = Column(Float, nullable=True)
+    price_stability = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    item = relationship("Item", back_populates="daily_analyses")
+
+    __table_args__ = (
+        UniqueConstraint('item_id', 'analysis_date', name='uq_daily_analysis_item_date'),
+        Index('idx_daily_analysis_item_date', 'item_id', 'analysis_date'),
     )
 
 class User(Base):
@@ -162,6 +193,7 @@ class EventImpact(Base):
 
     __table_args__ = (
         Index('idx_event_impact_event_item', 'event_id', 'item_id'),
+        UniqueConstraint('event_id', 'item_id', name='uq_event_impact_event_item'),
     )
 
 
@@ -184,6 +216,7 @@ class EventPattern(Base):
 
     __table_args__ = (
         Index('idx_event_pattern_type_item', 'event_type', 'item_id'),
+        UniqueConstraint('event_type', 'item_id', name='uq_event_pattern_type_item'),
     )
 
 
@@ -225,4 +258,5 @@ class EventCorrelation(Base):
 
     __table_args__ = (
         Index('idx_event_correlation_event_item', 'event_id', 'item_id'),
+        UniqueConstraint('event_id', 'item_id', name='uq_event_correlation_event_item'),
     )

@@ -2,6 +2,7 @@ from .steam_market import SteamMarketCollector, MockSteamMarketCollector
 from .csfloat_market import CSFloatMarketCollector
 from .data_validation import DataValidator, DataCleaner
 from .pipeline import DataPipeline, PipelineMonitor
+from . import free_data_importer
 
 
 def _optional_import(module_name, names):

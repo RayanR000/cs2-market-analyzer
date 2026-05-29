@@ -14,8 +14,10 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from database import SessionLocal, Item, PriceHistory
-from sqlalchemy import text, func
+from database import SessionLocal, Item, PriceHistory, DailyAnalysis
+from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +29,31 @@ class TrendAnalyzer:
     def __init__(self, db_session):
         self.db = db_session
         self.analysis_date = datetime.utcnow().date()
+
+    def _daily_analysis_upsert(self, rows):
+        """Upsert daily analysis rows in one database round trip."""
+        if not rows:
+            return
+
+        bind = self.db.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else "sqlite"
+        insert_stmt = sqlite_insert if dialect_name == "sqlite" else pg_insert
+        table = DailyAnalysis.__table__
+
+        stmt = insert_stmt(table).values(rows)
+        excluded = stmt.excluded
+        update_columns = {
+            column.name: getattr(excluded, column.name)
+            for column in table.columns
+            if column.name not in {"id", "item_id", "analysis_date", "created_at"}
+        }
+        update_columns["updated_at"] = datetime.utcnow()
+
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["item_id", "analysis_date"],
+            set_=update_columns,
+        )
+        self.db.execute(stmt)
 
     def get_item_price_history(self, item_id, days=90):
         """Fetch price history for an item."""
@@ -303,31 +330,7 @@ class TrendAnalyzer:
         if results:
             logger.info(f"Inserting {len(results)} analysis results...")
 
-            insert_sql = """
-                INSERT INTO daily_analysis
-                (item_id, analysis_date, current_price, ma_7day, ma_30day, ma_90day,
-                 momentum_7day, momentum_30day, volatility, trend_direction,
-                 momentum_score, opportunity_score, trading_volume_trend, price_stability)
-                VALUES (:item_id, :analysis_date, :current_price, :ma_7day, :ma_30day, :ma_90day,
-                        :momentum_7day, :momentum_30day, :volatility, :trend_direction,
-                        :momentum_score, :opportunity_score, :trading_volume_trend, :price_stability)
-                ON CONFLICT (item_id, analysis_date) DO UPDATE SET
-                    current_price = EXCLUDED.current_price,
-                    ma_7day = EXCLUDED.ma_7day,
-                    ma_30day = EXCLUDED.ma_30day,
-                    ma_90day = EXCLUDED.ma_90day,
-                    momentum_7day = EXCLUDED.momentum_7day,
-                    momentum_30day = EXCLUDED.momentum_30day,
-                    volatility = EXCLUDED.volatility,
-                    trend_direction = EXCLUDED.trend_direction,
-                    momentum_score = EXCLUDED.momentum_score,
-                    opportunity_score = EXCLUDED.opportunity_score,
-                    trading_volume_trend = EXCLUDED.trading_volume_trend,
-                    price_stability = EXCLUDED.price_stability
-            """
-
-            self.db.execute(text(insert_sql), results)
-
+            self._daily_analysis_upsert(results)
             self.db.commit()
 
         logger.info(f"✅ Analysis complete: {analyzed} analyzed, {skipped} skipped")
