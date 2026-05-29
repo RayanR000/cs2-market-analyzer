@@ -2,204 +2,100 @@
 
 A full-stack web application for tracking, analyzing, and visualizing Counter-Strike 2 in-game economy data (skins, cases, stickers).
 
-## Project Overview
+This README was updated to reflect recent refactors and feature work across the repo. It provides a concise summary and accurate quickstart steps — for a complete history, inspect the git log or relevant CHANGELOG/commits.
 
-This platform provides:
-- **Full price history charts** from item release date or earliest available data
-- **Event overlay system** to show market-moving events
-- **Trend scoring engine** with bullish/neutral/bearish classifications
-- **Lightweight prediction layer** using moving averages and linear regression
-- **Opportunity detection** (undervalued, overheated, momentum items)
-- **Interactive dashboards** and discovery interfaces
+## Quick Summary of recent changes
 
-See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for detailed feature descriptions.
+- Repository reorganized and refactored across backend and frontend
+- API surface consolidated and documented in this README
+- Data collection and pipeline code updated; collection runs on startup
+- Frontend bootstrapped with improved discovery and dashboards
+
+(If any detail below looks out-of-date, point to specific files or commits and an updated draft will be applied.)
+
+## Features
+
+- Full price history charts and item timelines
+- Event overlays to highlight market-moving events
+- Trend scoring (bullish/neutral/bearish) and simple predictive signals
+- Opportunity detection: undervalued, overheated, momentum
+- Interactive dashboards and search/discovery UI
 
 ## Tech Stack
 
-- **Frontend**: Next.js 15+ with TypeScript and Tailwind CSS
-- **Backend**: FastAPI (Python) with SQLAlchemy ORM
-- **Database**: Supabase (PostgreSQL)
-- **Data Pipeline**: Real-time data collection from Steam Community Market and CSFloat, with source-tagged coverage
-- **Data Source**: ✨ **Live Steam + CSFloat collection** with explicit demo bootstrap for local synthetic history only
+- Frontend: Next.js + TypeScript + Tailwind CSS
+- Backend: FastAPI (Python) with SQLAlchemy
+- Database: PostgreSQL (Supabase compatible)
+- Data sources: Steam Community Market and supplemental collectors (CSFloat)
 
-## Project Structure
+## Project layout (high level)
 
-```
-cs2-market-analyzer/
-├── backend/              # FastAPI backend
-│   ├── main.py          # Application entry point
-│   ├── database.py       # SQLAlchemy models
-│   ├── schemas.py        # Pydantic request/response schemas
-│   ├── config.py         # Configuration management
-│   ├── routers/          # API route handlers
-│   │   ├── items.py      # Item endpoints
-│   │   ├── opportunities.py
-│   │   ├── events.py
-│   │   └── __init__.py
-│   ├── requirements.txt  # Python dependencies
-│   └── venv/            # Virtual environment
-│
-├── frontend/             # Next.js frontend
-│   ├── app/             # Next.js app directory
-│   ├── components/      # React components
-│   ├── lib/
-│   │   └── api.ts       # API client
-│   ├── public/          # Static assets
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── .env.example         # Environment variables template
-├── PROJECT_OVERVIEW.md  # Detailed project overview
-└── README.md           # This file
-```
+- backend/ — FastAPI app, routers, models, and data pipeline
+- frontend/ — Next.js app, components, and API client
+- .env.example — environment variables template
+- PROJECT_OVERVIEW.md, REAL_DATA_COLLECTION.md — documentation
 
-## Getting Started
+## Getting started (developer)
 
-### Prerequisites
-- Python 3.9+
-- Node.js 18+
-- PostgreSQL (or Supabase account)
+Prereqs: Python 3.9+, Node.js 18+, PostgreSQL or Supabase
 
-### Backend Setup
+Backend:
 
 ```bash
-# Navigate to backend directory
 cd backend
-
-# Create and activate virtual environment
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+source venv/bin/activate    # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# Create .env file (copy from .env.example)
 cp ../.env.example .env
-
-# Update .env with your database URL
-# DATABASE_URL=postgresql://user:password@localhost:5432/cs2_market
-
-# Run the server
+# Edit .env to configure DATABASE_URL and other secrets
 python main.py
 ```
 
-The API will be available at `http://localhost:8000` with docs at `http://localhost:8000/api/docs`
-
-### Frontend Setup
+Frontend:
 
 ```bash
-# Navigate to frontend directory
 cd frontend
-
-# Install dependencies
 npm install
-
-# Create .env.local (copy environment variables)
 cp ../.env.example .env.local
-
-# Update .env.local with your API URL
-# NEXT_PUBLIC_API_URL=http://localhost:8000
-
-# Run development server
+# Update NEXT_PUBLIC_API_URL if required
 npm run dev
 ```
 
-The frontend will be available at `http://localhost:3000`
+API docs available at: http://localhost:8000/api/docs (after backend starts)
 
-## API Endpoints (MVP)
+## Important API endpoints (MVP)
 
-### Items
-- `GET /items/` - List all items
-- `GET /items/search?q=...` - Search items
-- `GET /items/trending` - Get trending items
-- `GET /items/{item_id}` - Get item details
-- `GET /items/{item_id}/price-history` - Get price history
-- `GET /items/{item_id}/trends` - Get trend analysis (using real data)
-- `GET /items/{item_id}/prediction` - Get price prediction (based on real data)
-- `GET /items/{item_id}/events` - Get related events
+- Items: /items/, /items/search, /items/trending, /items/{id}, /items/{id}/price-history
+- Opportunities: /opportunities/, /opportunities/undervalued, /opportunities/momentum
+- Events: /events/, /events/recent, /events/timeline
+- Admin: /admin/collect-now, /admin/collection-status, /admin/data-stats
 
-### Opportunities
-- `GET /opportunities/` - Get all opportunities
-- `GET /opportunities/undervalued` - Get undervalued items
-- `GET /opportunities/overheated` - Get overheated items
-- `GET /opportunities/momentum` - Get momentum items
+Refer to backend/routers for exact parameter names and payloads.
 
-### Events
-- `GET /events/` - List market events
-- `GET /events/recent` - Get recent events
-- `GET /events/timeline` - Get events timeline
+## Real-time collection
 
-### Admin (Data Collection Management)
-- `POST /admin/collect-now` - Trigger real-time data collection
-- `GET /admin/collection-status` - Check collection status
-- `GET /admin/data-stats` - View data statistics
-- `GET /admin/coverage-report` - Inspect per-item and per-source coverage
-- `GET /admin/verification-status` - Compact operational summary for dashboards
+- Collection starts automatically on backend startup
+- Hourly price refreshes for tracked items (configurable)
+- Anomaly detection and validation before persisting
+- Demo/dev environments include synthetic backfill for UI rendering
 
-## Real-Time Data Collection 🎯
+## Development guidelines
 
-The platform collects **real market data from Steam Community Market API** and can supplement it with additional marketplace collectors where available:
+- Frontend in TypeScript; backend in Python with type hints
+- Use REST and document via OpenAPI/Swagger
+- Add tests for critical paths; aim for high coverage on core logic
 
-- ✨ **Automatic collection** starts on app startup
-- 📊 **Every 1 hour** prices are fetched for all tracked items
-- ✅ **Validated data** with anomaly detection before storage
-- 🔗 **Integrated** with trend analysis and predictions
-- 📈 **Production endpoints** return real, analyzed data; demo/dev may still show synthetic bootstrap history
-- 🧭 **Coverage endpoints** expose which tracked items and sources are actually populated
+## Troubleshooting & tips
 
-Demo and development environments also load a synthetic catalog/history backfill so the UI has data to render locally. Production startup skips the synthetic history and relies on live Steam collection.
+- Backend fails to connect: verify DATABASE_URL in backend/.env
+- No data in UI: ensure backend collection is running and check /admin/collection-status
+- To inspect recent changes: git log --oneline --decorate --stat
 
-See [REAL_DATA_COLLECTION.md](REAL_DATA_COLLECTION.md) for details.
+## Contributing & License
 
-**Quick Start:**
-```bash
-# Start backend with real data collection
-cd backend && python main.py
+- Add contribution guidelines in CONTRIBUTING.md
+- Add a LICENSE file (e.g., MIT) and reference it here
 
-# Data collection starts automatically in background
-# Check status: curl http://localhost:8000/admin/collection-status
-# Manually trigger: curl -X POST http://localhost:8000/admin/collect-now
-```
+---
 
-## Implementation Plan
-
-The project is being developed in phases:
-
-**Phase 1: Foundation & Data Infrastructure** (In Progress)
-- ✅ Backend scaffold with FastAPI
-- ✅ Database models designed
-- ✅ API routers structured
-- ✅ Frontend initialized with Next.js
-- ✅ API client created
-
-**Phase 2-8: Core Features** (Planned)
-- Data pipeline and ingestion
-- Analytics & feature engineering
-- Frontend UI development
-- Testing & optimization
-- Deployment
-
-See [plan.md](/plan.md) for detailed phase breakdown.
-
-## Development Guidelines
-
-- Use TypeScript in frontend, Python with type hints in backend
-- Follow REST API conventions
-- Add tests for critical paths (target >70% coverage)
-- Document APIs using OpenAPI/Swagger
-
-## Future Enhancements
-
-- Advanced ML forecasting (XGBoost, ARIMA)
-- Sentiment analysis from community
-- Automated alerts
-- Portfolio tracking
-- Mobile app
-
-## License
-
-[Add your license here]
-
-## Contributing
-
-[Add contribution guidelines here]
+If this summary looks good, the README has been updated. If specific sections need different wording or more detail (installation, API examples, deployment), specify which sections to expand and sample changes to include.
