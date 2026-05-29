@@ -47,7 +47,10 @@ class DataPipeline:
                 CronTrigger(hour='0,6,12,18', minute=30),
                 id='priority_collection',
                 name='Priority market data collection (Top 2000)',
-                replace_existing=True
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=300
             )
             
             # Schedule full daily data collection at 1 AM UTC
@@ -56,7 +59,10 @@ class DataPipeline:
                 CronTrigger(hour=1, minute=0),
                 id='daily_collection',
                 name='Full daily market data collection',
-                replace_existing=True
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=300
             )
             
             # Schedule hourly feature computation at :00
@@ -65,7 +71,10 @@ class DataPipeline:
                 CronTrigger(minute=0),
                 id='hourly_features',
                 name='Hourly feature computation',
-                replace_existing=True
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=300
             )
             
             # Schedule daily trend analysis at 2 AM UTC
@@ -74,7 +83,10 @@ class DataPipeline:
                 CronTrigger(hour=2, minute=0),
                 id='daily_trends',
                 name='Daily trend analysis',
-                replace_existing=True
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=300
             )
             
             # Schedule weekly database pruning at 3 AM UTC every Sunday
@@ -83,7 +95,10 @@ class DataPipeline:
                 CronTrigger(day_of_week='sun', hour=3, minute=0),
                 id='weekly_pruning',
                 name='Weekly database pruning',
-                replace_existing=True
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=300
             )
             
             self.scheduler.start()

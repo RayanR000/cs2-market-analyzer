@@ -7,6 +7,7 @@ Implements 6-point causal validation framework for event impact on prices.
 import sys
 import logging
 from pathlib import Path
+from bisect import bisect_left, bisect_right
 from datetime import datetime, timedelta
 import numpy as np
 from collections import Counter, defaultdict
@@ -26,7 +27,9 @@ class EventAnalyzer:
     def __init__(self, db_session):
         self.db = db_session
         self.analysis_date = datetime.utcnow().date()
-        self.price_cache = {}  # Cache prices to avoid repeated queries
+        # Cache per-item time series in ascending order for fast date lookups.
+        self.price_cache = {}
+        self.price_timestamps = {}
         self.control_group_cache = {}
 
     def batch_load_prices(self, item_ids, start_date, end_date):
@@ -43,13 +46,16 @@ class EventAnalyzer:
             PriceHistory.item_id.in_(item_ids),
             PriceHistory.timestamp >= start_dt,
             PriceHistory.timestamp <= end_dt
-        ).order_by(PriceHistory.item_id, PriceHistory.timestamp.desc()).all()
+        ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
 
         # Organize by item_id for fast lookup
         for price in prices:
             if price.item_id not in self.price_cache:
                 self.price_cache[price.item_id] = []
-            self.price_cache[price.item_id].append(price)
+                self.price_timestamps[price.item_id] = []
+
+            self.price_cache[price.item_id].append((price.timestamp, price.price))
+            self.price_timestamps[price.item_id].append(price.timestamp)
 
         logger.info(f"Loaded {len(prices)} price records into cache")
 
@@ -58,12 +64,16 @@ class EventAnalyzer:
         if item_id not in self.price_cache:
             return None
 
-        # Find closest price on or before target_date
-        for price in self.price_cache[item_id]:
-            if price.timestamp.date() <= target_date:
-                return price.price
+        timestamps = self.price_timestamps.get(item_id)
+        if not timestamps:
+            return None
 
-        return None
+        target_dt = datetime.combine(target_date, datetime.max.time())
+        idx = bisect_right(timestamps, target_dt) - 1
+        if idx < 0:
+            return None
+
+        return self.price_cache[item_id][idx][1]
 
     def compute_control_group_average(self, event_date):
         """Compute a reusable control-group average for an event date."""
@@ -113,10 +123,16 @@ class EventAnalyzer:
         impact_7day = self.get_price_change_percentage(price_before, price_day_7)
 
         # Find peak impact and duration
-        prices_after_event = sorted([
-            price for price in self.price_cache.get(item_id, [])
-            if day_1 <= price.timestamp.date() <= day_7
-        ], key=lambda price: price.timestamp)
+        item_prices = self.price_cache.get(item_id, [])
+        item_timestamps = self.price_timestamps.get(item_id, [])
+        prices_after_event = []
+
+        if item_prices and item_timestamps:
+            start_dt = datetime.combine(day_1, datetime.min.time())
+            end_dt = datetime.combine(day_7, datetime.max.time())
+            start_idx = bisect_left(item_timestamps, start_dt)
+            end_idx = bisect_right(item_timestamps, end_dt)
+            prices_after_event = item_prices[start_idx:end_idx]
 
         peak_impact_pct = None
         peak_impact_day = None
@@ -126,9 +142,9 @@ class EventAnalyzer:
             max_change = 0
             trend_days = 0
 
-            for i, p in enumerate(prices_after_event):
-                days_from_event = (p.timestamp.date() - event_date).days
-                change = self.get_price_change_percentage(price_before, p.price)
+            for i, (timestamp, price) in enumerate(prices_after_event):
+                days_from_event = (timestamp.date() - event_date).days
+                change = self.get_price_change_percentage(price_before, price)
 
                 if change is not None:
                     if abs(change) > abs(max_change):
