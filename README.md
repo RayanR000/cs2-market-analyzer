@@ -51,6 +51,16 @@ cp ../.env.example .env
 python main.py
 ```
 
+Database migrations:
+
+```bash
+cd backend
+source venv/bin/activate
+./scripts/migrate.sh
+```
+
+Use this when you change the schema. Keep `create_all()` for local bootstrap, but use the migration command for upgrades on existing databases.
+
 Frontend:
 
 ```bash
@@ -88,6 +98,7 @@ Refer to backend/routers for exact parameter names and payloads.
 ## Troubleshooting & tips
 
 - Backend fails to connect: verify DATABASE_URL in backend/.env
+- Migration command fails: make sure backend dependencies are installed, especially `alembic`
 - No data in UI: ensure backend collection is running and check /admin/collection-status
 - To inspect recent changes: git log --oneline --decorate --stat
 

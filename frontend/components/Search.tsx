@@ -31,7 +31,7 @@ export default function Search({ onSearch, placeholder = 'SEARCH ASSETS...' }: S
             onSearch(e.target.value);
           }}
           placeholder={placeholder}
-          className="w-full pl-12 pr-24 py-4 bg-background-tertiary border border-border border-b-border-highlight border-r-border-highlight rounded-sm text-sm text-primary placeholder:text-muted focus:bg-background-secondary transition-all outline-none uppercase tracking-widest font-bold shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)]"
+          className="w-full pl-12 pr-24 py-4 bg-background-secondary border border-border rounded-sm text-sm text-primary placeholder:text-muted focus:bg-surface transition-all outline-none uppercase tracking-widest font-bold"
         />
         <div className="absolute inset-y-0 right-4 flex items-center">
           <span className="text-[10px] font-data font-bold text-muted tracking-widest uppercase border border-border px-2 py-1 rounded-sm">

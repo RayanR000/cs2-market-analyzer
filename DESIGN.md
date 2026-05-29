@@ -6,32 +6,29 @@
 
 ## Philosophy
 
-**Tactile Analytical Boutique.** The precision of a high-end mechanical instrument. We use physical metaphors—brushed steel, matte carbon, and sharp bevels—to create a sense of "weight" and authority. The interface should feel like a custom-machined terminal.
+**Modern Analytical Boutique.** The precision of a high-end trading tool with the visual richness of a premium game showcase. Every data point is grounded by visual context. We prioritize breathing room and clarity over raw data density to ensure a "relaxed" analytical experience.
 
 ## Color Strategy
 
-**Monochromatic Carbon (Tactile):** A pure minimalist grayscale palette enhanced by texture and depth. 
+**Monochromatic Carbon:** A pure minimalist grayscale palette designed for ultimate data focus and clarity. By removing hue-based distraction, we allow the item assets and numbers to carry the full weight of the interface.
 
 ### Palette (OKLCH)
 
 **Base:**
-- **Background-primary:** `oklch(12% 0 0)` — Deepest carbon floor.
-- **Background-secondary:** `oklch(16% 0 0)` — Brushed metal elevation.
-- **Surface:** `oklch(20% 0 0)` — Matte interactive surfaces.
-- **Text-primary:** `oklch(98% 0 0)` — Stark white for high-precision data.
-- **Text-secondary:** `oklch(60% 0 0)` — Muted technical gray.
-- **Border:** `oklch(24% 0 0)` — Sharp, mechanical dividers.
+- **Background-primary:** `oklch(14% 0 0)` — Deep carbon/black.
+- **Background-secondary:** `oklch(18% 0 0)` — Subtle panel elevation.
+- **Surface:** `oklch(22% 0 0)` — Interactive surfaces.
+- **Text-primary:** `oklch(95% 0 0)` — Stark white for maximum readability.
+- **Text-secondary:** `oklch(65% 0 0)` — Muted gray for meta info.
+- **Border:** `oklch(28% 0 0)` — Sharp, precise dividers.
 
-### Textures & Depth
-- **Grain:** A consistent, subtle noise filter across the entire background to simulate a physical matte finish.
-- **Bevels:** 1px "highlight" borders on the top and left of cards to simulate a beveled edge.
-- **Gradients:** Subtle top-to-bottom linear gradients on surfaces to mimic lighting on brushed steel.
+**Accents:**
+- **Gain:** `oklch(95% 0 0)` with positive indicator (or subtle `oklch(80% 0.12 150)` emerald only for data). 
+- **Loss:** `oklch(95% 0 0)` with negative indicator (or subtle `oklch(65% 0.15 25)` rose only for data).
+- **Action:** `oklch(95% 0 0)` (Inverse focus: black text on white background).
+- **Highlight:** `oklch(40% 0 0)` — Medium gray for secondary focus.
 
-## Components & Patterns
-
-- **Machined Cards:** `card-boutique` now features a 1px top highlight and a deeper bottom shadow to feel "inset" or "bolted" to the UI.
-- **Terminal Inputs:** Search and inputs use a deeper, "carved" inset look.
-- **Data Display:** High-contrast stark white on deep black. No glows, just raw, sharp precision.
+*Note: While the UI is monochromatic, data indicators (Gain/Loss) can retain very low-chroma green/red tints to ensure analytical safety, or rely entirely on symbols (↑/↓).*
 
 
 **Theme:** Dark (Default). Softer than pitch black to reduce eye strain.

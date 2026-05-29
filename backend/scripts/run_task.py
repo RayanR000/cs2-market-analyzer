@@ -6,6 +6,7 @@ Used by GitHub Actions to trigger specific pipeline tasks.
 
 import sys
 import logging
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -20,6 +21,31 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("task_runner")
+
+def run_migrations(revision="head"):
+    """Run Alembic migrations explicitly as a maintenance task."""
+    alembic_cmds = [
+        [str(Path(__file__).parent.parent / "venv" / "bin" / "alembic"), "upgrade", revision],
+        [sys.executable, "-m", "alembic", "upgrade", revision],
+    ]
+
+    last_error = None
+    for cmd in alembic_cmds:
+        try:
+            logger.info(f"Running migrations: {' '.join(cmd)}")
+            result = subprocess.run(cmd, check=True, cwd=str(Path(__file__).parent.parent))
+            return {"status": "success", "revision": revision, "returncode": result.returncode}
+        except FileNotFoundError as e:
+            last_error = e
+            continue
+        except subprocess.CalledProcessError as e:
+            last_error = e
+            break
+
+    logger.error(
+        "Migration command failed. Install backend requirements and retry."
+    )
+    raise RuntimeError(f"Could not run migrations to {revision}: {last_error}")
 
 def run_task(task_name):
     db = SessionLocal()
@@ -77,6 +103,13 @@ def run_task(task_name):
             result = analyzer.run_analysis()
             print(f"RESULT: {result}")
 
+        elif task_name == "migrate":
+            logger.info("="*60)
+            logger.info("TASK: Database Migration (Alembic upgrade head)")
+            logger.info("="*60)
+            result = run_migrations("head")
+            print(f"RESULT: {result}")
+
         else:
             logger.error(f"Unknown task: {task_name}")
             sys.exit(1)
@@ -93,7 +126,7 @@ def run_task(task_name):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python run_task.py <task_name>")
-        print("Tasks: aggregate, priority, prune, trends")
+        print("Tasks: aggregate, priority, prune, trends, migrate")
         sys.exit(1)
         
     run_task(sys.argv[1])
