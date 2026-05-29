@@ -6,6 +6,8 @@ Fetches comprehensive price data from public JSON endpoints.
 import logging
 import requests
 from datetime import datetime
+import re
+import unicodedata
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -21,6 +23,14 @@ class CSGOTraderAggregator:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; CS2Analyzer/1.0)"})
         self._price_cache = {}
+
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Normalize item names for resilient matching."""
+        normalized = unicodedata.normalize("NFKD", name or "")
+        normalized = normalized.casefold()
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
 
     def fetch_all_prices(self) -> Dict[str, float]:
         """Fetch latest prices from public endpoints and merge them."""
@@ -56,22 +66,30 @@ class CSGOTraderAggregator:
         results = {}
         # Pre-process cache keys to lower-case
         cache_keys = {k.lower(): k for k in self._price_cache.keys()}
+        normalized_cache_keys = {self._normalize_name(k): k for k in self._price_cache.keys()}
         
         qualities = ["(Factory New)", "(Minimal Wear)", "(Field-Tested)", "(Well-Worn)", "(Battle-Scarred)"]
             
         for name in item_names:
             name_lower = name.lower()
+            normalized_name = self._normalize_name(name)
             found_key = None
             
             # 1. Direct/Exact match
             if name_lower in cache_keys:
                 found_key = cache_keys[name_lower]
+            elif normalized_name in normalized_cache_keys:
+                found_key = normalized_cache_keys[normalized_name]
             else:
                 # 2. Try adding quality suffix
                 for q in qualities:
                     candidate = f"{name_lower} {q.lower()}".replace("  ", " ")
                     if candidate in cache_keys:
                         found_key = cache_keys[candidate]
+                        break
+                    normalized_candidate = self._normalize_name(f"{name} {q}")
+                    if normalized_candidate in normalized_cache_keys:
+                        found_key = normalized_cache_keys[normalized_candidate]
                         break
             
             if found_key:

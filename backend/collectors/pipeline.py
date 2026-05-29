@@ -5,7 +5,7 @@ Manages scheduled data collection, validation, and storage
 
 import logging
 from datetime import datetime, timedelta
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Optional, List, Dict, Callable
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -132,6 +132,9 @@ class DataPipeline:
         start_time = datetime.utcnow()
         items_collected = 0
         errors_count = 0
+        duplicate_name_count = 0
+        duplicate_name_sample: List[str] = []
+        missing_names: List[str] = []
 
         try:
             logger.info(f"Starting aggregator collection (limit: {limit if limit else 'ALL'})")
@@ -155,35 +158,61 @@ class DataPipeline:
 
             logger.info(f"Found {len(items)} items to update")
 
+            name_counts = Counter(item.name for item in items)
+            duplicate_names = [name for name, count in name_counts.items() if count > 1]
+            duplicate_name_count = len(duplicate_names)
+            if duplicate_names:
+                duplicate_name_sample = duplicate_names[:10]
+                logger.warning(
+                    "Found %s duplicate item names in the DB snapshot. "
+                    "These rows will share the same external lookup key. Sample: %s",
+                    duplicate_name_count,
+                    duplicate_name_sample,
+                )
+
             # 2. Fetch prices from aggregator
             aggregator = CSGOTraderAggregator()
-            item_map = {item.name: item for item in items}
+            item_map = defaultdict(list)
+            for item in items:
+                item_map[item.name].append(item)
+
             results = aggregator.collect_batch_items(list(item_map.keys()))
 
             # 3. Store results
             price_records = []
             now = datetime.utcnow()
 
-            for name, item in item_map.items():
+            for name, matched_items in item_map.items():
                 res = results.get(name)
                 if res and len(res) >= 2 and res[0] > 0:
                     # Aggregator returns (price, volume, timestamp)
                     price, volume = res[0], res[1]
-                    price_records.append(PriceHistory(
-                        item_id=item.id,
-                        timestamp=now,
-                        price=price,
-                        volume=volume,
-                        source='aggregator_sync'
-                    ))
-                    items_collected += 1
+                    for item in matched_items:
+                        price_records.append(PriceHistory(
+                            item_id=item.id,
+                            timestamp=now,
+                            price=price,
+                            volume=volume,
+                            source='aggregator_sync'
+                        ))
+                        items_collected += 1
                 else:
-                    errors_count += 1
+                    errors_count += len(matched_items)
+                    missing_names.append(name)
 
             # 4. Save prices
             if price_records:
                 self.db_session.bulk_save_objects(price_records)
                 logger.info(f"Saving {len(price_records)} price records...")
+
+            if missing_names:
+                sample_missing = missing_names[:20]
+                logger.warning(
+                    "Unmatched item names in this run: %s/%s items missing. Sample: %s",
+                    errors_count,
+                    len(items),
+                    sample_missing,
+                )
 
             # 5. Record collection run for monitoring
             end_time = datetime.utcnow()
@@ -208,6 +237,9 @@ class DataPipeline:
                 "items_collected": items_collected,
                 "total_items": len(items),
                 "errors": errors_count,
+                "duplicate_names": duplicate_name_count,
+                "duplicate_name_sample": duplicate_name_sample,
+                "missing_name_sample": missing_names[:20],
                 "duration_seconds": duration_seconds
             }
 
