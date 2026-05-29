@@ -3,6 +3,7 @@ Configuration management for the backend
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -25,12 +26,12 @@ class Settings(BaseSettings):
     
     # Security
     secret_key: str = "your-secret-key-for-sessions"  # Should be changed in production
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "allow"
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="allow",
+    )
 
     def is_production(self) -> bool:
         """Return True when the app should avoid demo bootstrap behavior."""

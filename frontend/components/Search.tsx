@@ -19,7 +19,7 @@ export default function Search({ onSearch, placeholder = 'SEARCH ASSETS...' }: S
     <form onSubmit={handleSubmit} className="w-full">
       <div className="relative group">
         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-          <svg className="w-4 h-4 text-tertiary group-focus-within:text-accent-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-tertiary group-focus-within:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
@@ -31,7 +31,7 @@ export default function Search({ onSearch, placeholder = 'SEARCH ASSETS...' }: S
             onSearch(e.target.value);
           }}
           placeholder={placeholder}
-          className="w-full pl-12 pr-24 py-4 bg-background-secondary border border-border rounded-sm text-sm text-primary placeholder:text-muted focus:border-accent-primary focus:bg-surface transition-all outline-none uppercase tracking-widest font-bold"
+          className="w-full pl-12 pr-24 py-4 bg-background-tertiary border border-border border-b-border-highlight border-r-border-highlight rounded-sm text-sm text-primary placeholder:text-muted focus:bg-background-secondary transition-all outline-none uppercase tracking-widest font-bold shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)]"
         />
         <div className="absolute inset-y-0 right-4 flex items-center">
           <span className="text-[10px] font-data font-bold text-muted tracking-widest uppercase border border-border px-2 py-1 rounded-sm">

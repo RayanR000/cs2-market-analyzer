@@ -3,12 +3,17 @@ Database models for CS2 Market Intelligence Platform
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Date, ForeignKey, Index, JSON, UniqueConstraint
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-from datetime import datetime
+from sqlalchemy.orm import declarative_base
+from datetime import datetime, timezone
 from config import settings
 
 Base = declarative_base()
+
+
+def utcnow_naive():
+    """Return a naive UTC timestamp for compatibility with the current schema."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # Create engine
 engine = create_engine(
@@ -41,8 +46,8 @@ class Item(Base):
     name = Column(String(255), nullable=False, index=True)
     type = Column(String(50), nullable=False)  # skin, case, sticker
     release_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
     
     price_histories = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
     trend_indicators = relationship("TrendIndicator", back_populates="item", cascade="all, delete-orphan")
@@ -63,7 +68,7 @@ class PriceHistory(Base):
     volume = Column(Integer, nullable=True)
     median_price = Column(Float, nullable=True)
     source = Column(String(50), nullable=False, default="steam")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     item = relationship("Item", back_populates="price_histories")
 
@@ -86,7 +91,7 @@ class CollectionRun(Base):
     duration_seconds = Column(Float, nullable=True)
     error_message = Column(String(1000), nullable=True)
     source_breakdown = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     __table_args__ = (
         Index('idx_collection_runs_started_at', 'started_at'),
@@ -101,7 +106,7 @@ class Event(Base):
     type = Column(String(50), nullable=False)  # major, update, case_drop, operation
     timestamp = Column(DateTime, nullable=False, index=True)
     description = Column(String(500), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     __table_args__ = (
         Index('idx_event_type_timestamp', 'type', 'timestamp'),
@@ -120,7 +125,7 @@ class TrendIndicator(Base):
     trend_score = Column(Float, nullable=True)  # -1 (bearish) to 1 (bullish)
     trend_direction = Column(String(20), nullable=True)  # bullish, neutral, bearish
     confidence = Column(String(20), nullable=True)  # low, medium, high
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
     
     item = relationship("Item", back_populates="trend_indicators")
     
@@ -149,8 +154,8 @@ class DailyAnalysis(Base):
     opportunity_score = Column(Float, nullable=True)
     trading_volume_trend = Column(Float, nullable=True)
     price_stability = Column(Float, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
     item = relationship("Item", back_populates="daily_analyses")
 
@@ -167,8 +172,8 @@ class User(Base):
     steam_id = Column(String(50), unique=True, nullable=False, index=True)
     username = Column(String(255), nullable=True)
     avatar_url = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_login = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
+    last_login = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
 
 class EventImpact(Base):
@@ -189,7 +194,7 @@ class EventImpact(Base):
     peak_impact_day = Column(Integer, nullable=True)
     duration_days = Column(Integer, nullable=True)
     z_score = Column(Float, nullable=True)  # Statistical significance
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     __table_args__ = (
         Index('idx_event_impact_event_item', 'event_id', 'item_id'),
@@ -211,8 +216,8 @@ class EventPattern(Base):
     std_dev = Column(Float, nullable=True)
     consistency_score = Column(Float, nullable=True)  # 0-1: how consistent is the pattern
     holdout_accuracy = Column(Float, nullable=True)  # 0-1: validation accuracy
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
     __table_args__ = (
         Index('idx_event_pattern_type_item', 'event_type', 'item_id'),
@@ -254,7 +259,7 @@ class EventCorrelation(Base):
     # Final confidence score
     confidence_score = Column(Float, nullable=True)  # 0-1: Weighted average of 6 checks
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     __table_args__ = (
         Index('idx_event_correlation_event_item', 'event_id', 'item_id'),

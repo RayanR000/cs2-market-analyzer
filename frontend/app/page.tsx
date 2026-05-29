@@ -11,54 +11,44 @@ export default function Home() {
     <div className="min-h-screen bg-background-primary selection:bg-accent-primary/30 selection:text-white">
       <Header />
 
-      {/* Hero Section - Boutique Minimalism */}
-      <section className="relative overflow-hidden pt-32 pb-24 border-b border-border/40">
-        {/* Subtle Background Asset Pattern (Faint) */}
-        <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none grayscale select-none">
-          <div className="grid grid-cols-6 gap-8 p-12">
-            {[...Array(24)].map((_, i) => (
-              <div key={i} className="aspect-square border border-white rounded-sm" />
-            ))}
-          </div>
-        </div>
-
+      {/* Hero Section - Machined Terminal */}
+      <section className="relative overflow-hidden pt-32 pb-24 border-b border-border shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
         <div className="max-w-7xl mx-auto px-6 relative z-10">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
             className="max-w-4xl"
           >
-            <div className="mb-8 flex items-center gap-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse" />
-              <span className="font-data text-[10px] font-bold uppercase tracking-[0.3em] text-accent-primary">
-                Institutional Market Intelligence
+            <div className="mb-10 flex items-center gap-4">
+              <span className="w-12 h-[1px] bg-primary" />
+              <span className="font-data text-[10px] font-bold uppercase tracking-[0.4em] text-primary">
+                Institutional Data Terminal
               </span>
             </div>
 
-            <h1 className="text-6xl md:text-7xl font-semibold mb-8 tracking-tighter leading-[0.9] text-primary">
-              The Boutique <br />
-              <span className="text-tertiary">CS2 Data Terminal.</span>
+            <h1 className="text-7xl md:text-8xl font-semibold mb-10 tracking-tighter leading-[0.85] text-primary">
+              Tactile <br />
+              <span className="text-muted">Market Precision.</span>
             </h1>
 
-            <p className="text-lg md:text-xl text-secondary max-w-2xl mb-12 leading-relaxed">
-              Medium to long-term market analytics for professional speculators. 
-              Precision trends, asset-grounded insights, and portfolio optimization 
-              for the Counter-Strike 2 ecosystem.
+            <p className="text-xl text-secondary max-w-xl mb-14 leading-relaxed font-medium">
+              A custom-machined interface for long-term CS2 speculation. 
+              Minimalist by design, industrial by nature.
             </p>
 
-            <div className="flex flex-wrap gap-6">
+            <div className="flex flex-wrap gap-8">
               <Link
                 href="/market"
-                className="px-8 py-4 bg-accent-primary text-background-primary font-bold text-xs uppercase tracking-[0.2em] rounded-sm hover:bg-white transition-all active:scale-95"
+                className="px-10 py-5 bg-primary text-background-primary font-bold text-xs uppercase tracking-[0.3em] rounded-sm hover:bg-muted transition-all active:scale-95 shadow-md"
               >
-                Launch Terminal
+                Open Terminal
               </Link>
               <Link
                 href="/portfolio"
-                className="px-8 py-4 border border-border text-primary font-bold text-xs uppercase tracking-[0.2em] rounded-sm hover:bg-surface transition-all active:scale-95"
+                className="px-10 py-5 border border-border border-t-border-highlight border-l-border-highlight text-primary font-bold text-xs uppercase tracking-[0.3em] rounded-sm hover:bg-background-secondary transition-all active:scale-95"
               >
-                Access Portfolio
+                Portfolio
               </Link>
             </div>
           </motion.div>
