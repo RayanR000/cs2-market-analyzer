@@ -19,39 +19,39 @@ export default function StatCard({
   subvalue,
   icon
 }: StatCardProps) {
-  let accentColor = 'var(--text-primary)';
+  let indicatorColor = 'var(--text-primary)';
   
   if (isPositive === true) {
-    accentColor = 'var(--data-up)';
+    indicatorColor = 'var(--data-up)';
   } else if (isPositive === false) {
-    accentColor = 'var(--data-down)';
+    indicatorColor = 'var(--data-down)';
   } else if (highlight === 'secondary') {
-    accentColor = 'var(--accent-secondary)';
+    indicatorColor = 'var(--accent-secondary)';
   } else if (highlight === 'accent') {
-    accentColor = 'var(--accent-primary)';
+    indicatorColor = 'var(--accent-primary)';
   }
 
   return (
     <div className="card-boutique group">
-      <div className="flex items-start justify-between mb-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-tertiary">
+      <div className="flex items-start justify-between mb-4">
+        <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-muted">
           {label}
         </p>
         {icon && (
-          <div style={{ color: accentColor }} className="text-lg opacity-40 group-hover:opacity-100 transition-opacity">
+          <div style={{ color: indicatorColor }} className="text-base opacity-30 group-hover:opacity-100 transition-opacity">
             {icon}
           </div>
         )}
       </div>
 
       <div className="flex items-baseline gap-3">
-        <p className="text-3xl font-data font-medium tracking-tight text-primary">
+        <p className="text-3xl font-data font-medium tracking-tighter text-primary">
           {value}
         </p>
         
         {change !== undefined && (
           <span
-            className="text-xs font-data font-semibold"
+            className="text-xs font-data font-bold"
             style={{
               color: change >= 0 ? 'var(--data-up)' : 'var(--data-down)'
             }}
@@ -62,7 +62,7 @@ export default function StatCard({
       </div>
 
       {subvalue && (
-        <p className="text-[11px] font-data text-muted mt-2 uppercase tracking-wide">
+        <p className="text-[9px] font-data font-bold text-muted mt-3 uppercase tracking-[0.1em]">
           {subvalue}
         </p>
       )}

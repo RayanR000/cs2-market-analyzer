@@ -6,22 +6,25 @@
 
 ## Color Strategy
 
-**Soft Charcoal & Navy:** A sophisticated dark theme designed for comfort and long sessions. We use depth and subtle tints rather than harsh blacks.
+**Monochromatic Carbon:** A pure minimalist grayscale palette designed for ultimate data focus and clarity. By removing hue-based distraction, we allow the item assets and numbers to carry the full weight of the interface.
 
 ### Palette (OKLCH)
 
 **Base:**
-- **Background-primary:** `oklch(18% 0.02 260)` — Deep charcoal with a hint of navy.
-- **Background-secondary:** `oklch(22% 0.02 260)` — Elevation for cards and panels.
-- **Surface:** `oklch(26% 0.03 260)` — High-elevation surfaces, active states.
-- **Text-primary:** `oklch(90% 0.01 260)` — Off-white for high readability without glare.
-- **Text-secondary:** `oklch(70% 0.02 260)` — Muted gray-blue for secondary labels.
-- **Border:** `oklch(35% 0.03 260)` — Subtle separators that define space without clutter.
+- **Background-primary:** `oklch(14% 0 0)` — Deep carbon/black.
+- **Background-secondary:** `oklch(18% 0 0)` — Subtle panel elevation.
+- **Surface:** `oklch(22% 0 0)` — Interactive surfaces.
+- **Text-primary:** `oklch(95% 0 0)` — Stark white for maximum readability.
+- **Text-secondary:** `oklch(65% 0 0)` — Muted gray for meta info.
+- **Border:** `oklch(28% 0 0)` — Sharp, precise dividers.
 
 **Accents:**
-- **Gain:** `oklch(75% 0.15 150)` — Soft mint green for positive trends.
-- **Loss:** `oklch(65% 0.15 20)` — Muted rose for negative trends.
-- **Action:** `oklch(70% 0.12 245)` — Soft blue for interactive elements.
+- **Gain:** `oklch(95% 0 0)` with positive indicator (or subtle `oklch(80% 0.12 150)` emerald only for data). 
+- **Loss:** `oklch(95% 0 0)` with negative indicator (or subtle `oklch(65% 0.15 25)` rose only for data).
+- **Action:** `oklch(95% 0 0)` (Inverse focus: black text on white background).
+- **Highlight:** `oklch(40% 0 0)` — Medium gray for secondary focus.
+
+*Note: While the UI is monochromatic, data indicators (Gain/Loss) can retain very low-chroma green/red tints to ensure analytical safety, or rely entirely on symbols (↑/↓).*
 
 **Theme:** Dark (Default). Softer than pitch black to reduce eye strain.
 
