@@ -23,6 +23,7 @@ class CSGOTraderAggregator:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; CS2Analyzer/1.0)"})
         self._price_cache = {}
+        self._sticker_prefix_index = {}
 
     @staticmethod
     def _normalize_name(name: str) -> str:
@@ -58,6 +59,36 @@ class CSGOTraderAggregator:
             if candidate:
                 variants.append(candidate)
         return variants
+
+    @staticmethod
+    def _sticker_prefixes(name: str) -> List[str]:
+        """
+        Generate normalized sticker prefixes from a name.
+
+        Example:
+            Sticker | noway (Holo) | Shanghai 2024
+            -> sticker | noway (holo) | shanghai 2024
+            -> sticker | noway (holo)
+        """
+        parts = [part.strip() for part in name.split(" | ")]
+        if len(parts) < 3 or parts[0].lower() != "sticker":
+            return []
+
+        prefixes = []
+        current = parts[:]
+        while len(current) > 2:
+            current = current[:-1]
+            normalized = CSGOTraderAggregator._normalize_name(" | ".join(current))
+            prefixes.append(normalized)
+        return prefixes
+
+    def _build_sticker_prefix_index(self) -> Dict[str, List[str]]:
+        """Build a lookup table for shortened sticker variants."""
+        prefix_index: Dict[str, List[str]] = {}
+        for source_key in self._price_cache.keys():
+            for prefix in self._sticker_prefixes(source_key):
+                prefix_index.setdefault(prefix, []).append(source_key)
+        return prefix_index
 
     @staticmethod
     def _diagnostic_terms(name: str) -> List[str]:
@@ -105,6 +136,8 @@ class CSGOTraderAggregator:
         """
         if not self._price_cache:
             self._price_cache = self.fetch_all_prices()
+        if not self._sticker_prefix_index:
+            self._sticker_prefix_index = self._build_sticker_prefix_index()
 
         terms = self._diagnostic_terms(name)
         if not terms:
@@ -149,6 +182,8 @@ class CSGOTraderAggregator:
         """Fetch prices for a list of items using fuzzy matching."""
         if not self._price_cache:
             self._price_cache = self.fetch_all_prices()
+        if not self._sticker_prefix_index:
+            self._sticker_prefix_index = self._build_sticker_prefix_index()
             
         results = {}
         # Pre-process cache keys to lower-case
@@ -179,6 +214,10 @@ class CSGOTraderAggregator:
                         break
                     if normalized_candidate in normalized_cache_keys:
                         found_key = normalized_cache_keys[normalized_candidate]
+                        break
+                    matching_keys = self._sticker_prefix_index.get(normalized_candidate)
+                    if matching_keys:
+                        found_key = matching_keys[0]
                         break
             else:
                 # 2. Try adding quality suffix
