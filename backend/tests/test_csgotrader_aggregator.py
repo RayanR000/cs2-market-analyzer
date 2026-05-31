@@ -50,3 +50,17 @@ def test_collect_batch_items_matches_sticker_across_event_suffix(monkeypatch):
     results = aggregator.collect_batch_items(["Sticker | YEKINDAR (Holo) | Shanghai 2024"])
 
     assert results["Sticker | YEKINDAR (Holo) | Shanghai 2024"][0] == 22.5
+
+
+def test_collect_batch_items_matches_sticker_without_quality(monkeypatch):
+    aggregator = CSGOTraderAggregator()
+    monkeypatch.setattr(
+        aggregator,
+        "fetch_all_prices",
+        lambda: {"Sticker | YEKINDAR | Paris 2023": 33.33},
+    )
+    aggregator._price_cache = {}
+
+    results = aggregator.collect_batch_items(["Sticker | YEKINDAR (Holo) | Shanghai 2024"])
+
+    assert results["Sticker | YEKINDAR (Holo) | Shanghai 2024"][0] == 33.33

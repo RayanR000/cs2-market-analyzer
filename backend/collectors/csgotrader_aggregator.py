@@ -58,6 +58,22 @@ class CSGOTraderAggregator:
             candidate = " | ".join(current).strip()
             if candidate:
                 variants.append(candidate)
+
+        # Also try variants with the sticker quality removed, since the feed
+        # may only contain the base sticker name without a Holo/Gold/etc tag.
+        if len(parts) >= 2:
+            qualityless_parts = parts[:]
+            quality_match = re.match(r"^(.*?)\s*\(([^)]+)\)$", qualityless_parts[1])
+            if quality_match:
+                qualityless_parts[1] = quality_match.group(1).strip()
+                qualityless_candidate = " | ".join(qualityless_parts).strip()
+                if qualityless_candidate and qualityless_candidate not in variants:
+                    variants.append(qualityless_candidate)
+
+                if len(qualityless_parts) >= 3:
+                    qualityless_short = " | ".join(qualityless_parts[:2]).strip()
+                    if qualityless_short and qualityless_short not in variants:
+                        variants.append(qualityless_short)
         return variants
 
     @staticmethod
