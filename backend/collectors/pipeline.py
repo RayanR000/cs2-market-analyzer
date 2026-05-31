@@ -130,7 +130,8 @@ class DataPipeline:
         from database import Item, PriceHistory, CollectionRun
 
         start_time = datetime.utcnow()
-        items_collected = 0
+        primary_items_collected = 0
+        fallback_items_collected = 0
         errors_count = 0
         duplicate_name_count = 0
         duplicate_name_sample: List[str] = []
@@ -195,10 +196,48 @@ class DataPipeline:
                             volume=volume,
                             source='aggregator_sync'
                         ))
-                        items_collected += 1
+                        primary_items_collected += 1
                 else:
                     errors_count += len(matched_items)
                     missing_names.append(name)
+
+            if missing_names:
+                historical_prices = self._load_latest_non_aggregator_prices(
+                    {
+                        item.id
+                        for missing_name in missing_names
+                        for item in item_map[missing_name]
+                    }
+                )
+                still_missing_names = []
+
+                for name in missing_names:
+                    matched_items = item_map[name]
+                    recovered_row = next(
+                        (
+                            historical_prices.get(item.id)
+                            for item in matched_items
+                            if historical_prices.get(item.id) is not None
+                        ),
+                        None,
+                    )
+
+                    if recovered_row is None:
+                        still_missing_names.append(name)
+                        continue
+
+                    for item in matched_items:
+                        price_records.append(PriceHistory(
+                            item_id=item.id,
+                            timestamp=now,
+                            price=recovered_row.price,
+                            volume=recovered_row.volume,
+                            source=f"historical_fallback:{recovered_row.source}",
+                        ))
+                        fallback_items_collected += 1
+
+                missing_names = still_missing_names
+                errors_count = sum(len(item_map[name]) for name in missing_names)
 
             # 4. Save prices
             if price_records:
@@ -222,28 +261,39 @@ class DataPipeline:
                     "Aggregator source-key diagnostics for missing sample: %s",
                     diagnostic_map,
                 )
+            elif fallback_items_collected:
+                logger.info(
+                    "Recovered %s items from historical fallback sources",
+                    fallback_items_collected,
+                )
 
             # 5. Record collection run for monitoring
             end_time = datetime.utcnow()
             duration_seconds = (end_time - start_time).total_seconds()
+            total_collected = primary_items_collected + fallback_items_collected
 
             collection_run = CollectionRun(
                 started_at=start_time,
                 finished_at=end_time,
                 status='completed',
                 total_items=len(items),
-                successful=items_collected,
+                successful=total_collected,
                 failed=errors_count,
                 duration_seconds=duration_seconds,
-                source_breakdown={'aggregator': items_collected}
+                source_breakdown={
+                    'aggregator': primary_items_collected,
+                    'historical_fallback': fallback_items_collected,
+                }
             )
             self.db_session.add(collection_run)
             self.db_session.commit()
 
-            logger.info(f"✅ Collection complete: {items_collected}/{len(items)} items in {duration_seconds:.1f}s")
+            logger.info(
+                f"✅ Collection complete: {total_collected}/{len(items)} items in {duration_seconds:.1f}s"
+            )
             return {
                 "status": "success",
-                "items_collected": items_collected,
+                "items_collected": total_collected,
                 "total_items": len(items),
                 "errors": errors_count,
                 "duplicate_names": duplicate_name_count,
@@ -283,6 +333,34 @@ class DataPipeline:
 
             logger.error(f"❌ Aggregator collection failed: {e}", exc_info=True)
             return {"status": "failed", "error": str(e), "duration_seconds": duration_seconds}
+
+    def _load_latest_non_aggregator_prices(self, item_ids):
+        """Load the latest non-primary price snapshot for each exact item id."""
+        from database import PriceHistory
+
+        if not item_ids:
+            return {}
+
+        rows = (
+            self.db_session.query(PriceHistory)
+            .filter(
+                PriceHistory.item_id.in_(item_ids),
+                PriceHistory.source != 'aggregator_sync',
+            )
+            .order_by(
+                PriceHistory.item_id,
+                PriceHistory.timestamp.desc(),
+                PriceHistory.id.desc(),
+            )
+            .all()
+        )
+
+        latest_by_item_id = {}
+        for row in rows:
+            if row.item_id not in latest_by_item_id:
+                latest_by_item_id[row.item_id] = row
+
+        return latest_by_item_id
 
     def run_daily_collection(self):
         """Execute daily market data collection using high-efficiency batch method"""

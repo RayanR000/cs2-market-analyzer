@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from collectors.csgotrader_aggregator import CSGOTraderAggregator
 
 
-def test_collect_batch_items_matches_sticker_without_event_suffix(monkeypatch):
+def test_collect_batch_items_does_not_cross_match_sticker_event_suffix_without_base_key(monkeypatch):
     aggregator = CSGOTraderAggregator()
     monkeypatch.setattr(
         aggregator,
@@ -16,9 +14,7 @@ def test_collect_batch_items_matches_sticker_without_event_suffix(monkeypatch):
 
     results = aggregator.collect_batch_items(["Sticker | noway (Holo) | Shanghai 2024"])
 
-    assert results["Sticker | noway (Holo) | Shanghai 2024"][0] == 12.34
-    assert results["Sticker | noway (Holo) | Shanghai 2024"][1] == 0
-    assert isinstance(results["Sticker | noway (Holo) | Shanghai 2024"][2], datetime)
+    assert "Sticker | noway (Holo) | Shanghai 2024" not in results
 
 
 def test_collect_batch_items_still_prefers_exact_sticker_match(monkeypatch):
@@ -38,7 +34,7 @@ def test_collect_batch_items_still_prefers_exact_sticker_match(monkeypatch):
     assert results["Sticker | noway (Holo) | Shanghai 2024"][0] == 56.78
 
 
-def test_collect_batch_items_matches_sticker_across_event_suffix(monkeypatch):
+def test_collect_batch_items_does_not_cross_match_sticker_event_suffix(monkeypatch):
     aggregator = CSGOTraderAggregator()
     monkeypatch.setattr(
         aggregator,
@@ -49,10 +45,10 @@ def test_collect_batch_items_matches_sticker_across_event_suffix(monkeypatch):
 
     results = aggregator.collect_batch_items(["Sticker | YEKINDAR (Holo) | Shanghai 2024"])
 
-    assert results["Sticker | YEKINDAR (Holo) | Shanghai 2024"][0] == 22.5
+    assert "Sticker | YEKINDAR (Holo) | Shanghai 2024" not in results
 
 
-def test_collect_batch_items_matches_sticker_without_quality(monkeypatch):
+def test_collect_batch_items_does_not_cross_match_sticker_without_quality(monkeypatch):
     aggregator = CSGOTraderAggregator()
     monkeypatch.setattr(
         aggregator,
@@ -63,4 +59,18 @@ def test_collect_batch_items_matches_sticker_without_quality(monkeypatch):
 
     results = aggregator.collect_batch_items(["Sticker | YEKINDAR (Holo) | Shanghai 2024"])
 
-    assert results["Sticker | YEKINDAR (Holo) | Shanghai 2024"][0] == 33.33
+    assert "Sticker | YEKINDAR (Holo) | Shanghai 2024" not in results
+
+
+def test_collect_batch_items_does_not_cross_match_sticker_quality(monkeypatch):
+    aggregator = CSGOTraderAggregator()
+    monkeypatch.setattr(
+        aggregator,
+        "fetch_all_prices",
+        lambda: {"Sticker | Liazz (Glitter) | Paris 2023": 44.44},
+    )
+    aggregator._price_cache = {}
+
+    results = aggregator.collect_batch_items(["Sticker | Liazz (Holo) | Shanghai 2024"])
+
+    assert "Sticker | Liazz (Holo) | Shanghai 2024" not in results
