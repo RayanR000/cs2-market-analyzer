@@ -126,7 +126,7 @@ def run_task(task_name):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python run_task.py <task_name>")
-        print("Tasks: aggregate, priority, prune, trends, migrate")
+        print("Tasks: aggregate, priority, prune, trends, long_term_trends, migrate")
         sys.exit(1)
         
     run_task(sys.argv[1])
