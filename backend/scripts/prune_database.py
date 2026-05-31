@@ -44,6 +44,15 @@ def prune_trend_indicators(db_session, days_to_keep=180, dry_run=False):
     return count
 
 
+def prune_price_history(db_session, days_to_keep_granular=7, dry_run=False):
+    """Backward-compatible alias for the current downsampling routine."""
+    return downsample_price_history(
+        db_session,
+        days_to_keep_granular=days_to_keep_granular,
+        dry_run=dry_run,
+    )
+
+
 def downsample_price_history(db_session, days_to_keep_granular=7, dry_run=False):
     """
     Downsample price history with tiered strategy.

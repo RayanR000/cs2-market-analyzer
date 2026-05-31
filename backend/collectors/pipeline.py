@@ -545,7 +545,7 @@ class DataPipeline:
 
     def run_database_pruning(self):
         """Execute weekly database pruning and downsampling with run tracking"""
-        from scripts.prune_database import prune_price_history, prune_trend_indicators, downsample_price_history
+        from scripts.prune_database import prune_trend_indicators, downsample_price_history
         from database import CollectionRun
 
         start_time = datetime.utcnow()
