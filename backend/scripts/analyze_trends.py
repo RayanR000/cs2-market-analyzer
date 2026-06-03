@@ -15,7 +15,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import SessionLocal, Item, PriceHistory, DailyAnalysis, utcnow_naive
-from sqlalchemy import func, inspect
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -24,6 +24,29 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("trend_analyzer")
+
+DAILY_ANALYSIS_WRITE_COLUMNS = (
+    "item_id",
+    "analysis_date",
+    "current_price",
+    "ma_7day",
+    "ma_30day",
+    "ma_90day",
+    "momentum_7day",
+    "momentum_30day",
+    "volatility",
+    "trend_direction",
+    "momentum_score",
+    "opportunity_score",
+    "trading_volume_trend",
+    "price_stability",
+    "created_at",
+)
+
+
+def _filter_daily_analysis_row(row):
+    """Drop non-portable fields before writing daily analysis rows."""
+    return {key: value for key, value in row.items() if key in DAILY_ANALYSIS_WRITE_COLUMNS}
 
 class TrendAnalyzer:
     def __init__(self, db_session):
@@ -39,19 +62,9 @@ class TrendAnalyzer:
         dialect_name = bind.dialect.name if bind is not None else "sqlite"
         insert_stmt = sqlite_insert if dialect_name == "sqlite" else pg_insert
         table = DailyAnalysis.__table__
-        actual_columns = {column.name for column in table.columns}
+        actual_columns = set(DAILY_ANALYSIS_WRITE_COLUMNS)
 
-        if bind is not None:
-            try:
-                actual_columns = {column["name"] for column in inspect(bind).get_columns(table.name)}
-            except Exception:
-                # Fall back to the ORM definition when schema introspection is unavailable.
-                pass
-
-        filtered_rows = [
-            {key: value for key, value in row.items() if key in actual_columns}
-            for row in rows
-        ]
+        filtered_rows = [_filter_daily_analysis_row(row) for row in rows]
 
         stmt = insert_stmt(table).values(filtered_rows)
         excluded = stmt.excluded
@@ -61,8 +74,6 @@ class TrendAnalyzer:
             if column.name in actual_columns
             and column.name not in {"id", "item_id", "analysis_date", "created_at"}
         }
-        if "updated_at" in actual_columns:
-            update_columns["updated_at"] = utcnow_naive()
 
         stmt = stmt.on_conflict_do_update(
             index_elements=["item_id", "analysis_date"],
