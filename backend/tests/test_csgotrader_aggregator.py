@@ -133,3 +133,35 @@ def test_collect_batch_items_prefers_exact_starred_knife_match(monkeypatch):
     results = aggregator.collect_batch_items(["★ Skeleton Knife | Damascus Steel (Well-Worn)"])
 
     assert results["★ Skeleton Knife | Damascus Steel (Well-Worn)"][0] == 99.9
+
+
+def test_collect_batch_items_matches_souvenir_charm_without_charm_word(monkeypatch):
+    aggregator = CSGOTraderAggregator()
+    monkeypatch.setattr(
+        aggregator,
+        "fetch_all_prices",
+        lambda: {"Souvenir | Austin 2025 Highlight | Almost 500 Damage": 17.5},
+    )
+    aggregator._price_cache = {}
+
+    results = aggregator.collect_batch_items([
+        "Souvenir Charm | Austin 2025 Highlight | Almost 500 Damage"
+    ])
+
+    assert results["Souvenir Charm | Austin 2025 Highlight | Almost 500 Damage"][0] == 17.5
+
+
+def test_collect_batch_items_does_not_cross_match_souvenir_charm_event(monkeypatch):
+    aggregator = CSGOTraderAggregator()
+    monkeypatch.setattr(
+        aggregator,
+        "fetch_all_prices",
+        lambda: {"Souvenir | Paris 2023 Highlight | Almost 500 Damage": 17.5},
+    )
+    aggregator._price_cache = {}
+
+    results = aggregator.collect_batch_items([
+        "Souvenir Charm | Austin 2025 Highlight | Almost 500 Damage"
+    ])
+
+    assert "Souvenir Charm | Austin 2025 Highlight | Almost 500 Damage" not in results

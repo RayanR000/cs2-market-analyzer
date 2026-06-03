@@ -125,6 +125,8 @@ class CSGOTraderAggregator:
 
         if name.startswith("★ "):
             candidates.append(name[2:].strip())
+        if name.lower().startswith("souvenir charm | "):
+            candidates.append("Souvenir | " + name.split("| ", 1)[1])
 
         return list(dict.fromkeys(candidate.strip() for candidate in candidates if candidate.strip()))
 
