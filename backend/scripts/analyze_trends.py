@@ -14,8 +14,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from database import SessionLocal, Item, PriceHistory, DailyAnalysis
-from sqlalchemy import func
+from database import SessionLocal, Item, PriceHistory, DailyAnalysis, utcnow_naive
+from sqlalchemy import func, inspect
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -39,15 +39,30 @@ class TrendAnalyzer:
         dialect_name = bind.dialect.name if bind is not None else "sqlite"
         insert_stmt = sqlite_insert if dialect_name == "sqlite" else pg_insert
         table = DailyAnalysis.__table__
+        actual_columns = {column.name for column in table.columns}
 
-        stmt = insert_stmt(table).values(rows)
+        if bind is not None:
+            try:
+                actual_columns = {column["name"] for column in inspect(bind).get_columns(table.name)}
+            except Exception:
+                # Fall back to the ORM definition when schema introspection is unavailable.
+                pass
+
+        filtered_rows = [
+            {key: value for key, value in row.items() if key in actual_columns}
+            for row in rows
+        ]
+
+        stmt = insert_stmt(table).values(filtered_rows)
         excluded = stmt.excluded
         update_columns = {
             column.name: getattr(excluded, column.name)
             for column in table.columns
-            if column.name not in {"id", "item_id", "analysis_date", "created_at"}
+            if column.name in actual_columns
+            and column.name not in {"id", "item_id", "analysis_date", "created_at"}
         }
-        update_columns["updated_at"] = datetime.utcnow()
+        if "updated_at" in actual_columns:
+            update_columns["updated_at"] = utcnow_naive()
 
         stmt = stmt.on_conflict_do_update(
             index_elements=["item_id", "analysis_date"],
