@@ -396,13 +396,20 @@ class DataPipeline:
     @staticmethod
     def _classify_missing_name(name: str, matched_items: List[Any]) -> str:
         """Assign a conservative bucket to a missing item name."""
+        name_lower = name.lower()
         item_types = {getattr(item, "type", None) for item in matched_items if getattr(item, "type", None)}
 
-        if "sticker" in item_types:
+        if name_lower.startswith(("sticker | ", "sticker slab | ")):
             return "sticker_items"
 
+        if name_lower.startswith("stattrak") or name_lower.startswith("souvenir ") or name.startswith("★"):
+            return "skin_variant_items"
+
+        if any(suffix.lower() in name_lower for suffix in QUALITY_SUFFIXES):
+            return "skin_variant_items"
+
         if item_types & {"skin", "glove", "agent"}:
-            if name.startswith(SPECIAL_PREFIXES) or any(suffix in name for suffix in QUALITY_SUFFIXES):
+            if name.startswith(SPECIAL_PREFIXES):
                 return "skin_variant_items"
             return "skin_items"
 
@@ -435,14 +442,14 @@ class DataPipeline:
         bucket_labels = {
             "sticker_items": "Sticker listings",
             "skin_variant_items": "Skins with wear or special-prefix variants",
-            "skin_items": "Other skin listings",
+            "skin_items": "Other catalog items",
             "container_items": "Cases and capsules",
             "other_items": "Other catalog items",
         }
         bucket_hints = {
             "sticker_items": "Sticker rows are grouped separately so finish/event drift stays visible.",
-            "skin_variant_items": "Includes StatTrak/Souvenir names and wear-suffixed skins.",
-            "skin_items": "Skin rows without an obvious variant suffix.",
+            "skin_variant_items": "Includes StatTrak, Souvenir, knife, and wear-suffixed skins.",
+            "skin_items": "Catalog items without a stronger pattern signal.",
             "container_items": "Non-skin containers and capsules.",
             "other_items": "Items that do not fit a narrower pattern.",
         }

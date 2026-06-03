@@ -138,7 +138,8 @@ def test_full_aggregator_collection_does_not_stack_fallback_prefix(monkeypatch):
 def test_missing_name_report_groups_by_conservative_pattern():
     pipeline = DataPipeline(db_session=None)
     item_map = {
-        "Sticker | YEKINDAR (Holo) | Shanghai 2024": [SimpleNamespace(type="sticker")],
+        "Sticker | YEKINDAR (Holo) | Shanghai 2024": [SimpleNamespace(type="skin")],
+        "Sticker Slab | Team Liquid (Gold) | Budapest 2025": [SimpleNamespace(type="other")],
         "StatTrak™ M249 | Hypnosis (Factory New)": [SimpleNamespace(type="skin")],
         "Masterminds 2 Music Kit Box": [SimpleNamespace(type="case")],
         "Plain Missing Item": [SimpleNamespace(type="other")],
@@ -146,13 +147,17 @@ def test_missing_name_report_groups_by_conservative_pattern():
 
     report = pipeline._build_missing_name_report(list(item_map.keys()), item_map)
 
-    assert report["total_missing_names"] == 4
-    assert report["total_missing_rows"] == 4
+    assert report["total_missing_names"] == 5
+    assert report["total_missing_rows"] == 5
     assert [bucket["key"] for bucket in report["buckets"]] == [
         "sticker_items",
         "skin_variant_items",
         "container_items",
         "other_items",
     ]
-    assert report["buckets"][0]["sample"] == ["Sticker | YEKINDAR (Holo) | Shanghai 2024"]
+    assert report["buckets"][0]["sample"] == [
+        "Sticker | YEKINDAR (Holo) | Shanghai 2024",
+        "Sticker Slab | Team Liquid (Gold) | Budapest 2025",
+    ]
+    assert report["buckets"][0]["count"] == 2
     assert report["buckets"][1]["sample"] == ["StatTrak™ M249 | Hypnosis (Factory New)"]
