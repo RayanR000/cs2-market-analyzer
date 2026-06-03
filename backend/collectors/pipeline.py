@@ -418,6 +418,20 @@ class DataPipeline:
 
         return "other_items"
 
+    @staticmethod
+    def _classify_skin_variant_subgroup(name: str) -> str:
+        """Split skin variants into narrow, ordered subgroups for investigation."""
+        name_lower = name.lower()
+
+        if name.startswith("★"):
+            return "knife_items"
+        if name_lower.startswith(("stattrak", "souvenir ")):
+            return "stattrak_souvenir_items"
+        if any(suffix.lower() in name_lower for suffix in QUALITY_SUFFIXES):
+            return "wear_suffix_items"
+
+        return "other_variant_items"
+
     def _build_missing_name_report(
         self,
         missing_names: List[str],
@@ -466,6 +480,36 @@ class DataPipeline:
             for key in bucket_order
         }
 
+        variant_bucket_order = [
+            "knife_items",
+            "stattrak_souvenir_items",
+            "wear_suffix_items",
+            "other_variant_items",
+        ]
+        variant_bucket_labels = {
+            "knife_items": "Knife items",
+            "stattrak_souvenir_items": "StatTrak and Souvenir items",
+            "wear_suffix_items": "Wear-suffixed items",
+            "other_variant_items": "Other variant items",
+        }
+        variant_bucket_hints = {
+            "knife_items": "Star-prefixed knives are the highest-confidence alias candidates.",
+            "stattrak_souvenir_items": "StatTrak and Souvenir rows share the same source naming drift risk.",
+            "wear_suffix_items": "Factory New through Battle-Scarred rows may need quality aliasing.",
+            "other_variant_items": "Variant rows that do not fit a narrower pattern.",
+        }
+        variant_buckets = {
+            key: {
+                "key": key,
+                "label": variant_bucket_labels[key],
+                "count": 0,
+                "item_rows": 0,
+                "sample": [],
+                "hint": variant_bucket_hints[key],
+            }
+            for key in variant_bucket_order
+        }
+
         total_missing_rows = 0
         for name in missing_names:
             matched_items = item_map.get(name, [])
@@ -477,6 +521,21 @@ class DataPipeline:
             total_missing_rows += item_rows
             if len(bucket["sample"]) < sample_size:
                 bucket["sample"].append(name)
+
+            if bucket_key == "skin_variant_items":
+                variant_key = self._classify_skin_variant_subgroup(name)
+                variant_bucket = variant_buckets[variant_key]
+                variant_bucket["count"] += 1
+                variant_bucket["item_rows"] += item_rows
+                if len(variant_bucket["sample"]) < sample_size:
+                    variant_bucket["sample"].append(name)
+
+        if buckets["skin_variant_items"]["count"] > 0:
+            buckets["skin_variant_items"]["subgroups"] = [
+                variant_buckets[key]
+                for key in variant_bucket_order
+                if variant_buckets[key]["count"] > 0
+            ]
 
         return {
             "total_missing_names": len(missing_names),

@@ -141,14 +141,17 @@ def test_missing_name_report_groups_by_conservative_pattern():
         "Sticker | YEKINDAR (Holo) | Shanghai 2024": [SimpleNamespace(type="skin")],
         "Sticker Slab | Team Liquid (Gold) | Budapest 2025": [SimpleNamespace(type="other")],
         "StatTrak™ M249 | Hypnosis (Factory New)": [SimpleNamespace(type="skin")],
+        "★ Skeleton Knife | Damascus Steel (Well-Worn)": [SimpleNamespace(type="skin")],
+        "SCAR-20 | Wild Berry (Well-Worn)": [SimpleNamespace(type="skin")],
+        "SG 553 | Berry Gel Coat (Well-Worn)": [SimpleNamespace(type="skin")],
         "Masterminds 2 Music Kit Box": [SimpleNamespace(type="case")],
         "Plain Missing Item": [SimpleNamespace(type="other")],
     }
 
     report = pipeline._build_missing_name_report(list(item_map.keys()), item_map)
 
-    assert report["total_missing_names"] == 5
-    assert report["total_missing_rows"] == 5
+    assert report["total_missing_names"] == 8
+    assert report["total_missing_rows"] == 8
     assert [bucket["key"] for bucket in report["buckets"]] == [
         "sticker_items",
         "skin_variant_items",
@@ -160,4 +163,20 @@ def test_missing_name_report_groups_by_conservative_pattern():
         "Sticker Slab | Team Liquid (Gold) | Budapest 2025",
     ]
     assert report["buckets"][0]["count"] == 2
-    assert report["buckets"][1]["sample"] == ["StatTrak™ M249 | Hypnosis (Factory New)"]
+    assert report["buckets"][1]["sample"] == [
+        "StatTrak™ M249 | Hypnosis (Factory New)",
+        "★ Skeleton Knife | Damascus Steel (Well-Worn)",
+        "SCAR-20 | Wild Berry (Well-Worn)",
+        "SG 553 | Berry Gel Coat (Well-Worn)",
+    ]
+    assert [bucket["key"] for bucket in report["buckets"][1]["subgroups"]] == [
+        "knife_items",
+        "stattrak_souvenir_items",
+        "wear_suffix_items",
+    ]
+    assert report["buckets"][1]["subgroups"][0]["sample"] == ["★ Skeleton Knife | Damascus Steel (Well-Worn)"]
+    assert report["buckets"][1]["subgroups"][1]["sample"] == ["StatTrak™ M249 | Hypnosis (Factory New)"]
+    assert report["buckets"][1]["subgroups"][2]["sample"] == [
+        "SCAR-20 | Wild Berry (Well-Worn)",
+        "SG 553 | Berry Gel Coat (Well-Worn)",
+    ]
