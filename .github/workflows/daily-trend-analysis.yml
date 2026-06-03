@@ -32,6 +32,10 @@ jobs:
           ENVIRONMENT: production
           DEBUG: false
         run: |
+          echo "🔎 Checkout SHA: $(git rev-parse HEAD)"
+          git log -1 --oneline
+          echo "🔎 Analyzer file preview:"
+          sed -n '1,80p' scripts/analyze_trends.py
           echo "📊 Starting daily trend analysis..."
           python scripts/analyze_trends.py 2>&1 | tee analysis.log
           EXIT_CODE=$?
