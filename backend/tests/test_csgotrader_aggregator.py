@@ -34,6 +34,20 @@ def test_collect_batch_items_still_prefers_exact_sticker_match(monkeypatch):
     assert results["Sticker | noway (Holo) | Shanghai 2024"][0] == 56.78
 
 
+def test_collect_batch_items_matches_sticker_without_finish_suffix(monkeypatch):
+    aggregator = CSGOTraderAggregator()
+    monkeypatch.setattr(
+        aggregator,
+        "fetch_all_prices",
+        lambda: {"Sticker | YEKINDAR | Shanghai 2024": 33.33},
+    )
+    aggregator._price_cache = {}
+
+    results = aggregator.collect_batch_items(["Sticker | YEKINDAR (Holo) | Shanghai 2024"])
+
+    assert results["Sticker | YEKINDAR (Holo) | Shanghai 2024"][0] == 33.33
+
+
 def test_collect_batch_items_does_not_cross_match_sticker_event_suffix(monkeypatch):
     aggregator = CSGOTraderAggregator()
     monkeypatch.setattr(
@@ -74,3 +88,17 @@ def test_collect_batch_items_does_not_cross_match_sticker_quality(monkeypatch):
     results = aggregator.collect_batch_items(["Sticker | Liazz (Holo) | Shanghai 2024"])
 
     assert "Sticker | Liazz (Holo) | Shanghai 2024" not in results
+
+
+def test_collect_batch_items_matches_stattrak_without_trademark_symbol(monkeypatch):
+    aggregator = CSGOTraderAggregator()
+    monkeypatch.setattr(
+        aggregator,
+        "fetch_all_prices",
+        lambda: {"StatTrak M249 | Hypnosis (Factory New)": 12.5},
+    )
+    aggregator._price_cache = {}
+
+    results = aggregator.collect_batch_items(["StatTrak™ M249 | Hypnosis (Factory New)"])
+
+    assert results["StatTrak™ M249 | Hypnosis (Factory New)"][0] == 12.5

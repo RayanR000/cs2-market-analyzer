@@ -6,12 +6,21 @@ Manages scheduled data collection, validation, and storage
 import logging
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
-from typing import Optional, List, Dict, Callable
+from typing import Any, Optional, List, Dict, Callable
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
+
+QUALITY_SUFFIXES = (
+    "(Factory New)",
+    "(Minimal Wear)",
+    "(Field-Tested)",
+    "(Well-Worn)",
+    "(Battle-Scarred)",
+)
+SPECIAL_PREFIXES = ("StatTrak", "Souvenir")
 
 
 def _historical_fallback_source(source: str) -> str:
@@ -144,6 +153,7 @@ class DataPipeline:
         duplicate_name_count = 0
         duplicate_name_sample: List[str] = []
         missing_names: List[str] = []
+        missing_name_report: Dict[str, Any] = {}
 
         try:
             logger.info(f"Starting aggregator collection (limit: {limit if limit else 'ALL'})")
@@ -254,11 +264,23 @@ class DataPipeline:
 
             if missing_names:
                 sample_missing = missing_names[:20]
+                missing_name_report = self._build_missing_name_report(missing_names, item_map)
                 logger.warning(
                     "Unmatched item names in this run: %s/%s items missing. Sample: %s",
                     errors_count,
                     len(items),
                     sample_missing,
+                )
+                logger.warning(
+                    "Missing-name report: %s",
+                    {
+                        bucket["key"]: {
+                            "count": bucket["count"],
+                            "item_rows": bucket["item_rows"],
+                            "sample": bucket["sample"],
+                        }
+                        for bucket in missing_name_report.get("buckets", [])
+                    },
                 )
                 diagnostic_targets = sample_missing[:5]
                 diagnostic_map = {
@@ -307,6 +329,7 @@ class DataPipeline:
                 "duplicate_names": duplicate_name_count,
                 "duplicate_name_sample": duplicate_name_sample,
                 "missing_name_sample": missing_names[:20],
+                "missing_name_report": missing_name_report,
                 "missing_name_diagnostics": {
                     name: aggregator.find_source_key_candidates(name, limit=5)
                     for name in missing_names[:5]
@@ -369,6 +392,90 @@ class DataPipeline:
                 latest_by_item_id[row.item_id] = row
 
         return latest_by_item_id
+
+    @staticmethod
+    def _classify_missing_name(name: str, matched_items: List[Any]) -> str:
+        """Assign a conservative bucket to a missing item name."""
+        item_types = {getattr(item, "type", None) for item in matched_items if getattr(item, "type", None)}
+
+        if "sticker" in item_types:
+            return "sticker_items"
+
+        if item_types & {"skin", "glove", "agent"}:
+            if name.startswith(SPECIAL_PREFIXES) or any(suffix in name for suffix in QUALITY_SUFFIXES):
+                return "skin_variant_items"
+            return "skin_items"
+
+        if item_types & {"case", "capsule"}:
+            return "container_items"
+
+        return "other_items"
+
+    def _build_missing_name_report(
+        self,
+        missing_names: List[str],
+        item_map: Dict[str, List[Any]],
+        sample_size: int = 5,
+    ) -> Dict[str, Any]:
+        """Build an ordered, conservative breakdown of unresolved names."""
+        if not missing_names:
+            return {
+                "total_missing_names": 0,
+                "total_missing_rows": 0,
+                "buckets": [],
+            }
+
+        bucket_order = [
+            "sticker_items",
+            "skin_variant_items",
+            "skin_items",
+            "container_items",
+            "other_items",
+        ]
+        bucket_labels = {
+            "sticker_items": "Sticker listings",
+            "skin_variant_items": "Skins with wear or special-prefix variants",
+            "skin_items": "Other skin listings",
+            "container_items": "Cases and capsules",
+            "other_items": "Other catalog items",
+        }
+        bucket_hints = {
+            "sticker_items": "Sticker rows are grouped separately so finish/event drift stays visible.",
+            "skin_variant_items": "Includes StatTrak/Souvenir names and wear-suffixed skins.",
+            "skin_items": "Skin rows without an obvious variant suffix.",
+            "container_items": "Non-skin containers and capsules.",
+            "other_items": "Items that do not fit a narrower pattern.",
+        }
+
+        buckets = {
+            key: {
+                "key": key,
+                "label": bucket_labels[key],
+                "count": 0,
+                "item_rows": 0,
+                "sample": [],
+                "hint": bucket_hints[key],
+            }
+            for key in bucket_order
+        }
+
+        total_missing_rows = 0
+        for name in missing_names:
+            matched_items = item_map.get(name, [])
+            bucket_key = self._classify_missing_name(name, matched_items)
+            bucket = buckets[bucket_key]
+            bucket["count"] += 1
+            item_rows = len(matched_items) if matched_items else 1
+            bucket["item_rows"] += item_rows
+            total_missing_rows += item_rows
+            if len(bucket["sample"]) < sample_size:
+                bucket["sample"].append(name)
+
+        return {
+            "total_missing_names": len(missing_names),
+            "total_missing_rows": total_missing_rows,
+            "buckets": [buckets[key] for key in bucket_order if buckets[key]["count"] > 0],
+        }
 
     def run_daily_collection(self):
         """Execute daily market data collection using high-efficiency batch method"""

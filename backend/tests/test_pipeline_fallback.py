@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -132,3 +133,26 @@ def test_full_aggregator_collection_does_not_stack_fallback_prefix(monkeypatch):
         assert len(latest_row.source) < 50
     finally:
         db.close()
+
+
+def test_missing_name_report_groups_by_conservative_pattern():
+    pipeline = DataPipeline(db_session=None)
+    item_map = {
+        "Sticker | YEKINDAR (Holo) | Shanghai 2024": [SimpleNamespace(type="sticker")],
+        "StatTrak™ M249 | Hypnosis (Factory New)": [SimpleNamespace(type="skin")],
+        "Masterminds 2 Music Kit Box": [SimpleNamespace(type="case")],
+        "Plain Missing Item": [SimpleNamespace(type="other")],
+    }
+
+    report = pipeline._build_missing_name_report(list(item_map.keys()), item_map)
+
+    assert report["total_missing_names"] == 4
+    assert report["total_missing_rows"] == 4
+    assert [bucket["key"] for bucket in report["buckets"]] == [
+        "sticker_items",
+        "skin_variant_items",
+        "container_items",
+        "other_items",
+    ]
+    assert report["buckets"][0]["sample"] == ["Sticker | YEKINDAR (Holo) | Shanghai 2024"]
+    assert report["buckets"][1]["sample"] == ["StatTrak™ M249 | Hypnosis (Factory New)"]

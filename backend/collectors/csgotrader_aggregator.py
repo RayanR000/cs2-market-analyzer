@@ -5,7 +5,7 @@ Fetches comprehensive price data from public JSON endpoints.
 
 import logging
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 import unicodedata
 from typing import Dict, List, Optional, Tuple
@@ -27,7 +27,8 @@ class CSGOTraderAggregator:
     @staticmethod
     def _normalize_name(name: str) -> str:
         """Normalize item names for resilient matching."""
-        normalized = unicodedata.normalize("NFKD", name or "")
+        normalized = (name or "").replace("™", "").replace("®", "")
+        normalized = unicodedata.normalize("NFKD", normalized)
         normalized = normalized.casefold()
         normalized = re.sub(r"\s+", " ", normalized).strip()
         return normalized
@@ -96,6 +97,27 @@ class CSGOTraderAggregator:
                     break
         return candidates
 
+    @staticmethod
+    def _sticker_match_candidates(name: str) -> List[str]:
+        """Generate conservative sticker aliases that preserve the event suffix."""
+        if not CSGOTraderAggregator._is_sticker_name(name):
+            return [name]
+
+        candidates = [name]
+
+        # Many source keys omit the finish variant but keep the sticker name and event suffix.
+        stripped_variant = re.sub(
+            r"\s*\((Holo|Glitter|Gold|Foil|Paper)\)(?=\s*\|)",
+            "",
+            name,
+            flags=re.IGNORECASE,
+        )
+        if stripped_variant != name:
+            candidates.append(stripped_variant)
+
+        # Keep ordering stable while removing duplicates.
+        return list(dict.fromkeys(candidate.strip() for candidate in candidates if candidate.strip()))
+
     def fetch_all_prices(self) -> Dict[str, float]:
         """Fetch latest prices from public endpoints and merge them."""
         prices = {}
@@ -155,9 +177,20 @@ class CSGOTraderAggregator:
                     if normalized_candidate in normalized_cache_keys:
                         found_key = normalized_cache_keys[normalized_candidate]
                         break
-            
+            else:
+                # 2. Sticker-specific fallback: strip finish variants while keeping event suffix.
+                for candidate_name in self._sticker_match_candidates(name):
+                    candidate_lower = candidate_name.lower()
+                    if candidate_lower in cache_keys:
+                        found_key = cache_keys[candidate_lower]
+                        break
+                    normalized_candidate = self._normalize_name(candidate_name)
+                    if normalized_candidate in normalized_cache_keys:
+                        found_key = normalized_cache_keys[normalized_candidate]
+                        break
+
             if found_key:
                 price = self._price_cache[found_key]
-                results[name] = (float(price), 0, datetime.utcnow())
+                results[name] = (float(price), 0, datetime.now(timezone.utc).replace(tzinfo=None))
         
         return results
