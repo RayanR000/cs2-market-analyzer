@@ -41,3 +41,12 @@ def test_daily_analysis_filter_drops_updated_at():
     assert "unexpected" not in filtered
     assert filtered["item_id"] == 123
     assert filtered["created_at"] == "2026-06-03T00:00:00"
+
+
+def test_daily_analysis_upsert_uses_reflected_table():
+    module_path = Path(__file__).resolve().parents[1] / "scripts" / "analyze_trends.py"
+    source = module_path.read_text()
+
+    assert "sa.Table(table.name, sa.MetaData(), autoload_with=bind)" in source
+    assert "insert_stmt(target_table).values(filtered_rows)" in source
+    assert "updated_at" not in source.split("DAILY_ANALYSIS_WRITE_COLUMNS = (", 1)[1].split(")", 1)[0]

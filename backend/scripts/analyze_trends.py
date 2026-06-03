@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timedelta
+import sqlalchemy as sa
 import numpy as np
 import pandas as pd
 
@@ -62,15 +63,22 @@ class TrendAnalyzer:
         dialect_name = bind.dialect.name if bind is not None else "sqlite"
         insert_stmt = sqlite_insert if dialect_name == "sqlite" else pg_insert
         table = DailyAnalysis.__table__
+        target_table = table
+        if bind is not None:
+            try:
+                target_table = sa.Table(table.name, sa.MetaData(), autoload_with=bind)
+            except Exception:
+                # Fall back to the ORM table if reflection is unavailable.
+                target_table = table
         actual_columns = set(DAILY_ANALYSIS_WRITE_COLUMNS)
 
         filtered_rows = [_filter_daily_analysis_row(row) for row in rows]
 
-        stmt = insert_stmt(table).values(filtered_rows)
+        stmt = insert_stmt(target_table).values(filtered_rows)
         excluded = stmt.excluded
         update_columns = {
             column.name: getattr(excluded, column.name)
-            for column in table.columns
+            for column in target_table.columns
             if column.name in actual_columns
             and column.name not in {"id", "item_id", "analysis_date", "created_at"}
         }
