@@ -432,6 +432,20 @@ class DataPipeline:
 
         return "other_variant_items"
 
+    @staticmethod
+    def _classify_stattrak_souvenir_subgroup(name: str) -> str:
+        """Split StatTrak/Souvenir rows into narrower, ordered investigation groups."""
+        name_lower = name.lower()
+
+        if name_lower.startswith("stattrak"):
+            return "stattrak_items"
+        if name_lower.startswith("souvenir charm"):
+            return "souvenir_charm_items"
+        if name_lower.startswith("souvenir "):
+            return "other_souvenir_items"
+
+        return "other_stattrak_souvenir_items"
+
     def _build_missing_name_report(
         self,
         missing_names: List[str],
@@ -510,6 +524,36 @@ class DataPipeline:
             for key in variant_bucket_order
         }
 
+        stattrak_souvenir_bucket_order = [
+            "stattrak_items",
+            "souvenir_charm_items",
+            "other_souvenir_items",
+            "other_stattrak_souvenir_items",
+        ]
+        stattrak_souvenir_bucket_labels = {
+            "stattrak_items": "StatTrak items",
+            "souvenir_charm_items": "Souvenir Charm items",
+            "other_souvenir_items": "Other Souvenir items",
+            "other_stattrak_souvenir_items": "Other StatTrak/Souvenir items",
+        }
+        stattrak_souvenir_bucket_hints = {
+            "stattrak_items": "StatTrak weapon names are the highest-confidence alias candidates.",
+            "souvenir_charm_items": "Souvenir Charm rows often drift by event wording or missing descriptors.",
+            "other_souvenir_items": "Other souvenir rows that do not use the Charm pattern.",
+            "other_stattrak_souvenir_items": "StatTrak/Souvenir rows that do not fit a narrower pattern.",
+        }
+        stattrak_souvenir_buckets = {
+            key: {
+                "key": key,
+                "label": stattrak_souvenir_bucket_labels[key],
+                "count": 0,
+                "item_rows": 0,
+                "sample": [],
+                "hint": stattrak_souvenir_bucket_hints[key],
+            }
+            for key in stattrak_souvenir_bucket_order
+        }
+
         total_missing_rows = 0
         for name in missing_names:
             matched_items = item_map.get(name, [])
@@ -530,11 +574,25 @@ class DataPipeline:
                 if len(variant_bucket["sample"]) < sample_size:
                     variant_bucket["sample"].append(name)
 
+                if variant_key == "stattrak_souvenir_items":
+                    stattrak_souvenir_key = self._classify_stattrak_souvenir_subgroup(name)
+                    stattrak_bucket = stattrak_souvenir_buckets[stattrak_souvenir_key]
+                    stattrak_bucket["count"] += 1
+                    stattrak_bucket["item_rows"] += item_rows
+                    if len(stattrak_bucket["sample"]) < sample_size:
+                        stattrak_bucket["sample"].append(name)
+
         if buckets["skin_variant_items"]["count"] > 0:
             buckets["skin_variant_items"]["subgroups"] = [
                 variant_buckets[key]
                 for key in variant_bucket_order
                 if variant_buckets[key]["count"] > 0
+            ]
+        if variant_buckets["stattrak_souvenir_items"]["count"] > 0:
+            variant_buckets["stattrak_souvenir_items"]["subgroups"] = [
+                stattrak_souvenir_buckets[key]
+                for key in stattrak_souvenir_bucket_order
+                if stattrak_souvenir_buckets[key]["count"] > 0
             ]
 
         return {
