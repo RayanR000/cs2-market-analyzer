@@ -6,7 +6,6 @@ using price history, technical indicators, events, and item metadata.
 
 import os
 import json
-import pickle
 import logging
 import numpy as np
 import pandas as pd
@@ -51,15 +50,6 @@ class ItemForecaster:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
         logger.info(f"  {len(df):,} rows, {df.item_id.nunique():,} items")
-        return df
-
-    def fetch_items(self) -> pd.DataFrame:
-        rows = self.db.execute(text("""
-            SELECT id as item_id, name, type, release_date
-            FROM items
-        """)).fetchall()
-        df = pd.DataFrame(rows, columns=["item_id", "name", "type", "release_date"])
-        df["release_date"] = pd.to_datetime(df["release_date"])
         return df
 
     def fetch_daily_analysis(self, days_back: int = 30) -> pd.DataFrame:
@@ -200,24 +190,11 @@ class ItemForecaster:
 
         return df
 
-    def _add_item_features(self, df: pd.DataFrame, items_df: pd.DataFrame) -> pd.DataFrame:
-        df = df.merge(items_df[["item_id"]], on="item_id", how="left")
-        df["item_age_days"] = 0
-
-        # Historical average price as a proxy for price tier
-        item_avg_price = df.groupby("item_id")["price"].transform("mean")
-        df["price_tier"] = pd.qcut(item_avg_price.fillna(item_avg_price.median()),
-                                   q=4, labels=["cheap", "mid", "high", "premium"],
-                                   duplicates="drop")
-
-        return df
-
-    def engineer_features(self, price_df: pd.DataFrame, items_df: pd.DataFrame,
+    def engineer_features(self, price_df: pd.DataFrame,
                           events_df: pd.DataFrame) -> pd.DataFrame:
         df = self._compute_price_features(price_df)
         df = self._add_temporal_features(df)
         df = self._add_event_features(df, events_df)
-        df = self._add_item_features(df, items_df)
         return df
 
     # ------------------------------------------------------------------
@@ -241,11 +218,10 @@ class ItemForecaster:
 
     def build_training_data(self, days_back: int = 365) -> Tuple[pd.DataFrame, Dict[int, pd.DataFrame]]:
         price_df = self.fetch_price_history(days_back=days_back)
-        items_df = self.fetch_items()
         events_df = self.fetch_events()
         da_df = self.fetch_daily_analysis(days_back=30)
 
-        df = self.engineer_features(price_df, items_df, events_df)
+        df = self.engineer_features(price_df, events_df)
 
         # Merge daily_analysis features
         if not da_df.empty:
@@ -382,7 +358,6 @@ class ItemForecaster:
         logger.info("Generating forecasts...")
 
         price_df = self.fetch_price_history(days_back=90)
-        items_df = self.fetch_items()
         events_df = self.fetch_events()
 
         # Latest date per item
@@ -391,7 +366,7 @@ class ItemForecaster:
         if item_ids:
             latest = latest[latest["item_id"].isin(item_ids)]
 
-        df = self.engineer_features(price_df, items_df, events_df)
+        df = self.engineer_features(price_df, events_df)
 
         # Merge daily_analysis
         da_df = self.fetch_daily_analysis(days_back=3)
