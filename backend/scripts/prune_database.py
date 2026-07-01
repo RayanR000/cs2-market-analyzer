@@ -105,18 +105,25 @@ def downsample_price_history(db_session, days_to_keep_granular=7, dry_run=False)
 
 
 def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run):
-    """Delete records, keeping one per group with earliest timestamp."""
+    """
+    Delete records, keeping one per group with earliest timestamp.
+    Uses per-item batching to avoid Supabase free-tier timeouts on large tiers.
+    """
 
-    # Build time filter
+    try:
+        db_session.execute(text("SET statement_timeout = '180000'"))
+        db_session.execute(text("SET lock_timeout = '120000'"))
+    except Exception:
+        pass
+
     if end_date:
-        time_filter = f"timestamp >= '{start_date}' AND timestamp < '{end_date}'"
+        raw_filter = f"timestamp >= '{start_date}' AND timestamp < '{end_date}'"
     else:
-        time_filter = f"timestamp < '{start_date}'"
+        raw_filter = f"timestamp < '{start_date}'"
 
-    # Count records to be deleted
-    count_sql = f"SELECT COUNT(*) FROM price_history WHERE {time_filter}"
-    result = db_session.execute(text(count_sql)).scalar()
-    total_in_tier = result or 0
+    total_in_tier = db_session.execute(
+        text(f"SELECT COUNT(*) FROM price_history WHERE {raw_filter}")
+    ).scalar() or 0
 
     if total_in_tier == 0:
         logger.info(f"Downsampled 0 records to {desc}")
@@ -126,36 +133,63 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
         logger.info(f"Would downsample {total_in_tier:,} records to {desc}")
         return total_in_tier
 
-    # Find IDs to keep (earliest timestamp per item per group)
-    keep_sql = f"""
-    SELECT DISTINCT ON (item_id, {group_expr}) id
-    FROM price_history
-    WHERE {time_filter}
-    ORDER BY item_id, {group_expr}, timestamp ASC
-    """
-
-    # Delete everything except what we're keeping
-    delete_sql = f"""
-    DELETE FROM price_history
-    WHERE {time_filter}
-    AND id NOT IN ({keep_sql})
-    """
-
+    # Try single-pass first (works for small-medium tiers)
     try:
-        db_session.execute(text(delete_sql))
+        delete_sql = f"""
+        DELETE FROM price_history ph
+        USING (
+            SELECT id, ROW_NUMBER() OVER (
+                PARTITION BY item_id, ({group_expr})
+                ORDER BY timestamp ASC
+            ) AS rn
+            FROM price_history
+            WHERE {raw_filter}
+        ) keep
+        WHERE ph.id = keep.id AND keep.rn > 1
+        """
+        result = db_session.execute(text(delete_sql))
         db_session.commit()
-
-        # Count what was actually deleted
-        result = db_session.execute(text(count_sql)).scalar()
-        deleted_count = total_in_tier - (result or 0)
-
-        logger.info(f"Downsampled {deleted_count:,} records to {desc}")
-        return deleted_count
-
-    except Exception as e:
+        deleted = result.rowcount
+        logger.info(f"Downsampled {deleted:,} records to {desc}")
+        return deleted
+    except Exception:
         db_session.rollback()
-        logger.error(f"Error downsampling {desc}: {e}")
-        raise
+
+    # Fallback: per-item batching (handles large tiers without timeout)
+    total_deleted = 0
+    item_ids = db_session.execute(text(f"""
+        SELECT DISTINCT item_id FROM price_history WHERE {raw_filter}
+    """)).fetchall()
+    item_ids = [r[0] for r in item_ids]
+    logger.info(f"  Processing {len(item_ids)} items in batches of 20 for {desc}...")
+
+    for i in range(0, len(item_ids), 20):
+        batch = item_ids[i:i + 20]
+        id_list = tuple(batch)
+        delete_batch_sql = f"""
+        DELETE FROM price_history ph
+        USING (
+            SELECT id, ROW_NUMBER() OVER (
+                PARTITION BY ({group_expr})
+                ORDER BY timestamp ASC
+            ) AS rn
+            FROM price_history
+            WHERE {raw_filter} AND item_id = ANY(:id_list)
+        ) keep
+        WHERE ph.id = keep.id AND keep.rn > 1
+        """
+        try:
+            result = db_session.execute(
+                text(delete_batch_sql), {'id_list': id_list}
+            )
+            db_session.commit()
+            total_deleted += result.rowcount
+        except Exception as e2:
+            db_session.rollback()
+            logger.error(f"  Batch error ({batch[0]}-{batch[-1]}): {e2}")
+
+    logger.info(f"Downsampled {total_deleted:,} records to {desc}")
+    return total_deleted
 
 
 if __name__ == "__main__":
