@@ -945,11 +945,11 @@ class DataPipeline:
             # - 365+ days: Monthly average (kept indefinitely)
             downsampled = downsample_price_history(self.db_session, days_to_keep_granular=7, dry_run=False)
 
-            # Delete very old trend indicators (keep 90 days)
-            pruned_trends = prune_trend_indicators(self.db_session, days_to_keep=90, dry_run=False)
+            # Delete very old trend indicators (keep 45 days)
+            pruned_trends = prune_trend_indicators(self.db_session, days_to_keep=45, dry_run=False)
 
-            # Delete old daily analysis records (keep 30 days)
-            pruned_daily = prune_daily_analysis(self.db_session, days_to_keep=30, dry_run=False)
+            # Delete old daily analysis records (keep 14 days)
+            pruned_daily = prune_daily_analysis(self.db_session, days_to_keep=14, dry_run=False)
 
             # Delete old event impact/correlation records (keep 365 days)
             # Tables are bounded by (event_id, item_id) unique constraint, so this is a safety net
