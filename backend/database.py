@@ -52,6 +52,7 @@ class Item(Base):
     price_histories = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
     trend_indicators = relationship("TrendIndicator", back_populates="item", cascade="all, delete-orphan")
     daily_analyses = relationship("DailyAnalysis", back_populates="item", cascade="all, delete-orphan")
+    forecasts = relationship("ItemForecast", back_populates="item", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('idx_item_type', 'type'),
@@ -163,6 +164,32 @@ class DailyAnalysis(Base):
         UniqueConstraint('item_id', 'analysis_date', name='uq_daily_analysis_item_date'),
         Index('idx_daily_analysis_item_date', 'item_id', 'analysis_date'),
     )
+
+class ItemForecast(Base):
+    """ML model forecasts - LightGBM quantile regression predictions"""
+    __tablename__ = "item_forecasts"
+
+    id = Column(Integer, primary_key=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    forecast_date = Column(Date, nullable=False)
+    horizon_days = Column(Integer, nullable=False)  # 7 or 30
+    price_low = Column(Float, nullable=True)  # p10 quantile
+    price_mid = Column(Float, nullable=True)  # p50 quantile (median)
+    price_high = Column(Float, nullable=True)  # p90 quantile
+    current_price = Column(Float, nullable=True)
+    direction = Column(String(10), nullable=True)  # up, down, flat
+    confidence = Column(String(10), nullable=True)  # low, medium, high
+    model_version = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=utcnow_naive)
+
+    item = relationship("Item", back_populates="forecasts")
+
+    __table_args__ = (
+        Index('idx_forecast_item_date', 'item_id', 'forecast_date', 'horizon_days'),
+        UniqueConstraint('item_id', 'forecast_date', 'horizon_days',
+                         name='uq_item_forecast_date_horizon'),
+    )
+
 
 class User(Base):
     """User model - Steam authentication"""

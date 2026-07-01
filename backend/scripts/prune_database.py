@@ -152,8 +152,8 @@ def downsample_price_history(db_session, days_to_keep_granular=7, dry_run=False)
 def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run):
     """
     Keep one record per (item_id, time_bucket) that is closest to the
-    median price for that bucket.  All other records in the bucket
-    are deleted.  This is robust against outlier price spikes.
+    average price for that bucket.  All other records in the bucket
+    are deleted.
     """
 
     try:
@@ -179,29 +179,37 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
         logger.info(f"Would downsample {total_in_tier:,} records to {desc}")
         return total_in_tier
 
-    # Single-pass: for each (item_id, group) keep the row closest to the median price.
-    # PERCENTILE_CONT(0.5) as a window function gives the median of the partition.
-    # Rows farthest from the median (outliers) get deleted first.
-    try:
-        delete_sql = f"""
+    # Keep the one row per (item_id, time_bucket) closest to the average price.
+    # Uses a CTE to compute group averages, then ROW_NUMBER to pick the nearest row.
+    def build_delete_sql(extra_filter=""):
+        return f"""
+        WITH avg_prices AS (
+            SELECT id,
+                   AVG(price) OVER (
+                       PARTITION BY item_id, ({group_expr})
+                   ) AS avg_price
+            FROM price_history
+            WHERE {raw_filter} {extra_filter}
+        )
         DELETE FROM price_history ph
         USING (
             SELECT id FROM (
-                SELECT id,
+                SELECT ap.id,
                     ROW_NUMBER() OVER (
-                        PARTITION BY item_id, ({group_expr})
-                        ORDER BY ABS(price - PERCENTILE_CONT(0.5)
-                            WITHIN GROUP (ORDER BY price)
-                            OVER (PARTITION BY item_id, ({group_expr}))
-                        )
+                        PARTITION BY ph2.item_id, ({group_expr})
+                        ORDER BY ABS(ph2.price - ap.avg_price)
                     ) AS rn
-                FROM price_history
-                WHERE {raw_filter}
+                FROM avg_prices ap
+                JOIN price_history ph2 ON ph2.id = ap.id
             ) sub
             WHERE rn > 1
         ) keep
         WHERE ph.id = keep.id
         """
+
+    # Single-pass: try full range first
+    try:
+        delete_sql = build_delete_sql()
         result = db_session.execute(text(delete_sql))
         db_session.commit()
         deleted = result.rowcount
@@ -210,7 +218,7 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
     except Exception:
         db_session.rollback()
 
-    # Fallback: per-item batching (handles large monthly tier without timeout)
+    # Fallback: per-item batching (handles large tiers without timeout)
     total_deleted = 0
     item_ids = db_session.execute(text(f"""
         SELECT DISTINCT item_id FROM price_history WHERE {raw_filter}
@@ -220,26 +228,8 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
 
     for i in range(0, len(item_ids), 20):
         batch = item_ids[i:i + 20]
-        id_list = tuple(batch)
-        delete_batch_sql = f"""
-        DELETE FROM price_history ph
-        USING (
-            SELECT id FROM (
-                SELECT id,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY ({group_expr})
-                        ORDER BY ABS(price - PERCENTILE_CONT(0.5)
-                            WITHIN GROUP (ORDER BY price)
-                            OVER (PARTITION BY ({group_expr}))
-                        )
-                    ) AS rn
-                FROM price_history
-                WHERE {raw_filter} AND item_id = ANY(:id_list)
-            ) sub
-            WHERE rn > 1
-        ) keep
-        WHERE ph.id = keep.id
-        """
+        id_list = list(batch)
+        delete_batch_sql = build_delete_sql("AND item_id = ANY(:id_list)")
         try:
             result = db_session.execute(
                 text(delete_batch_sql), {'id_list': id_list}
