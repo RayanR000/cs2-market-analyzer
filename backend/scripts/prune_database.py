@@ -45,18 +45,19 @@ def prune_trend_indicators(db_session, days_to_keep=180, dry_run=False):
 
 
 def prune_daily_analysis(db_session, days_to_keep=90, dry_run=False):
-    """Delete daily analysis records older than days_to_keep."""
-    from database import DailyAnalysis
+    """Delete daily analysis records older than days_to_keep using raw SQL."""
     cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
 
-    query = db_session.query(DailyAnalysis).filter(
-        DailyAnalysis.analysis_date < cutoff_date.date()
-    )
-
-    count = query.count()
+    count = db_session.execute(
+        text("SELECT COUNT(*) FROM daily_analysis WHERE analysis_date < :cutoff"),
+        {"cutoff": cutoff_date.date()}
+    ).scalar() or 0
 
     if count > 0 and not dry_run:
-        query.delete()
+        db_session.execute(
+            text("DELETE FROM daily_analysis WHERE analysis_date < :cutoff"),
+            {"cutoff": cutoff_date.date()}
+        )
         db_session.commit()
         logger.info(f"Deleted {count} daily analysis records older than {days_to_keep} days")
 
@@ -65,18 +66,20 @@ def prune_daily_analysis(db_session, days_to_keep=90, dry_run=False):
 
 def prune_event_analyses(db_session, days_to_keep=365, dry_run=False):
     """Delete event impact and correlation records older than days_to_keep."""
-    from database import EventImpact, EventCorrelation
     cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
-
     total = 0
 
-    for model_cls, label in [(EventImpact, "event impacts"), (EventCorrelation, "event correlations")]:
-        query = db_session.query(model_cls).filter(
-            model_cls.created_at < cutoff_date
-        )
-        count = query.count()
+    for table, label in [("event_impacts", "event impacts"), ("event_correlations", "event correlations")]:
+        count = db_session.execute(
+            text(f"SELECT COUNT(*) FROM {table} WHERE created_at < :cutoff"),
+            {"cutoff": cutoff_date}
+        ).scalar() or 0
+
         if count > 0 and not dry_run:
-            query.delete()
+            db_session.execute(
+                text(f"DELETE FROM {table} WHERE created_at < :cutoff"),
+                {"cutoff": cutoff_date}
+            )
             db_session.commit()
             logger.info(f"Deleted {count} {label} older than {days_to_keep} days")
         total += count
