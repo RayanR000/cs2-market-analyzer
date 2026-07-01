@@ -151,8 +151,9 @@ def downsample_price_history(db_session, days_to_keep_granular=7, dry_run=False)
 
 def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run):
     """
-    Delete records, keeping one per group with earliest timestamp.
-    Uses per-item batching to avoid Supabase free-tier timeouts on large tiers.
+    Keep one record per (item_id, time_bucket) that is closest to the
+    median price for that bucket.  All other records in the bucket
+    are deleted.  This is robust against outlier price spikes.
     """
 
     try:
@@ -178,19 +179,28 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
         logger.info(f"Would downsample {total_in_tier:,} records to {desc}")
         return total_in_tier
 
-    # Try single-pass first (works for small-medium tiers)
+    # Single-pass: for each (item_id, group) keep the row closest to the median price.
+    # PERCENTILE_CONT(0.5) as a window function gives the median of the partition.
+    # Rows farthest from the median (outliers) get deleted first.
     try:
         delete_sql = f"""
         DELETE FROM price_history ph
         USING (
-            SELECT id, ROW_NUMBER() OVER (
-                PARTITION BY item_id, ({group_expr})
-                ORDER BY timestamp ASC
-            ) AS rn
-            FROM price_history
-            WHERE {raw_filter}
+            SELECT id FROM (
+                SELECT id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY item_id, ({group_expr})
+                        ORDER BY ABS(price - PERCENTILE_CONT(0.5)
+                            WITHIN GROUP (ORDER BY price)
+                            OVER (PARTITION BY item_id, ({group_expr}))
+                        )
+                    ) AS rn
+                FROM price_history
+                WHERE {raw_filter}
+            ) sub
+            WHERE rn > 1
         ) keep
-        WHERE ph.id = keep.id AND keep.rn > 1
+        WHERE ph.id = keep.id
         """
         result = db_session.execute(text(delete_sql))
         db_session.commit()
@@ -200,7 +210,7 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
     except Exception:
         db_session.rollback()
 
-    # Fallback: per-item batching (handles large tiers without timeout)
+    # Fallback: per-item batching (handles large monthly tier without timeout)
     total_deleted = 0
     item_ids = db_session.execute(text(f"""
         SELECT DISTINCT item_id FROM price_history WHERE {raw_filter}
@@ -214,14 +224,21 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
         delete_batch_sql = f"""
         DELETE FROM price_history ph
         USING (
-            SELECT id, ROW_NUMBER() OVER (
-                PARTITION BY ({group_expr})
-                ORDER BY timestamp ASC
-            ) AS rn
-            FROM price_history
-            WHERE {raw_filter} AND item_id = ANY(:id_list)
+            SELECT id FROM (
+                SELECT id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ({group_expr})
+                        ORDER BY ABS(price - PERCENTILE_CONT(0.5)
+                            WITHIN GROUP (ORDER BY price)
+                            OVER (PARTITION BY ({group_expr}))
+                        )
+                    ) AS rn
+                FROM price_history
+                WHERE {raw_filter} AND item_id = ANY(:id_list)
+            ) sub
+            WHERE rn > 1
         ) keep
-        WHERE ph.id = keep.id AND keep.rn > 1
+        WHERE ph.id = keep.id
         """
         try:
             result = db_session.execute(
