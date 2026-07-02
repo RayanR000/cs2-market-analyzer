@@ -69,10 +69,24 @@ jobs:
           EXIT_CODE=$?
           echo "✅ Price forecast completed with exit code: $EXIT_CODE"
 
+      - name: Notify on failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "[${{ github.workflow }}] Failed - $(date +%F)" \
+            --body "Workflow **${{ github.workflow }}** failed.
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Branch: ${{ github.ref_name }}
+          Trigger: ${{ github.event_name }}" \
+            --label "automation" 2>/dev/null || true
+
       - name: Upload forecast logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: forecast-logs-${{ github.run_id }}
           path: backend/forecast.log
-          retention-days: 7
+          retention-days: 30

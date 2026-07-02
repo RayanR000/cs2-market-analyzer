@@ -92,7 +92,10 @@ def run_task(task_name):
             logger.info("="*60)
             result = pipeline.run_feature_computation()
             result2 = pipeline.run_trend_analysis()
-            print(f"RESULT: {result}, {result2}")
+            # Also run daily analysis for DailyAnalysis table
+            from scripts.analyze_trends import main as daily_analysis
+            result3 = daily_analysis()
+            print(f"RESULT: {result}, {result2}, {result3}")
 
         elif task_name == "long_term_trends":
             logger.info("="*60)

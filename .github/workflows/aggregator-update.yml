@@ -2,12 +2,12 @@ name: Aggregator Market Update (17k Items)
 
 on:
   schedule:
-    # Every 6 hours on the EST optimized schedule
-    # 11:30 PM EST = 03:30 UTC
+    # Every 6 hours — runs before daily trend analysis (03:00 UTC) and forecast (04:00 UTC)
+    # 10:30 PM EST = 02:30 UTC (previous day)
     # 05:30 AM EST = 09:30 UTC
     # 11:30 AM EST = 15:30 UTC
     # 05:30 PM EST = 21:30 UTC
-    - cron: '30 3,9,15,21 * * *'
+    - cron: '30 2,9,15,21 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -41,10 +41,24 @@ jobs:
           EXIT_CODE=$?
           echo "✅ Aggregator task completed with exit code: $EXIT_CODE"
 
+      - name: Notify on failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "[${{ github.workflow }}] Failed - $(date +%F)" \
+            --body "Workflow **${{ github.workflow }}** failed.
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Branch: ${{ github.ref_name }}
+          Trigger: ${{ github.event_name }}" \
+            --label "automation" 2>/dev/null || true
+
       - name: Upload aggregator logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aggregator-logs-${{ github.run_id }}
           path: backend/aggregator.log
-          retention-days: 7
+          retention-days: 30

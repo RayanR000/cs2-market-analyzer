@@ -82,12 +82,12 @@ class DataPipeline:
                 misfire_grace_time=300
             )
             
-            # Schedule hourly feature computation at :00
+            # Schedule feature computation every 6 hours after priority collection
             self.scheduler.add_job(
                 self.run_feature_computation,
-                CronTrigger(minute=0),
-                id='hourly_features',
-                name='Hourly feature computation',
+                CronTrigger(hour='1,7,13,19', minute=0),
+                id='six_hourly_features',
+                name='6-hourly feature computation',
                 replace_existing=True,
                 max_instances=1,
                 coalesce=True,

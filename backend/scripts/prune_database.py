@@ -152,8 +152,9 @@ def downsample_price_history(db_session, days_to_keep_granular=7, dry_run=False)
 def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run):
     """
     Keep one record per (item_id, time_bucket) that is closest to the
-    average price for that bucket.  All other records in the bucket
-    are deleted.
+    median price for that bucket.  All other records in the bucket
+    are deleted.  Using median (PERCENTILE_CONT) instead of mean
+    makes this robust against outlier price spikes.
     """
 
     try:
@@ -179,28 +180,31 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
         logger.info(f"Would downsample {total_in_tier:,} records to {desc}")
         return total_in_tier
 
-    # Keep the one row per (item_id, time_bucket) closest to the average price.
-    # Uses a CTE to compute group averages, then ROW_NUMBER to pick the nearest row.
+    # Keep the one row per (item_id, time_bucket) closest to the median price.
+    # Uses a CTE to compute group medians (PERCENTILE_CONT), then ROW_NUMBER to
+    # pick the nearest row.  Unlike the original code this does NOT nest
+    # PERCENTILE_CONT inside OVER(), so PostgreSQL accepts it.
     def build_delete_sql(extra_filter=""):
         return f"""
-        WITH avg_prices AS (
-            SELECT id,
-                   AVG(price) OVER (
-                       PARTITION BY item_id, ({group_expr})
-                   ) AS avg_price
+        WITH bucket_medians AS (
+            SELECT item_id, ({group_expr}) AS bucket,
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price) AS median_price
             FROM price_history
             WHERE {raw_filter} {extra_filter}
+            GROUP BY item_id, ({group_expr})
         )
         DELETE FROM price_history ph
         USING (
             SELECT id FROM (
-                SELECT ap.id,
+                SELECT ph2.id,
                     ROW_NUMBER() OVER (
                         PARTITION BY ph2.item_id, ({group_expr})
-                        ORDER BY ABS(ph2.price - ap.avg_price)
+                        ORDER BY ABS(ph2.price - bm.median_price)
                     ) AS rn
-                FROM avg_prices ap
-                JOIN price_history ph2 ON ph2.id = ap.id
+                FROM price_history ph2
+                JOIN bucket_medians bm
+                  ON ph2.item_id = bm.item_id
+                 AND ({group_expr}) = bm.bucket
             ) sub
             WHERE rn > 1
         ) keep

@@ -32,14 +32,24 @@ jobs:
           ENVIRONMENT: production
           DEBUG: false
         run: |
-          echo "🔎 Checkout SHA: $(git rev-parse HEAD)"
-          git log -1 --oneline
-          echo "🔎 Analyzer file preview:"
-          sed -n '1,80p' scripts/analyze_trends.py
           echo "📊 Starting daily trend analysis..."
-          python scripts/analyze_trends.py 2>&1 | tee analysis.log
+          python scripts/run_task.py trends 2>&1 | tee analysis.log
           EXIT_CODE=$?
           echo "✅ Trend analysis completed with exit code: $EXIT_CODE"
+
+      - name: Notify on failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "[${{ github.workflow }}] Failed - $(date +%F)" \
+            --body "Workflow **${{ github.workflow }}** failed.
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Branch: ${{ github.ref_name }}
+          Trigger: ${{ github.event_name }}" \
+            --label "automation" 2>/dev/null || true
 
       - name: Upload analysis logs
         if: always()
@@ -47,4 +57,4 @@ jobs:
         with:
           name: analysis-logs-${{ github.run_id }}
           path: backend/analysis.log
-          retention-days: 7
+          retention-days: 30
