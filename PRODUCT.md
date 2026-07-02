@@ -5,26 +5,35 @@
 product
 
 ## Users
-Medium to long-term investors and speculators who want to make educated guesses on CS2 item investments. They are looking for trends and medium-to-long term price changes.
+
+Traders and collectors navigating the CS2 skin market. Traders seek short-to-medium-term price signals, volatility windows, and liquidity data to execute informed flips. Collectors track long-term value trends, wear spreads, and portfolio composition. Both share the need for clarity — turning raw market noise into actionable conviction without drowning in data.
 
 ## Product Purpose
-To provide a sleek, analytical dashboard for CS2 market data, allowing users to search for skins and visualize their price history through high-quality charts and asset-heavy displays.
+
+A precise analytical dashboard for CS2 market intelligence. Users search items, inspect price history through high-quality charts, and surface trends that inform buying, selling, or holding decisions. Success looks like a user closing a session with confident conviction — whether to trade, collect, or wait.
 
 ## Brand Personality
-Analytical, minimalist, and relaxed. A professional tool that feels comfortable and visually pleasing rather than overwhelming or sterile.
+
+Analytical, precise, calm. The authority of a professional terminal without the coldness of one. Precise enough for serious analysis, calm enough for extended sessions. Communicates trust through restraint — every element earns its place.
 
 ## Anti-references
-- Compact and overwhelming "data-vomit" dashboards.
-- Generic AI-generated website patterns (flat, uninspired layouts).
+
+- Compact and overwhelming "data-vomit" dashboards that bury signals in density.
+- Generic AI-generated website patterns (flat, uninspired layouts, identical card grids, side-stripe borders).
 - Neon/hyper-enthusiastic "gaming" aesthetics that prioritize flash over clarity.
+- Trading platform cliches (Robinhood green/red exuberance, TradingView overload, "stonks" culture).
+- SaaS-cookie-cutter patterns (hero-metric templates, numbered section markers, identical feature cards).
 
 ## Design Principles
-- **Clarity over Density:** Avoid overwhelming the user with too much information at once. Prioritize whitespace and hierarchy.
-- **Asset-Grounded Data:** Use high-quality game skin images to provide visual context to the data, making the tool feel connected to the CS2 ecosystem.
-- **Comfortable Analysis:** Use a soft, "comfortable" charcoal/navy dark mode to reduce eye strain during extended analytical sessions.
-- **Bespoke Authenticity:** Avoid generic component patterns; strive for a custom, sleek feel that signals authority and quality.
+
+- **Clarity over Density.** Whitespace and hierarchy guide the eye. The interface never competes with the data — it reveals it.
+- **Asset-Grounded Data.** High-quality skin images anchor every analysis. The tool stays connected to the CS2 ecosystem, never abstracted into pure numbers.
+- **Comfortable Analysis.** A soft dark mode that reduces eye strain across long sessions. Visual comfort is a functional requirement, not a theme preference.
+- **Precision Tools.** Every control and component behaves exactly once — predictably, consistently, without surprise. The tool disappears into the task.
+- **Bespoke Authenticity.** No off-the-shelf component libraries. Custom OKLCH tokens, deliberate radii, intentional spacing. Earned familiarity, not templated familiarity.
 
 ## Accessibility & Inclusion
-- WCAG AA (Standard) compliance.
-- High contrast for text on dark backgrounds.
-- Respect for reduced motion where possible.
+
+- WCAG AA (Standard) compliance as a baseline.
+- High contrast for body text on dark backgrounds.
+- Respect for reduced motion — all animations degrade gracefully.

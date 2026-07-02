@@ -16,8 +16,8 @@ interface StatCardProps {
 export default function StatCard({
   label,
   value,
-  highlight = 'primary',
-  isPositive,
+  highlight: _highlight = 'primary',
+  isPositive: _isPositive,
   change,
   subvalue,
   unit = '',

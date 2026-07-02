@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     steam_api_key: Optional[str] = None
     cs2sh_api_key: Optional[str] = None
     frontend_url: str = "http://localhost:3000"
+    api_url: str = "http://localhost:8000"
     
     # Security
     secret_key: str = "your-secret-key-for-sessions"  # Should be changed in production

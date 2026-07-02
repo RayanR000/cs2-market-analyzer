@@ -158,7 +158,6 @@ class DailyAnalysis(Base):
     trading_volume_trend = Column(Float, nullable=True)
     price_stability = Column(Float, nullable=True)
     created_at = Column(DateTime, default=utcnow_naive)
-    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
     item = relationship("Item", back_populates="daily_analyses")
 

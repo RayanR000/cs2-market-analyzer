@@ -37,12 +37,7 @@ const TABLE_LIMIT = 20;
 
 function summarizeHistory(history: PricePoint[]): Omit<MarketRow, 'id' | 'item_id' | 'name' | 'type'> {
   if (!history.length) {
-    return {
-      currentPrice: null,
-      priceChange24h: null,
-      volatility: null,
-      volume24h: null,
-    };
+    return { currentPrice: null, priceChange24h: null, volatility: null, volume24h: null };
   }
 
   const points = [...history].sort(
@@ -76,52 +71,27 @@ function summarizeHistory(history: PricePoint[]): Omit<MarketRow, 'id' | 'item_i
   let volatility: number | null = null;
   if (returns.length > 1) {
     const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
-    const variance =
-      returns.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / returns.length;
+    const variance = returns.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / returns.length;
     volatility = Math.sqrt(variance) * 100;
   }
 
-  return {
-    currentPrice: latest.price,
-    priceChange24h,
-    volatility,
-    volume24h,
-  };
+  return { currentPrice: latest.price, priceChange24h, volatility, volume24h };
 }
 
 function formatCurrency(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value)) {
-    return '—';
-  }
-
-  return `$${value.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  if (value == null || Number.isNaN(value)) return '\u2014';
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatPercent(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value)) {
-    return '—';
-  }
-
-  const prefix = value > 0 ? '+' : '';
-  return `${prefix}${value.toFixed(1)}%`;
+  if (value == null || Number.isNaN(value)) return '\u2014';
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
 }
 
 function formatVolume(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value)) {
-    return '—';
-  }
-
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`;
-  }
-
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`;
-  }
-
+  if (value == null || Number.isNaN(value)) return '\u2014';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return `${value.toFixed(0)}`;
 }
 
@@ -148,57 +118,42 @@ export default function MarketPage() {
           getTrendingItems(6),
         ]);
 
-        const catalogItems = Array.isArray(itemsResponse?.items)
-          ? (itemsResponse.items as CatalogItem[])
-          : [];
+        const catalogItems = Array.isArray(itemsResponse) ? itemsResponse as CatalogItem[] : [];
+        const trendingItems = Array.isArray(trendingResponse) ? trendingResponse as CatalogItem[] : [];
+
         const summaries = await Promise.all(
           catalogItems.map(async (item: CatalogItem) => {
             try {
-              const historyResponse = await getPriceHistory(item.item_id, 30, 0, 500);
-              const summary = summarizeHistory(historyResponse?.history ?? []);
-
-              return {
-                id: String(item.id),
-                item_id: item.item_id,
-                name: item.name,
-                type: item.type,
-                ...summary,
-              };
+              const historyData = await getPriceHistory(item.item_id, 30, 0, 500);
+              const historyPoints = Array.isArray(historyData) ? historyData as PricePoint[] : [];
+              const summary = summarizeHistory(historyPoints);
+              return { id: String(item.id), item_id: item.item_id, name: item.name, type: item.type, ...summary };
             } catch {
-              return {
-                id: String(item.id),
-                item_id: item.item_id,
-                name: item.name,
-                type: item.type,
-                currentPrice: null,
-                priceChange24h: null,
-                volatility: null,
-                volume24h: null,
-              };
+              return { id: String(item.id), item_id: item.item_id, name: item.name, type: item.type, currentPrice: null, priceChange24h: null, volatility: null, volume24h: null };
             }
           })
         );
 
         if (!cancelled) {
           setItems(summaries);
-          setTrending(Array.isArray(trendingResponse?.trending) ? trendingResponse.trending : []);
+          setTrending(trendingItems.map((item: CatalogItem) => ({
+            item_id: item.id,
+            name: item.name,
+            type: item.type,
+            latest_price: 0,
+          })));
         }
       } catch (fetchError) {
         if (!cancelled) {
           setError(fetchError instanceof Error ? fetchError.message : 'Failed to load market data');
         }
       } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        if (!cancelled) setIsLoading(false);
       }
     }
 
     loadMarketData();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const filteredItems = useMemo(() => {
@@ -206,195 +161,116 @@ export default function MarketPage() {
       ? items.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
       : items;
 
-    const sorted = [...filtered].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       if (sortBy === 'name') {
-        return sortOrder === 'asc'
-          ? a.name.localeCompare(b.name)
-          : b.name.localeCompare(a.name);
+        return sortOrder === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
       }
-
-      const numericKey = sortBy as Exclude<SortKey, 'name'>;
-      const aVal = a[numericKey];
-      const bVal = b[numericKey];
-      const aScore = aVal == null ? Number.NEGATIVE_INFINITY : aVal;
-      const bScore = bVal == null ? Number.NEGATIVE_INFINITY : bVal;
-
-      return sortOrder === 'asc' ? aScore - bScore : bScore - aScore;
+      const aVal = a[sortBy];
+      const bVal = b[sortBy];
+      return sortOrder === 'asc'
+        ? (aVal ?? Number.NEGATIVE_INFINITY) - (bVal ?? Number.NEGATIVE_INFINITY)
+        : (bVal ?? Number.NEGATIVE_INFINITY) - (aVal ?? Number.NEGATIVE_INFINITY);
     });
-
-    return sorted;
   }, [items, searchQuery, sortBy, sortOrder]);
 
   const handleSort = (column: SortKey) => {
     if (sortBy === column) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
       return;
     }
-
     setSortBy(column);
     setSortOrder('desc');
   };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: 'var(--background-primary)' }}>
+    <div className="min-h-screen bg-background-primary">
       <Header />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <div className="max-w-7xl mx-auto px-6 py-10">
         <div className="mb-10">
-          <div className="mb-6">
-            <h1 className="text-4xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
-              Market Overview
-            </h1>
-            <p className="text-base" style={{ color: 'var(--text-secondary)' }}>
+          <div className="mb-8">
+            <span className="font-data text-[10px] font-bold uppercase tracking-[0.3em] text-brand mb-3 block">
+              MARKET_OVERVIEW
+            </span>
+            <h1 className="text-4xl font-bold mb-2 text-primary">Market Overview</h1>
+            <p className="text-base text-secondary">
               Live market snapshots and recent movers from the backend API
             </p>
           </div>
 
           <input
             type="text"
-            placeholder="Search items..."
+            placeholder="SEARCH ITEMS..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              maxWidth: '500px',
-              padding: '11px 14px',
-              backgroundColor: 'var(--surface)',
-              borderColor: 'var(--border)',
-              borderWidth: '1px',
-              color: 'var(--text-primary)',
-              borderRadius: '8px',
-              fontSize: '14px',
-              width: '100%',
-              transition: 'all 0.2s ease'
-            }}
-            className="focus:outline-none"
-            onFocus={(e) => {
-              e.currentTarget.style.borderColor = 'var(--accent-primary)';
-              e.currentTarget.style.backgroundColor = 'var(--surface-hover)';
-              e.currentTarget.style.boxShadow = 'inset 0 0 0 1px var(--border-accent), 0 0 12px rgba(59, 130, 246, 0.1)';
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border)';
-              e.currentTarget.style.backgroundColor = 'var(--surface)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
+            className="w-full max-w-[500px] px-4 py-3 bg-surface border border-border rounded-sm text-sm text-primary placeholder:text-muted focus:bg-surface-hover focus:border-accent-primary transition-all outline-none uppercase tracking-widest font-bold"
           />
         </div>
 
-        <div className="mb-8">
+        <div className="mb-10">
           <div className="flex items-baseline justify-between gap-4 mb-4">
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Trending now
-            </h2>
-            <span className="text-xs font-mono uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-              /items/trending
-            </span>
+            <h2 className="text-lg font-semibold text-primary">Trending now</h2>
+            <span className="tag-tech">/items/trending</span>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {trending.map((item) => (
-              <div
+            {trending.length > 0 ? trending.map((item) => (
+              <motion.div
                 key={item.item_id}
-                className="flex items-center justify-between rounded-lg border px-4 py-3"
-                style={{
-                  borderColor: 'var(--border)',
-                  backgroundColor: 'var(--surface)',
-                }}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="widget-block flex items-center justify-between px-4 py-3"
               >
                 <div>
-                  <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
-                    {item.name}
-                  </div>
-                  <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-                    {item.type}
-                  </div>
+                  <div className="font-medium text-primary text-sm">{item.name}</div>
+                  <div className="text-xs uppercase tracking-wide text-secondary">{item.type}</div>
                 </div>
-                <div className="text-right font-mono">
-                  <div style={{ color: 'var(--text-primary)' }}>{formatCurrency(item.latest_price)}</div>
-                </div>
+                <div className="text-right font-data text-sm text-primary">{formatCurrency(item.latest_price)}</div>
+              </motion.div>
+            )) : !isLoading && (
+              <div className="widget-block px-4 py-3 text-sm text-secondary col-span-full">
+                No trending items available.
               </div>
-            ))}
+            )}
           </div>
         </div>
 
         {error && (
-          <div
-            className="mb-6 rounded-lg border px-4 py-3 text-sm"
-            style={{
-              borderColor: 'rgba(239, 68, 68, 0.35)',
-              backgroundColor: 'rgba(239, 68, 68, 0.08)',
-              color: 'var(--text-primary)',
-            }}
-          >
+          <div className="mb-6 rounded-sm border border-data-down/35 bg-data-down-subtle/20 px-4 py-3 text-sm text-primary">
             {error}
           </div>
         )}
 
-        <div
-          style={{
-            borderColor: 'var(--border)',
-            borderWidth: '1px',
-            borderRadius: '10px',
-            overflow: 'hidden',
-            backgroundColor: 'var(--surface)'
-          }}
-          className="overflow-x-auto shadow-md"
-        >
+        <div className="overflow-x-auto rounded-sm border border-border bg-surface shadow-sm">
           <table className="w-full text-sm">
             <thead>
-              <tr
-                style={{
-                  borderBottomColor: 'var(--border)',
-                  borderBottomWidth: '1px',
-                  backgroundColor: 'var(--background-tertiary)'
-                }}
-              >
-                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide">
-                  <button
-                    onClick={() => handleSort('name')}
-                    className="hover:opacity-80 transition flex items-center gap-2"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    Item {sortBy === 'name' && <span style={{ color: 'var(--accent-primary)' }}>▼</span>}
+              <tr className="bg-background-tertiary border-b border-border">
+                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide text-secondary">
+                  <button onClick={() => handleSort('name')} className="hover:text-primary transition flex items-center gap-2">
+                    Item {sortBy === 'name' && <SortArrow />}
                   </button>
                 </th>
-                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide">
-                  <span style={{ color: 'var(--text-secondary)' }}>Type</span>
+                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide text-secondary">
+                  <span>Type</span>
                 </th>
-                <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide">
-                  <button
-                    onClick={() => handleSort('currentPrice')}
-                    className="w-full flex justify-end hover:opacity-80 transition items-center gap-2"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    Price {sortBy === 'currentPrice' && <span style={{ color: 'var(--accent-primary)' }}>▼</span>}
+                <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary">
+                  <button onClick={() => handleSort('currentPrice')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                    Price {sortBy === 'currentPrice' && <SortArrow />}
                   </button>
                 </th>
-                <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide">
-                  <button
-                    onClick={() => handleSort('priceChange24h')}
-                    className="w-full flex justify-end hover:opacity-80 transition items-center gap-2"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    24h Change {sortBy === 'priceChange24h' && <span style={{ color: 'var(--accent-primary)' }}>▼</span>}
+                <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary">
+                  <button onClick={() => handleSort('priceChange24h')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                    24h Change {sortBy === 'priceChange24h' && <SortArrow />}
                   </button>
                 </th>
-                <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide">
-                  <button
-                    onClick={() => handleSort('volatility')}
-                    className="w-full flex justify-end hover:opacity-80 transition items-center gap-2"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    Vol {sortBy === 'volatility' && <span style={{ color: 'var(--accent-primary)' }}>▼</span>}
+                <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary">
+                  <button onClick={() => handleSort('volatility')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                    Vol {sortBy === 'volatility' && <SortArrow />}
                   </button>
                 </th>
-                <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide">
-                  <button
-                    onClick={() => handleSort('volume24h')}
-                    className="w-full flex justify-end hover:opacity-80 transition items-center gap-2"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    Volume {sortBy === 'volume24h' && <span style={{ color: 'var(--accent-primary)' }}>▼</span>}
+                <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary">
+                  <button onClick={() => handleSort('volume24h')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                    Volume {sortBy === 'volume24h' && <SortArrow />}
                   </button>
                 </th>
               </tr>
@@ -402,7 +278,7 @@ export default function MarketPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center" style={{ color: 'var(--text-secondary)' }}>
+                  <td colSpan={6} className="px-6 py-12 text-center text-secondary">
                     Loading backend market data...
                   </td>
                 </tr>
@@ -410,40 +286,33 @@ export default function MarketPage() {
                 filteredItems.map((item, idx) => (
                   <motion.tr
                     key={item.item_id}
-                    initial={{ opacity: 0, y: -5 }}
+                    initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.01 }}
-                    style={{
-                      borderBottomColor: 'var(--divider)',
-                      borderBottomWidth: '1px',
-                      backgroundColor: hoveredRow === item.item_id ? 'var(--background-tertiary)' : 'transparent',
-                      transition: 'background-color 0.2s ease'
-                    }}
-                    className="group cursor-pointer"
+                    transition={{ delay: idx * 0.02 }}
+                    className="stripe-row cursor-pointer"
+                    style={{ backgroundColor: hoveredRow === item.item_id ? 'var(--background-tertiary)' : 'transparent' }}
                     onMouseEnter={() => setHoveredRow(item.item_id)}
                     onMouseLeave={() => setHoveredRow(null)}
                   >
                     <td className="px-6 py-4">
                       <Link
                         href={`/items/${item.item_id}`}
-                        className="font-medium transition-opacity hover:opacity-75"
-                        style={{ color: hoveredRow === item.item_id ? 'var(--accent-primary)' : 'var(--text-primary)' }}
+                        className="font-medium transition-colors text-primary hover:text-brand"
                       >
                         {item.name}
                       </Link>
                     </td>
-                    <td className="px-6 py-4 text-left uppercase tracking-wide text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    <td className="px-6 py-4 text-left uppercase tracking-wide text-xs text-secondary">
                       {item.type}
                     </td>
-                    <td className="px-6 py-4 text-right font-mono font-medium" style={{ color: 'var(--text-primary)' }}>
+                    <td className="px-6 py-4 text-right font-data font-medium text-primary">
                       {formatCurrency(item.currentPrice)}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <span
-                        className="inline-block px-3 py-1.5 rounded font-mono font-semibold text-xs"
+                        className="inline-block px-3 py-1.5 rounded-sm font-data font-semibold text-xs"
                         style={{
-                          backgroundColor:
-                            (item.priceChange24h ?? 0) >= 0 ? 'var(--data-up-subtle)' : 'var(--data-down-subtle)',
+                          backgroundColor: (item.priceChange24h ?? 0) >= 0 ? 'var(--data-up-subtle)' : 'var(--data-down-subtle)',
                           color: (item.priceChange24h ?? 0) >= 0 ? 'var(--data-up)' : 'var(--data-down)'
                         }}
                       >
@@ -451,49 +320,30 @@ export default function MarketPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'flex-end',
-                          gap: '8px'
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: '24px',
-                            height: '20px',
-                            backgroundColor: 'var(--grid)',
-                            borderRadius: '3px',
-                            position: 'relative',
-                            overflow: 'hidden'
-                          }}
-                        >
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-6 h-5 bg-grid rounded-[3px] relative overflow-hidden">
                           <div
+                            className="absolute bottom-0 left-0 right-0 transition-all"
                             style={{
-                              position: 'absolute',
-                              bottom: 0,
-                              left: 0,
-                              right: 0,
                               height: `${Math.min(item.volatility ?? 0, 100)}%`,
-                              backgroundColor: 'var(--accent-primary)',
-                              opacity: 0.6
+                              backgroundColor: 'var(--brand)',
+                              opacity: 0.5
                             }}
                           />
                         </div>
-                        <span className="font-mono text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          {item.volatility == null ? '—' : `${item.volatility.toFixed(1)}%`}
+                        <span className="font-data text-xs text-secondary">
+                          {item.volatility == null ? '\u2014' : `${item.volatility.toFixed(1)}%`}
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right font-mono" style={{ color: 'var(--text-secondary)' }}>
+                    <td className="px-6 py-4 text-right font-data text-secondary">
                       {formatVolume(item.volume24h)}
                     </td>
                   </motion.tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center" style={{ color: 'var(--text-secondary)' }}>
+                  <td colSpan={6} className="px-6 py-12 text-center text-secondary">
                     No items match your search
                   </td>
                 </tr>
@@ -504,4 +354,8 @@ export default function MarketPage() {
       </div>
     </div>
   );
+}
+
+function SortArrow() {
+  return <span className="text-brand text-[10px]">&#9660;</span>;
 }
