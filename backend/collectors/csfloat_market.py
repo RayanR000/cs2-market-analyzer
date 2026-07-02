@@ -41,6 +41,16 @@ class CSFloatMarketCollector:
         params = {"market_hash_name": market_hash_name}
 
         response = self.session.get(url, params=params, timeout=30)
+
+        if response.status_code in (401, 403):
+            logger.error(
+                "CSFloat API returned %s for '%s' — the API likely requires an "
+                "Authorization key now. Set CSFLOAT_API_KEY or disable this collector.",
+                response.status_code,
+                market_hash_name,
+            )
+            return []
+
         response.raise_for_status()
         payload = response.json()
 
@@ -83,13 +93,24 @@ class CSFloatMarketCollector:
     ) -> Dict[str, Optional[Tuple[float, int, datetime]]]:
         """Collect price data for multiple items."""
         results = {}
+        auth_failures = 0
 
         for item_name in item_names:
             try:
                 result = self.get_item_price_history(item_name)
+                if result is None:
+                    # get_listings returned empty — could be auth or no listings
+                    pass
                 results[item_name] = result
             except Exception as e:
                 logger.error("Error collecting %s: %s", item_name, e)
                 results[item_name] = None
+
+        if auth_failures >= 3:
+            logger.warning(
+                "CSFloat: %d items failed — likely requires an API key. "
+                "Set CSFLOAT_API_KEY env var or remove CSFloat from your pipeline.",
+                auth_failures,
+            )
 
         return results

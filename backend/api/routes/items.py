@@ -1,7 +1,7 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc
+from sqlalchemy import desc, asc, func
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 import re
@@ -63,16 +63,26 @@ def trending_items(
     )
     item_ids = [i.id for i in items]
 
-    latest_prices = {}
-    for item_id in item_ids:
-        latest = (
-            db.query(PriceHistory)
-            .filter(PriceHistory.item_id == item_id)
-            .order_by(desc(PriceHistory.timestamp))
-            .first()
+    # Single query: latest price per item via a lateral-style subquery
+    latest_price_subq = (
+        db.query(
+            PriceHistory.item_id,
+            PriceHistory.price,
         )
-        if latest:
-            latest_prices[item_id] = latest.price
+        .filter(PriceHistory.item_id.in_(item_ids))
+        .order_by(PriceHistory.item_id, desc(PriceHistory.timestamp))
+        .subquery()
+    )
+    # Distinct on (item_id) — PostgreSQL-friendly, works on SQLite too via outermost query
+    latest_prices = {}
+    if item_ids:
+        rows = (
+            db.query(latest_price_subq.c.item_id, latest_price_subq.c.price)
+            .distinct(latest_price_subq.c.item_id)
+            .order_by(latest_price_subq.c.item_id, desc(latest_price_subq.c.price))
+            .all()
+        )
+        latest_prices = {row.item_id: row.price for row in rows}
 
     return [
         TrendingItemOut(
@@ -390,27 +400,29 @@ def get_multi_source_prices(
     sources = [s.strip() for s in source.split(",")]
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-    data: dict[str, list[SourcePriceOut]] = {}
-    for src in sources:
-        records = (
-            db.query(PriceHistory)
-            .filter(
-                PriceHistory.item_id == item.id,
-                PriceHistory.source == src,
-                PriceHistory.timestamp >= cutoff,
-            )
-            .order_by(PriceHistory.timestamp)
-            .all()
+    # Single query for all requested sources instead of one per source
+    records = (
+        db.query(PriceHistory)
+        .filter(
+            PriceHistory.item_id == item.id,
+            PriceHistory.source.in_(sources),
+            PriceHistory.timestamp >= cutoff,
         )
-        data[src] = [
-            SourcePriceOut(
-                timestamp=r.timestamp,
-                price=r.price,
-                volume=r.volume,
-                median_price=r.median_price,
+        .order_by(PriceHistory.source, PriceHistory.timestamp)
+        .all()
+    )
+
+    data: dict[str, list[SourcePriceOut]] = {src: [] for src in sources}
+    for r in records:
+        if r.source in data:
+            data[r.source].append(
+                SourcePriceOut(
+                    timestamp=r.timestamp,
+                    price=r.price,
+                    volume=r.volume,
+                    median_price=r.median_price,
+                )
             )
-            for r in records
-        ]
 
     return MultiSourcePricesOut(
         item_id=item.item_id,

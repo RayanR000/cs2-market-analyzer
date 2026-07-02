@@ -6,8 +6,9 @@ from collectors.csfloat_market import CSFloatMarketCollector
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self._payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self):
         return None
