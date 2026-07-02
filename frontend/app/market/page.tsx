@@ -4,21 +4,9 @@ import { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Header } from '@/components';
-import { getMarketSummary, getTrendingItems } from '@/lib/api';
+import { getMarketSummary, getTrendingItems, GroupedMarketItem, QualityVariant } from '@/lib/api';
 
-type SortKey = 'name' | 'currentPrice' | 'priceChange24h' | 'volatility' | 'volume24h';
-
-interface MarketRow {
-  id: number;
-  item_id: string;
-  name: string;
-  type: string;
-  icon_url: string | null;
-  currentPrice: number | null;
-  priceChange24h: number | null;
-  volatility: number | null;
-  volume24h: number | null;
-}
+type SortKey = 'name' | 'priceAvg' | 'priceChange24h' | 'volatility' | 'volume24h';
 
 interface TrendingRow {
   item_id: string;
@@ -100,10 +88,10 @@ function MarketPageInner() {
     ? (urlParams.current.type as typeof TYPES[number]) : 'all';
   const initialQ = urlParams.current.q ?? '';
   const initialPage = parseInt(urlParams.current.page ?? '0', 10) || 0;
-  const initialSortBy = (urlParams.current.sortBy as SortKey) ?? 'currentPrice';
+  const initialSortBy = (urlParams.current.sortBy as SortKey) ?? 'priceAvg';
   const initialSortOrder = urlParams.current.sortOrder === 'asc' ? ('asc' as const) : ('desc' as const);
 
-  const [items, setItems] = useState<MarketRow[]>([]);
+  const [items, setItems] = useState<GroupedMarketItem[]>([]);
   const [trending, setTrending] = useState<TrendingRow[]>([]);
   const [sortBy, setSortBy] = useState<SortKey>(initialSortBy);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialSortOrder);
@@ -120,6 +108,10 @@ function MarketPageInner() {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [debouncedQuery, activeType]);
 
   const fetchKey = `${debouncedQuery}|${activeType}|${page}`;
 
@@ -146,16 +138,18 @@ function MarketPageInner() {
         const hasNext = Array.isArray(summaryResponse) && summaryResponse.length > PAGE_SIZE;
         const pageItems = Array.isArray(summaryResponse) ? summaryResponse.slice(0, PAGE_SIZE) : [];
 
-        const summaryItems: MarketRow[] = pageItems.map((r: Record<string, unknown>) => ({
-          id: (r.id as number) ?? 0,
-          item_id: String(r.item_id ?? ''),
-          name: String(r.name ?? ''),
+        const summaryItems: GroupedMarketItem[] = pageItems.map((r: Record<string, unknown>) => ({
+          base_name: String(r.base_name ?? ''),
           type: String(r.type ?? ''),
           icon_url: (r.icon_url as string) ?? null,
-          currentPrice: (r.current_price as number) ?? null,
-          priceChange24h: (r.price_change_24h as number) ?? null,
+          price_avg: (r.price_avg as number) ?? null,
+          price_min: (r.price_min as number) ?? null,
+          price_max: (r.price_max as number) ?? null,
+          price_change_24h: (r.price_change_24h as number) ?? null,
           volatility: (r.volatility as number) ?? null,
-          volume24h: (r.volume_24h as number) ?? null,
+          volume_24h: (r.volume_24h as number) ?? null,
+          quality_count: (r.quality_count as number) ?? 1,
+          qualities: (r.qualities as QualityVariant[]) ?? [],
         }));
 
         if (!cancelled) {
@@ -188,7 +182,7 @@ function MarketPageInner() {
     if (activeType !== 'all') next.set('type', activeType);
     if (searchQuery) next.set('q', searchQuery);
     if (page > 0) next.set('page', String(page));
-    if (sortBy !== 'currentPrice') next.set('sortBy', sortBy);
+    if (sortBy !== 'priceAvg') next.set('sortBy', sortBy);
     if (sortOrder !== 'desc') next.set('sortOrder', sortOrder);
     const qs = next.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
@@ -196,16 +190,22 @@ function MarketPageInner() {
 
   const setAndSearch = (type: string) => {
     setActiveType(type);
-    setPage(0);
   };
 
   const sortedItems = useMemo(() => {
     return [...items].sort((a, b) => {
       if (sortBy === 'name') {
-        return sortOrder === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+        return sortOrder === 'asc' ? a.base_name.localeCompare(b.base_name) : b.base_name.localeCompare(a.base_name);
       }
-      const aVal = a[sortBy];
-      const bVal = b[sortBy];
+      const fieldMap: Record<string, keyof GroupedMarketItem> = {
+        priceAvg: 'price_avg',
+        priceChange24h: 'price_change_24h',
+        volatility: 'volatility',
+        volume24h: 'volume_24h',
+      };
+      const field = fieldMap[sortBy] ?? sortBy;
+      const aVal = a[field] as number | null;
+      const bVal = b[field] as number | null;
       return sortOrder === 'asc'
         ? (aVal ?? Number.NEGATIVE_INFINITY) - (bVal ?? Number.NEGATIVE_INFINITY)
         : (bVal ?? Number.NEGATIVE_INFINITY) - (aVal ?? Number.NEGATIVE_INFINITY);
@@ -244,7 +244,7 @@ function MarketPageInner() {
             type="text"
             placeholder="SEARCH ITEMS..."
             value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+            onChange={(e) => { setSearchQuery(e.target.value); }}
             className="flex-1 max-w-[500px] px-4 py-3 bg-surface border border-border rounded-sm text-sm text-primary placeholder:text-muted focus:bg-surface-hover focus:border-accent-primary transition-all outline-none uppercase tracking-widest font-bold"
           />
           <div className="flex gap-1.5 items-center">
@@ -328,33 +328,34 @@ function MarketPageInner() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-background-tertiary border-b border-border">
-                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide text-secondary w-[45%]">
+                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide text-secondary w-[40%]">
                   <button onClick={() => handleSort('name')} className="hover:text-primary transition flex items-center gap-2">
                     Item {sortBy === 'name' && <SortArrow direction={sortOrder} />}
                   </button>
                 </th>
-                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide text-secondary w-[10%]">
+                <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide text-secondary w-[8%]">
                   <span>Type</span>
                 </th>
                 <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary w-[15%]">
-                  <button onClick={() => handleSort('currentPrice')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
-                    Price {sortBy === 'currentPrice' && <SortArrow direction={sortOrder} />}
+                  <button onClick={() => handleSort('priceAvg')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                    Avg Price {sortBy === 'priceAvg' && <SortArrow direction={sortOrder} />}
                   </button>
                 </th>
                 <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary w-[12%]">
-                  <button onClick={() => handleSort('priceChange24h')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
-                    24h Change {sortBy === 'priceChange24h' && <SortArrow direction={sortOrder} />}
-                  </button>
+                  <span className="text-tertiary">Range</span>
                 </th>
                 <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary w-[10%]">
-                  <button onClick={() => handleSort('volatility')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
-                    Vol {sortBy === 'volatility' && <SortArrow direction={sortOrder} />}
+                  <button onClick={() => handleSort('priceChange24h')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                    24h {sortBy === 'priceChange24h' && <SortArrow direction={sortOrder} />}
                   </button>
                 </th>
                 <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary w-[8%]">
                   <button onClick={() => handleSort('volume24h')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
-                    Volume {sortBy === 'volume24h' && <SortArrow direction={sortOrder} />}
+                    Vol {sortBy === 'volume24h' && <SortArrow direction={sortOrder} />}
                   </button>
+                </th>
+                <th className="px-6 py-5 text-center text-xs font-semibold uppercase tracking-wide text-secondary w-[7%]">
+                  <span>Quals</span>
                 </th>
               </tr>
             </thead>
@@ -362,77 +363,74 @@ function MarketPageInner() {
               {isLoading && !items.length ? (
                 Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} />)
               ) : sortedItems.length ? (
-                sortedItems.map((item, idx) => (
-                  <motion.tr
-                    key={item.item_id}
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.01 }}
-                    className="stripe-row cursor-pointer"
-                    style={{ backgroundColor: hoveredRow === item.item_id ? 'var(--background-tertiary)' : 'transparent' }}
-                    onMouseEnter={() => setHoveredRow(item.item_id)}
-                    onMouseLeave={() => setHoveredRow(null)}
-                  >
-                    <td className="px-6 py-4">
-                      <Link
-                        href={`/items/${item.item_id}`}
-                        className="flex items-center gap-3 font-medium transition-colors text-primary hover:text-brand group"
-                      >
-                        {item.icon_url ? (
-                          <img
-                            src={item.icon_url}
-                            alt=""
-                            className="w-8 h-8 rounded-sm object-cover shrink-0"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-sm bg-background-tertiary shrink-0" />
-                        )}
-                        <span className="truncate group-hover:text-brand transition-colors">{item.name}</span>
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 text-left uppercase tracking-wide text-xs text-secondary">
-                      {item.type}
-                    </td>
-                    <td className="px-6 py-4 text-right font-data font-medium text-primary">
-                      {formatCurrency(item.currentPrice)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <span
-                        className="inline-block px-3 py-1.5 rounded-sm font-data font-semibold text-xs"
-                        style={{
-                          backgroundColor: (item.priceChange24h ?? 0) >= 0 ? 'var(--data-up-subtle)' : 'var(--data-down-subtle)',
-                          color: (item.priceChange24h ?? 0) >= 0 ? 'var(--data-up)' : 'var(--data-down)'
-                        }}
-                      >
-                        {formatPercent(item.priceChange24h)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="w-6 h-5 bg-grid rounded-[3px] relative overflow-hidden">
-                          <div
-                            className="absolute bottom-0 left-0 right-0 transition-all"
-                            style={{
-                              height: `${Math.min(item.volatility ?? 0, 100)}%`,
-                              backgroundColor: 'var(--brand)',
-                              opacity: 0.5
-                            }}
-                          />
-                        </div>
-                        <span className="font-data text-xs text-secondary">
-                          {item.volatility == null ? '\u2014' : `${item.volatility.toFixed(1)}%`}
+                sortedItems.map((item, idx) => {
+                  const firstVariant = item.qualities[0];
+                  const linkId = firstVariant?.item_id ?? item.base_name;
+                  return (
+                    <motion.tr
+                      key={item.base_name}
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.01 }}
+                      className="stripe-row cursor-pointer"
+                      style={{ backgroundColor: hoveredRow === item.base_name ? 'var(--background-tertiary)' : 'transparent' }}
+                      onMouseEnter={() => setHoveredRow(item.base_name)}
+                      onMouseLeave={() => setHoveredRow(null)}
+                    >
+                      <td className="px-6 py-4">
+                        <Link
+                          href={`/items/${encodeURIComponent(linkId)}`}
+                          className="flex items-center gap-3 font-medium transition-colors text-primary hover:text-brand group"
+                        >
+                          {item.icon_url ? (
+                            <img
+                              src={item.icon_url}
+                              alt=""
+                              className="w-8 h-8 rounded-sm object-cover shrink-0"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-sm bg-background-tertiary shrink-0" />
+                          )}
+                          <span className="truncate group-hover:text-brand transition-colors">{item.base_name}</span>
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 text-left uppercase tracking-wide text-xs text-secondary">
+                        {item.type}
+                      </td>
+                      <td className="px-6 py-4 text-right font-data font-medium text-primary">
+                        {formatCurrency(item.price_avg)}
+                      </td>
+                      <td className="px-6 py-4 text-right font-data text-xs text-tertiary">
+                        {item.price_min != null && item.price_max != null
+                          ? `${formatCurrency(item.price_min)} – ${formatCurrency(item.price_max)}`
+                          : '\u2014'}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span
+                          className="inline-block px-3 py-1.5 rounded-sm font-data font-semibold text-xs"
+                          style={{
+                            backgroundColor: (item.price_change_24h ?? 0) >= 0 ? 'var(--data-up-subtle)' : 'var(--data-down-subtle)',
+                            color: (item.price_change_24h ?? 0) >= 0 ? 'var(--data-up)' : 'var(--data-down)'
+                          }}
+                        >
+                          {formatPercent(item.price_change_24h)}
                         </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right font-data text-secondary">
-                      {formatVolume(item.volume24h)}
-                    </td>
-                  </motion.tr>
-                ))
+                      </td>
+                      <td className="px-6 py-4 text-right font-data text-secondary">
+                        {formatVolume(item.volume_24h)}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <span className="inline-block px-2 py-0.5 rounded-sm bg-background-tertiary text-xs font-data text-secondary">
+                          {item.quality_count}
+                        </span>
+                      </td>
+                    </motion.tr>
+                  );
+                })
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center">
+                  <td colSpan={7} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <span className="text-3xl text-tertiary">{'\u2205'}</span>
                       {isLoading ? (

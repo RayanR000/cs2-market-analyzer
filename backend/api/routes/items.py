@@ -1,8 +1,10 @@
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc
 from datetime import datetime, timedelta, timezone
+from pydantic import BaseModel
+import re
 import math
 
 from database import get_db, Item, PriceHistory, TrendIndicator, DailyAnalysis, ItemForecast, Event, EventImpact
@@ -83,6 +85,112 @@ def trending_items(
         )
         for item in items
     ]
+
+
+def _parse_item_name(name: str):
+    match = re.match(r'^(.+?)\s*\(([^)]+)\)\s*$', name)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    return name, None
+
+
+class QualityVariantOut(BaseModel):
+    item_id: str
+    name: str
+    quality: str
+    current_price: Optional[float] = None
+    price_change_24h: Optional[float] = None
+    volume_24h: Optional[int] = None
+
+
+@router.get("/{item_id}/variants", response_model=List[QualityVariantOut])
+def get_item_variants(
+    item_id: str,
+    db: Session = Depends(get_db),
+):
+    item = _resolve_item(item_id, db)
+    base_name, _ = _parse_item_name(item.name)
+
+    all_items = db.query(Item).filter(
+        Item.name.ilike(f"%{base_name}%"),
+        Item.type == item.type,
+    ).all()
+
+    matching = [i for i in all_items if _parse_item_name(i.name)[0] == base_name]
+    if not matching:
+        matching = [item]
+
+    item_ids = [i.id for i in matching]
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=2)
+    price_rows = (
+        db.query(PriceHistory)
+        .filter(
+            PriceHistory.item_id.in_(item_ids),
+            PriceHistory.timestamp >= cutoff,
+        )
+        .order_by(PriceHistory.item_id, PriceHistory.timestamp)
+        .all()
+    )
+    prices_by_item: dict[int, list] = {}
+    for pr in price_rows:
+        prices_by_item.setdefault(pr.item_id, []).append(pr)
+
+    latest_sub = (
+        db.query(DailyAnalysis.item_id, DailyAnalysis.analysis_date)
+        .distinct(DailyAnalysis.item_id)
+        .order_by(DailyAnalysis.item_id, desc(DailyAnalysis.analysis_date))
+        .subquery()
+    )
+    daily_rows = (
+        db.query(DailyAnalysis)
+        .join(
+            latest_sub,
+            (DailyAnalysis.item_id == latest_sub.c.item_id)
+            & (DailyAnalysis.analysis_date == latest_sub.c.analysis_date),
+        )
+        .filter(DailyAnalysis.item_id.in_(item_ids))
+        .all()
+    )
+    daily_map = {d.item_id: d for d in daily_rows}
+
+    by_quality: dict[str, dict] = {}
+    for i in matching:
+        da = daily_map.get(i.id)
+        ph_list = prices_by_item.get(i.id, [])
+
+        current_price = None
+        price_change_24h = None
+        volume_24h = None
+
+        if da and da.current_price:
+            current_price = da.current_price
+        elif ph_list:
+            current_price = ph_list[-1].price
+
+        if len(ph_list) >= 2:
+            first = ph_list[0]
+            last = ph_list[-1]
+            if first.price > 0:
+                price_change_24h = round(((last.price - first.price) / first.price) * 100, 2)
+            volume_24h = sum((p.volume or 0) for p in ph_list)
+
+        _, quality = _parse_item_name(i.name)
+        quality = quality or "Standard"
+
+        if quality not in by_quality or (current_price is not None and by_quality[quality].get("current_price") is None):
+            by_quality[quality] = {
+                "item_id": i.item_id,
+                "name": i.name,
+                "quality": quality,
+                "current_price": current_price,
+                "price_change_24h": price_change_24h,
+                "volume_24h": volume_24h,
+            }
+
+    result = [QualityVariantOut(**v) for v in by_quality.values()]
+    result.sort(key=lambda x: x.quality)
+    return result
 
 
 @router.get("/{item_id}", response_model=ItemOut)

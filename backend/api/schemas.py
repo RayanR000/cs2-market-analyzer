@@ -110,6 +110,32 @@ class EventOut(BaseModel):
         from_attributes = True
 
 
+class QualityVariantOut(BaseModel):
+    item_id: str
+    name: str
+    quality: str
+    current_price: Optional[float] = None
+    price_change_24h: Optional[float] = None
+    volume_24h: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class GroupedMarketItemOut(BaseModel):
+    base_name: str
+    type: str
+    icon_url: Optional[str] = None
+    price_avg: Optional[float] = None
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    price_change_24h: Optional[float] = None
+    volatility: Optional[float] = None
+    volume_24h: Optional[int] = None
+    quality_count: int = 1
+    qualities: List[QualityVariantOut] = []
+
+
 class UserOut(BaseModel):
     id: int
     steam_id: str

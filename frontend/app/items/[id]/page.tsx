@@ -21,8 +21,10 @@ import {
   getItemTrends,
   getMultiSourcePrices,
   getPriceHistory,
+  getItemVariants,
   MultiSourcePrices,
   PricePoint,
+  QualityVariant,
 } from '@/lib/api';
 
 interface CatalogItem {
@@ -163,6 +165,8 @@ export default function ItemDetailPage() {
   const params = useParams();
   const itemId = params.id as string;
   const [item, setItem] = useState<CatalogItem | null>(null);
+  const [variants, setVariants] = useState<QualityVariant[]>([]);
+  const [activeQuality, setActiveQuality] = useState<string>('');
   const [history, setHistory] = useState<PricePoint[]>([]);
   const [trends, setTrends] = useState<TrendResponse | null>(null);
   const [prediction, setPrediction] = useState<PredictionResponse | null>(null);
@@ -180,8 +184,9 @@ export default function ItemDetailPage() {
       setError(null);
 
       try {
-        const [itemResponse, historyResponse, trendsResponse, predictionResponse, sourceResponse] = await Promise.all([
+        const [itemResponse, variantsResponse, historyResponse, trendsResponse, predictionResponse, sourceResponse] = await Promise.all([
           getItem(itemId),
+          getItemVariants(itemId).catch(() => []),
           getPriceHistory(itemId, 90, 0, 500),
           getItemTrends(itemId),
           getItemPrediction(itemId, '30_days'),
@@ -191,6 +196,12 @@ export default function ItemDetailPage() {
         if (cancelled) return;
 
         setItem(itemResponse as CatalogItem);
+        const variantList = Array.isArray(variantsResponse) ? variantsResponse as QualityVariant[] : [];
+        setVariants(variantList);
+
+        const currentVariant = variantList.find(v => v.item_id === itemId);
+        setActiveQuality(currentVariant?.quality ?? variantList[0]?.quality ?? 'Standard');
+
         setHistory(Array.isArray(historyResponse) ? historyResponse as PricePoint[] : []);
         setTrends({
           item_id: trendsResponse?.item_id ?? '',
@@ -286,6 +297,32 @@ export default function ItemDetailPage() {
         <Link href="/market" className="text-brand hover:text-brand-hover text-xs font-bold uppercase tracking-[0.2em] mb-6 inline-block transition-colors">
           &larr; MARKET
         </Link>
+
+        {variants.length > 1 && (
+          <div className="mb-6">
+            <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Quality</div>
+            <div className="flex flex-wrap gap-1.5">
+              {variants.map((v) => (
+                <Link
+                  key={v.item_id}
+                  href={`/items/${encodeURIComponent(v.item_id)}`}
+                  className={`px-3 py-2 text-xs font-bold uppercase tracking-widest rounded-sm border transition-all ${
+                    v.quality === activeQuality
+                      ? 'bg-brand text-white border-brand'
+                      : 'bg-surface text-secondary border-border hover:bg-surface-hover hover:border-accent-primary'
+                  }`}
+                >
+                  {v.quality}
+                  {v.current_price != null && (
+                    <span className="ml-1.5 font-data normal-case opacity-70">
+                      {formatCurrency(v.current_price)}
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="widget-block p-6 mb-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

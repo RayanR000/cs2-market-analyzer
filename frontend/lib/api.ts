@@ -14,6 +14,29 @@ export interface Item {
   updated_at: string;
 }
 
+export interface QualityVariant {
+  item_id: string;
+  name: string;
+  quality: string;
+  current_price: number | null;
+  price_change_24h: number | null;
+  volume_24h: number | null;
+}
+
+export interface GroupedMarketItem {
+  base_name: string;
+  type: string;
+  icon_url: string | null;
+  price_avg: number | null;
+  price_min: number | null;
+  price_max: number | null;
+  price_change_24h: number | null;
+  volatility: number | null;
+  volume_24h: number | null;
+  quality_count: number;
+  qualities: QualityVariant[];
+}
+
 export interface PricePoint {
   timestamp: string;
   price: number;
@@ -103,6 +126,12 @@ export async function getTrendingItems(limit = 10) {
 export async function getItem(itemId: string) {
   const response = await fetch(`${API_URL}/items/${encodeURIComponent(itemId)}`);
   if (!response.ok) throw new Error('Failed to fetch item');
+  return response.json();
+}
+
+export async function getItemVariants(itemId: string): Promise<QualityVariant[]> {
+  const response = await fetch(`${API_URL}/items/${encodeURIComponent(itemId)}/variants`);
+  if (!response.ok) throw new Error('Failed to fetch item variants');
   return response.json();
 }
 
