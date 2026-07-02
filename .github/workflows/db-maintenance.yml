@@ -2,8 +2,7 @@ name: Database Maintenance (Pruning)
 
 on:
   schedule:
-    # Every Sunday at 4:00 AM EST
-    # 04:00 AM EST = 08:00 UTC
+    # Every Sunday at 4:00 AM EDT / 08:00 UTC
     - cron: '0 8 * * 0'
   workflow_dispatch: # Allow manual trigger
 

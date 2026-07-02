@@ -2,8 +2,8 @@ name: Discover New Items
 
 on:
   schedule:
-    # Every Monday at 12:00 UTC
-    - cron: '0 12 * * 1'
+    # Every Sunday at 22:00 UTC (before Monday forecast chain: aggregator 01:00 → trends 03:00 → forecast 04:00)
+    - cron: '0 22 * * 0'
   workflow_dispatch: # Allow manual trigger if needed
 
 jobs:

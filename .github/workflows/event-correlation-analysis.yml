@@ -2,8 +2,8 @@ name: Event Correlation Analysis
 
 on:
   schedule:
-    # Every Sunday at 2:00 AM UTC (Sunday after daily trend analysis has run multiple times)
-    - cron: '0 2 * * 0'
+    # Every Sunday at 4:00 AM UTC (after Sunday aggregator at 01:00 UTC, before long-term trends at 06:00 UTC)
+    - cron: '0 4 * * 0'
   workflow_dispatch: # Allow manual trigger
 
 jobs:

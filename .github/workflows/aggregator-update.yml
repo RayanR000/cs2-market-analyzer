@@ -2,12 +2,12 @@ name: Aggregator Market Update (17k Items)
 
 on:
   schedule:
-    # Every 6 hours — runs before daily trend analysis (03:00 UTC) and forecast (04:00 UTC)
-    # 10:30 PM EST = 02:30 UTC (previous day)
-    # 05:30 AM EST = 09:30 UTC
-    # 11:30 AM EST = 15:30 UTC
-    # 05:30 PM EST = 21:30 UTC
-    - cron: '30 2,9,15,21 * * *'
+    # Every 6 hours — runs 2h before daily trend analysis (03:00 UTC) and forecast (04:00 UTC)
+    # 9:00 PM EDT   = 01:00 UTC (previous day)
+    # 5:00 AM EDT   = 09:00 UTC
+    # 11:00 AM EDT  = 15:00 UTC
+    # 5:00 PM EDT   = 21:00 UTC
+    - cron: '0 1,9,15,21 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
