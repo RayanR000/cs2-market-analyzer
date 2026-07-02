@@ -182,7 +182,7 @@ export default function ItemDetailPage() {
       try {
         const [itemResponse, historyResponse, trendsResponse, predictionResponse, sourceResponse] = await Promise.all([
           getItem(itemId),
-          getPriceHistory(itemId, 90, 0, 1000),
+          getPriceHistory(itemId, 90, 0, 500),
           getItemTrends(itemId),
           getItemPrediction(itemId, '30_days'),
           getMultiSourcePrices(itemId, ['steam', 'csfloat'], 30),
@@ -246,6 +246,7 @@ export default function ItemDetailPage() {
   const confidence = trends?.confidence ?? 'low';
   const trendFactors = trends?.factors ?? [];
   const forecast = prediction?.forecast;
+  const hasPriceData = history.length > 0;
 
   if (isLoading) {
     return (
@@ -299,22 +300,32 @@ export default function ItemDetailPage() {
 
             <div className="text-right">
               <div className="text-4xl font-bold text-primary font-data mb-1">
-                <CountUpNumber from={latestPrice ?? 0} to={latestPrice ?? 0} decimals={2} formatFn={formatCurrency} />
+                {hasPriceData ? (
+                  <CountUpNumber from={latestPrice!} to={latestPrice!} decimals={2} formatFn={formatCurrency} />
+                ) : (
+                  <span className="text-tertiary">---</span>
+                )}
               </div>
               <div
                 className="font-data text-sm"
                 style={{ color: (summary.priceChange24h ?? 0) >= 0 ? 'var(--data-up)' : 'var(--data-down)' }}
               >
-                {formatPercent(summary.priceChange24h)} (24h)
+                {hasPriceData ? `${formatPercent(summary.priceChange24h)} (24h)` : <span className="text-tertiary">No data</span>}
               </div>
             </div>
           </div>
 
+          {!hasPriceData && (
+            <div className="mt-4 rounded-sm border border-border bg-background-tertiary px-4 py-3 text-sm text-secondary">
+              This item exists in the index but has no price history yet. Data will appear once the collection pipeline processes it.
+            </div>
+          )}
+
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricCard label="Trend" value={trendDirection.replace('_', ' ')} sub={`Confidence ${confidence}`} />
-            <MetricCard label="7d SMA" value={formatCurrency(trends?.indicators?.sma_7 ?? null)} mono />
-            <MetricCard label="30d SMA" value={formatCurrency(trends?.indicators?.sma_30 ?? null)} mono />
-            <MetricCard label="Volume 24h" value={formatVolume(summary.volume24h)} mono />
+            <MetricCard label="7d SMA" value={hasPriceData ? formatCurrency(trends?.indicators?.sma_7 ?? null) : '\u2014'} mono />
+            <MetricCard label="30d SMA" value={hasPriceData ? formatCurrency(trends?.indicators?.sma_30 ?? null) : '\u2014'} mono />
+            <MetricCard label="Volume 24h" value={hasPriceData ? formatVolume(summary.volume24h) : '\u2014'} mono />
           </div>
         </div>
 
@@ -353,32 +364,38 @@ export default function ItemDetailPage() {
               transition={{ duration: 0.3 }}
               className="widget-block p-4"
             >
-              <ResponsiveContainer width="100%" height={360}>
-                <LineChart data={sourceChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--grid)" />
-                  <XAxis dataKey="label" stroke="var(--text-tertiary)" style={{ fontSize: '12px' }} />
-                  <YAxis
-                    stroke="var(--text-tertiary)"
-                    style={{ fontSize: '12px' }}
-                    domain={['dataMin - 10', 'dataMax + 10']}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--background-secondary)',
-                      border: '1px solid var(--border)',
-                      color: 'var(--text-primary)',
-                      borderRadius: '4px',
-                    }}
-                    formatter={(value) => formatCurrency(Number(value))}
-                  />
-                  {visibleSources.includes('steam') && (
-                    <Line type="monotone" dataKey="steam" stroke="var(--text-secondary)" strokeWidth={2} dot={false} isAnimationActive={false} name="Steam" />
-                  )}
-                  {visibleSources.includes('csfloat') && (
-                    <Line type="monotone" dataKey="csfloat" stroke="var(--brand)" strokeWidth={2} dot={false} isAnimationActive={false} name="CSFloat" />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
+              {sourceChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={360}>
+                  <LineChart data={sourceChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--grid)" />
+                    <XAxis dataKey="label" stroke="var(--text-tertiary)" style={{ fontSize: '12px' }} />
+                    <YAxis
+                      stroke="var(--text-tertiary)"
+                      style={{ fontSize: '12px' }}
+                      domain={['dataMin - 10', 'dataMax + 10']}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--background-secondary)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text-primary)',
+                        borderRadius: '4px',
+                      }}
+                      formatter={(value) => formatCurrency(Number(value))}
+                    />
+                    {visibleSources.includes('steam') && (
+                      <Line type="monotone" dataKey="steam" stroke="var(--text-secondary)" strokeWidth={2} dot={false} isAnimationActive={false} name="Steam" />
+                    )}
+                    {visibleSources.includes('csfloat') && (
+                      <Line type="monotone" dataKey="csfloat" stroke="var(--brand)" strokeWidth={2} dot={false} isAnimationActive={false} name="CSFloat" />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[360px] text-sm text-tertiary">
+                  {hasPriceData ? 'No price data available for the selected range' : 'No price history recorded for this item'}
+                </div>
+              )}
             </motion.div>
           </div>
 
@@ -391,22 +408,26 @@ export default function ItemDetailPage() {
             <div className="widget-block p-4">
               <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Prediction</div>
               <div className="text-2xl font-bold text-primary font-data">
-                {forecast ? (
+                {hasPriceData && forecast ? (
                   <CountUpNumber from={forecast.mid} to={forecast.mid} decimals={2} formatFn={formatCurrency} />
                 ) : '\u2014'}
               </div>
               <div className="text-xs text-tertiary mt-1">
-                {prediction?.period_label || '30_days'} forecast
+                {hasPriceData ? (prediction?.period_label || '30_days') + ' forecast' : 'Insufficient data'}
               </div>
             </div>
 
             <div className="widget-block p-4">
               <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Forecast band</div>
-              <div className="space-y-1 font-data text-sm text-primary">
-                <div>Low {formatCurrency(forecast?.low ?? null)}</div>
-                <div>Mid {formatCurrency(forecast?.mid ?? null)}</div>
-                <div>High {formatCurrency(forecast?.high ?? null)}</div>
-              </div>
+              {hasPriceData ? (
+                <div className="space-y-1 font-data text-sm text-primary">
+                  <div>Low {formatCurrency(forecast?.low ?? null)}</div>
+                  <div>Mid {formatCurrency(forecast?.mid ?? null)}</div>
+                  <div>High {formatCurrency(forecast?.high ?? null)}</div>
+                </div>
+              ) : (
+                <div className="text-sm text-tertiary">No price data to forecast from</div>
+              )}
             </div>
 
             <div className="widget-block p-4">
@@ -421,17 +442,20 @@ export default function ItemDetailPage() {
                   </div>
                 ))}
               </div>
+              {!hasPriceData && (
+                <div className="mt-2 text-xs text-tertiary">Awaiting collection...</div>
+              )}
             </div>
 
             <div className="widget-block p-4">
               <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Signals</div>
               <div className="space-y-2 text-sm text-primary">
-                {trendFactors.length ? (
+                {hasPriceData && trendFactors.length ? (
                   trendFactors.map((factor) => (
                     <div key={factor} className="leading-snug">{factor}</div>
                   ))
                 ) : (
-                  <div className="text-tertiary">No technical factors returned yet.</div>
+                  <div className="text-tertiary">{hasPriceData ? 'No technical factors returned yet.' : 'No data to compute signals from'}</div>
                 )}
               </div>
             </div>

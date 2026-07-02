@@ -101,38 +101,43 @@ export async function getTrendingItems(limit = 10) {
 }
 
 export async function getItem(itemId: string) {
-  const response = await fetch(`${API_URL}/items/${itemId}`);
+  const response = await fetch(`${API_URL}/items/${encodeURIComponent(itemId)}`);
+  if (!response.ok) throw new Error('Failed to fetch item');
   return response.json();
 }
 
 export async function getPriceHistory(itemId: string, days = 30, skip = 0, limit = 100) {
-  const url = new URL(`${API_URL}/items/${itemId}/price-history`);
+  const url = new URL(`${API_URL}/items/${encodeURIComponent(itemId)}/price-history`);
   url.searchParams.append('days', days.toString());
   url.searchParams.append('skip', skip.toString());
   url.searchParams.append('limit', limit.toString());
 
   const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch price history');
   return response.json();
 }
 
 export async function getItemTrends(itemId: string) {
-  const response = await fetch(`${API_URL}/items/${itemId}/trends`);
+  const response = await fetch(`${API_URL}/items/${encodeURIComponent(itemId)}/trends`);
+  if (!response.ok) throw new Error('Failed to fetch item trends');
   return response.json();
 }
 
 export async function getItemPrediction(itemId: string, period = '7_days') {
-  const url = new URL(`${API_URL}/items/${itemId}/prediction`);
+  const url = new URL(`${API_URL}/items/${encodeURIComponent(itemId)}/prediction`);
   url.searchParams.append('period', period);
 
   const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch item prediction');
   return response.json();
 }
 
 export async function getItemEvents(itemId: string, limit = 20) {
-  const url = new URL(`${API_URL}/items/${itemId}/events`);
+  const url = new URL(`${API_URL}/items/${encodeURIComponent(itemId)}/events`);
   url.searchParams.append('limit', limit.toString());
 
   const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch item events');
   return response.json();
 }
 
@@ -142,12 +147,30 @@ export async function getMultiSourcePrices(
   days: number = 30
 ): Promise<MultiSourcePrices> {
   const sourceParam = sources.join(',');
-  const url = new URL(`${API_URL}/items/${itemId}/prices`);
+  const url = new URL(`${API_URL}/items/${encodeURIComponent(itemId)}/prices`);
   url.searchParams.append('source', sourceParam);
   url.searchParams.append('days', days.toString());
 
   const response = await fetch(url.toString());
   if (!response.ok) throw new Error('Failed to fetch multi-source prices');
+  return response.json();
+}
+
+// Market summary (optimized bulk endpoint - replaces N+1 pattern)
+export async function getMarketSummary(
+  type?: string,
+  q?: string,
+  skip = 0,
+  limit = 50
+) {
+  const url = new URL(`${API_URL}/market/summary`);
+  if (type) url.searchParams.append('type', type);
+  if (q) url.searchParams.append('q', q);
+  url.searchParams.append('skip', skip.toString());
+  url.searchParams.append('limit', limit.toString());
+
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch market summary');
   return response.json();
 }
 

@@ -45,6 +45,9 @@ class Item(Base):
     item_id = Column(String(255), unique=True, nullable=False)
     name = Column(String(255), nullable=False, index=True)
     type = Column(String(50), nullable=False)  # skin, case, sticker
+    icon_url = Column(String(512), nullable=True)
+    classid = Column(String(64), nullable=True)
+    instanceid = Column(String(64), nullable=True)
     release_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow_naive)
     updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)

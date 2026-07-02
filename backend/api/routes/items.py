@@ -8,7 +8,7 @@ import math
 from database import get_db, Item, PriceHistory, TrendIndicator, DailyAnalysis, ItemForecast, Event, EventImpact
 from api.schemas import (
     ItemOut, PricePointOut, TrendAnalysisOut, PredictionOut,
-    SourcePriceOut, MultiSourcePricesOut, EventOut
+    SourcePriceOut, MultiSourcePricesOut, EventOut, TrendingItemOut
 )
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -48,18 +48,41 @@ def search_items(
     )
 
 
-@router.get("/trending", response_model=list[ItemOut])
+@router.get("/trending", response_model=list[TrendingItemOut])
 def trending_items(
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    trending = (
+    items = (
         db.query(Item)
         .order_by(desc(Item.updated_at))
         .limit(limit)
         .all()
     )
-    return trending
+    item_ids = [i.id for i in items]
+
+    latest_prices = {}
+    for item_id in item_ids:
+        latest = (
+            db.query(PriceHistory)
+            .filter(PriceHistory.item_id == item_id)
+            .order_by(desc(PriceHistory.timestamp))
+            .first()
+        )
+        if latest:
+            latest_prices[item_id] = latest.price
+
+    return [
+        TrendingItemOut(
+            id=item.id,
+            item_id=item.item_id,
+            name=item.name,
+            type=item.type,
+            icon_url=item.icon_url,
+            latest_price=latest_prices.get(item.id, 0.0),
+        )
+        for item in items
+    ]
 
 
 @router.get("/{item_id}", response_model=ItemOut)

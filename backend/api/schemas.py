@@ -16,6 +16,18 @@ class ItemOut(BaseModel):
         from_attributes = True
 
 
+class TrendingItemOut(BaseModel):
+    id: int
+    item_id: str
+    name: str
+    type: str
+    icon_url: Optional[str] = None
+    latest_price: float
+
+    class Config:
+        from_attributes = True
+
+
 class PricePointOut(BaseModel):
     timestamp: datetime
     price: float

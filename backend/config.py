@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     api_version: str = "0.1.0"
     
     # Steam Integration
+    # Steam Web API key from https://steamcommunity.com/dev/apikey
+    # Daily limit: 100,000 calls per day (https://steamcommunity.com/dev/apiterms)
+    # Used for: GetAssetClassInfo, GetSchemaItems, inventory lookups
     steam_api_key: Optional[str] = None
     cs2sh_api_key: Optional[str] = None
     frontend_url: str = "http://localhost:3000"

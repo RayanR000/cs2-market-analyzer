@@ -100,6 +100,22 @@ class TestDataValidator:
         
         assert item_type == "agent"
 
+    def test_detect_item_type_case_hardened_is_skin_not_case(self):
+        """Case Hardened is a skin finish, not a case"""
+        assert DataValidator.detect_item_type("AK-47 | Case Hardened (Field-Tested)") == "skin"
+        assert DataValidator.detect_item_type("Karambit | Case Hardened (Minimal Wear)") == "skin"
+        assert DataValidator.detect_item_type("Five-SeveN | Case Hardened (Factory New)") == "skin"
+
+    def test_detect_item_type_actual_case(self):
+        """Actual cases should be detected as type 'case'"""
+        assert DataValidator.detect_item_type("CS20 Case") == "case"
+        assert DataValidator.detect_item_type("Revolution Case") == "case"
+        assert DataValidator.detect_item_type("Operation Wildfire Case") == "case"
+
+    def test_detect_item_type_case_key_is_case(self):
+        """Case keys are classified as case"""
+        assert DataValidator.detect_item_type("Chroma Case Key") == "case"
+
 
 class TestDataCleaner:
     """Test data cleaning functions"""

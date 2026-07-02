@@ -142,7 +142,7 @@ class DataValidator:
         """
         name_lower = name.lower()
         
-        if 'case' in name_lower:
+        if 'case' in name_lower and 'case hardened' not in name_lower:
             return 'case'
         elif 'agent' in name_lower:
             return 'agent'

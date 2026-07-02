@@ -1,0 +1,602 @@
+{
+  "Sealed Graffiti | Dead Now (Wire Blue)": {
+    "classid": "3608085300",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3DyaTP7IS7OUgxtTLtZPWzZ_jul4-mVFDzLRup9Sl8MKfYBp2UaOZjbahM_h4QN82T2h0p6WBUnfspUfRq33n0DPaR4niMTcMlQbH4PKiE/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Battle Green)": {
+    "classid": "1989286213",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOBykHgWcJjxDCa-9g/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Bazooka Pink)": {
+    "classid": "1989372486",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAnyXdKJ5kYLOHDEA/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Blood Red)": {
+    "classid": "1989278917",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAnmXUWcc_ItnY32A/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Brick Red)": {
+    "classid": "1989286597",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOB9n3VGcZ8qVOSOVw/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Cash Green)": {
+    "classid": "1989286294",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAkniJGJJ6wNeMyZw/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Desert Amber)": {
+    "classid": "1989279170",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAkzXlBds_4KgdJ7A/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Dust Brown)": {
+    "classid": "1989279860",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOB9znYWcM9hJHo3tA/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Frog Green)": {
+    "classid": "1989279985",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOBxkHkUfZtROI21xw/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Jungle Green)": {
+    "classid": "1989287342",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOBxmXYTccr49wiG6Q/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Monarch Blue)": {
+    "classid": "1989297463",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOBxzXYUJJLJzyJaXA/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Monster Purple)": {
+    "classid": "1989283331",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOBzzXUUfM1bbZ9cOw/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Princess Pink)": {
+    "classid": "1989280411",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOB8zHREcsqFRodG5A/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Shark White)": {
+    "classid": "1989345795",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAmmSJDJprVWsxV9Q/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (SWAT Blue)": {
+    "classid": "1989294059",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOBxy3QQfJNHVRh5JQ/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Tiger Orange)": {
+    "classid": "1989295947",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAnkHZDcZMuIQXI8w/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Tracer Yellow)": {
+    "classid": "1989299897",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAhnCJLcMkDAuxwZw/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Violent Violet)": {
+    "classid": "1989295883",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAkznhAIc0xhpGQtg/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (War Pig Pink)": {
+    "classid": "1989278134",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOAgnCIRIZ6Zc-56oQ/512fx512f"
+  },
+  "Sealed Graffiti | Death Sentence (Wire Blue)": {
+    "classid": "1989319589",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0o_ePHnjyVzPBLiWXTQ8wH-VWMmmK-TCh5OSWFj2fF7wtR1gGK6FX9TdNP8yBOEE6gIUP_iuomUM7HRkkfddLZQOvw2QfKOBzyiBHJ5mk6q1AXw/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Battle Green)": {
+    "classid": "3608084164",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZVkS2kI5eHPF_e5g/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Bazooka Pink)": {
+    "classid": "3608084806",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYAyCL4dJbdyvNo9g/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Blood Red)": {
+    "classid": "3608083959",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYAmCCkIsCwIARR4w/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Brick Red)": {
+    "classid": "3608084833",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZaniD0IpC9gUfUow/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Cash Green)": {
+    "classid": "3608084109",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYDn3f0d5GLbUC8MQ/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Desert Amber)": {
+    "classid": "3608085348",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYDzCzzJcBgCd7YCQ/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Dust Brown)": {
+    "classid": "3608084932",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZazyOkI8AZYeyW-w/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Frog Green)": {
+    "classid": "3608085155",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZWkSymLpTiRpaX3g/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Jungle Green)": {
+    "classid": "3608088110",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZWmCOhIsUeSH5KHA/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Monarch Blue)": {
+    "classid": "3608085547",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZWzCOmd51EM9vu6A/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Monster Purple)": {
+    "classid": "3608086405",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZUzCCmL8J7QedIuA/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Princess Pink)": {
+    "classid": "3608085074",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZbzSH2IcWs3oUGMw/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Shark White)": {
+    "classid": "3608086358",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYBmHfxdZVhpJFTrg/512fx512f"
+  },
+  "Sealed Graffiti | Denied (SWAT Blue)": {
+    "classid": "3608084904",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZWyiGiL5xqgLgh-Q/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Tiger Orange)": {
+    "classid": "3608084642",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYAkSPxIpwZdcsNug/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Tracer Yellow)": {
+    "classid": "3608088000",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYGnXf5I8Zb-djSaQ/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Violent Violet)": {
+    "classid": "3608084651",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYDzy3ycsIV1n-Eyw/512fx512f"
+  },
+  "Sealed Graffiti | Denied (War Pig Pink)": {
+    "classid": "3608084092",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJYHnXejcpETmkHR7A/512fx512f"
+  },
+  "Sealed Graffiti | Denied (Wire Blue)": {
+    "classid": "3608084921",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3biajXIKh7dGVBhGOdANmrc_GKh4bmTRmrKQe8sFwsNKPZW9TAaaM3cOxQ9gdYN-Gbrxxd_Rlg4fMIAcwC3xWYeJLExwTEePJZUy3X1dJZupnAzkA/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Battle Green)": {
+    "classid": "3608084085",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPcpNbzSHzj1jnR9A/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Bazooka Pink)": {
+    "classid": "3608085526",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPJ8pUkXbynmHYh98/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Blood Red)": {
+    "classid": "3608084726",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPJ5pWzSCkAiW8-9E/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Brick Red)": {
+    "classid": "3608084666",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPfZxWnSD0Km4jbzk/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Cash Green)": {
+    "classid": "3608084237",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPJJ0BnXX1CX02FgU/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Desert Amber)": {
+    "classid": "3608084033",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPJM5amiek3esn1ng/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Dust Brown)": {
+    "classid": "3608084002",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPfc1VzSGk2P6AKWo/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Frog Green)": {
+    "classid": "3608084484",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPcZNazyzwLH1JWIk/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Jungle Green)": {
+    "classid": "3608084817",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPcZpVyCChz9z9n6o/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Monarch Blue)": {
+    "classid": "3608084334",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPcc5Vz3X53gfQn2w/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Monster Purple)": {
+    "classid": "3608085729",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPc85Wzy2mqdmouZE/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Princess Pink)": {
+    "classid": "3608084011",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPfM9XnyOh37iNjRk/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Shark White)": {
+    "classid": "3608085397",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPJpoBmHfx4aRAyZ8/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (SWAT Blue)": {
+    "classid": "3608085382",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPcchXyy34dRXZF44/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Tiger Orange)": {
+    "classid": "3608084589",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPJ5NVmCD4i-wvEX0/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Tracer Yellow)": {
+    "classid": "3608084986",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPIZ8BkCGi6CHmWyU/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Violent Violet)": {
+    "classid": "3608085946",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPJM1bm3CmK1r9oFI/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (War Pig Pink)": {
+    "classid": "3608085757",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPIJ8BynD1oevD6SQ/512fx512f"
+  },
+  "Sealed Graffiti | Dizzy (Wire Blue)": {
+    "classid": "3608084520",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBGp8bPUU3j-fCPIKiPQDlp7U7IPN2jdqDSn5-qSQWvLEr0uEQwGeqRQoDAbOs_fOUc_3dJdrWa8whwzDhgvNMZJfACpx2EfJbQ1xDhPc8kDnHby7kfMoh8/512fx512f"
+  },
+  "Sealed Graffiti | Double (Battle Green)": {
+    "classid": "1989308373",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOBykHgWcJhV75VAPA/512fx512f"
+  },
+  "Sealed Graffiti | Double (Bazooka Pink)": {
+    "classid": "1989326583",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAnyXdKJ5lv0hfGKQ/512fx512f"
+  },
+  "Sealed Graffiti | Double (Blood Red)": {
+    "classid": "1989290841",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAnmXUWcc9rBMw64Q/512fx512f"
+  },
+  "Sealed Graffiti | Double (Brick Red)": {
+    "classid": "1989285134",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOB9n3VGcZ-h-SHOvw/512fx512f"
+  },
+  "Sealed Graffiti | Double (Cash Green)": {
+    "classid": "1989304901",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAkniJGJJ6UzHbnog/512fx512f"
+  },
+  "Sealed Graffiti | Double (Desert Amber)": {
+    "classid": "1989286569",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAkzXlBds-DYkM3uQ/512fx512f"
+  },
+  "Sealed Graffiti | Double (Dust Brown)": {
+    "classid": "1989277778",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOB9znYWcM_5FTwZLQ/512fx512f"
+  },
+  "Sealed Graffiti | Double (Frog Green)": {
+    "classid": "1989302571",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOBxkHkUfZtOW_HqwQ/512fx512f"
+  },
+  "Sealed Graffiti | Double (Jungle Green)": {
+    "classid": "1989288206",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOBxmXYTccqJ7o8-MA/512fx512f"
+  },
+  "Sealed Graffiti | Double (Monarch Blue)": {
+    "classid": "1989280088",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOBxzXYUJJKpNNRQGA/512fx512f"
+  },
+  "Sealed Graffiti | Double (Monster Purple)": {
+    "classid": "1989296092",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOBzzXUUfM1BWXjQKQ/512fx512f"
+  },
+  "Sealed Graffiti | Double (Princess Pink)": {
+    "classid": "1989277804",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOB8zHREcsqPfdahmg/512fx512f"
+  },
+  "Sealed Graffiti | Double (Shark White)": {
+    "classid": "1989282758",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAmmSJDJpodExbvmA/512fx512f"
+  },
+  "Sealed Graffiti | Double (SWAT Blue)": {
+    "classid": "1989322334",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOBxy3QQfJONeAzR4w/512fx512f"
+  },
+  "Sealed Graffiti | Double (Tiger Orange)": {
+    "classid": "1989305037",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAnkHZDcZOWR7fhdQ/512fx512f"
+  },
+  "Sealed Graffiti | Double (Tracer Yellow)": {
+    "classid": "1989279965",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAhnCJLcMmzO8rzfA/512fx512f"
+  },
+  "Sealed Graffiti | Double (Violent Violet)": {
+    "classid": "1989280272",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAkznhAIc2xaDuv8Q/512fx512f"
+  },
+  "Sealed Graffiti | Double (War Pig Pink)": {
+    "classid": "1989277032",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOAgnCIRIZ4L6MizVQ/512fx512f"
+  },
+  "Sealed Graffiti | Double (Wire Blue)": {
+    "classid": "1989320682",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pe2YHnjyVzzNIy2XGFtpTrJcMG_d_2Gs5-SQSjicQ-klQFwMKKoGoWQcP5iKOBU91o8I8iuomUM7HRkkfddLZQOvw2QfKOBzyiBHJ5lW4u6caQ/512fx512f"
+  },
+  "Sealed Graffiti | Drug War Veteran": {
+    "classid": "1999680151",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/i0CoZ81Ui0m-9KwlBY1L_18myuGuq1wfhWSaZgMttyVfPaERSR0Wqmu7LAocGJai0ki7VeTHjMmuOHaC619h7bj540G3EFL1jIPn6iNJ-fe6bbZsLr7GXDTFl7ch6bBoHii3w0hz6mTUyY6rcyqVOwApCMdxR-EK4xG6xIbgKaq8sLHdAxds/512fx512f"
+  },
+  "Sealed Graffiti | Easy Peasy": {
+    "classid": "1999672373",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/i0CoZ81Ui0m-9KwlBY1L_18myuGuq1wfhWSaZgMttyVfPaERSR0Wqmu7LAocGJai0ki7VeTHjNygOW2S2kVl5obt-RbrRBD-kKnz7Dde6uirJvA-cKLDDWXFkrYn6bcxHnriw0wk5m6Awo3_dXuQPVIkXsMhQLFYsxWm0oqwc2SVNrI/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Battle Green)": {
+    "classid": "1989295997",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmnSxKNeh2xdZH5Ng/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Bazooka Pink)": {
+    "classid": "1989287795",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmyHVFab93_Z02alY/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Blood Red)": {
+    "classid": "1989275006",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmyCVHNekhMgJQWQs/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Brick Red)": {
+    "classid": "1989285665",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmkiNHZelxbpkwGEE/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Cash Green)": {
+    "classid": "1989319524",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmyyIQZbxwaZtY2g8/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Desert Amber)": {
+    "classid": "1989298747",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmy3FLYu4hoYbkPs8/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Dust Brown)": {
+    "classid": "1989339604",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmknJENeghjmTo81k/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Frog Green)": {
+    "classid": "1989286328",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmnixLN-V1dvPb4uk/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Jungle Green)": {
+    "classid": "1989321043",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmniVEMOkkaPWwJGs/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Monarch Blue)": {
+    "classid": "1989312606",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmnnFEN7x8DgNexUs/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Monster Purple)": {
+    "classid": "1989310880",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmnHFHN-QjcIWJkSU/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Princess Pink)": {
+    "classid": "1989274746",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmk3BGZ-okBU5o004/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Shark White)": {
+    "classid": "1989285753",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmySUQYL50xK-gyUc/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (SWAT Blue)": {
+    "classid": "1989283763",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmnndGM-R9BdYfGbc/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Tiger Orange)": {
+    "classid": "1989288350",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmyCxEYOl9LOdfH6c/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Tracer Yellow)": {
+    "classid": "1989294407",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmziAQaOgnOmw8yQQ/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Violent Violet)": {
+    "classid": "1989288075",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmy3JKY7kjRoDVsPQ/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (War Pig Pink)": {
+    "classid": "1989284787",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmzyAQMrlwYE4GbAc/512fx512f"
+  },
+  "Sealed Graffiti | Eat It (Wire Blue)": {
+    "classid": "1989298970",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0te2DG2HyJmbGeHCJSV9sGOFdYTvd_mWt5u2cSzvPQLt4FlgCfKcG9jFLbpvfP0MjlNlc7Wa3m0tvEwMkZsxWfBbmnHYSZL93Wd4ZlOg/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Battle Green)": {
+    "classid": "1989308904",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOp9kSVHdlwAWAPY/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Bazooka Pink)": {
+    "classid": "1989284960",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbL8knnkQd8AXvnOC/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Blood Red)": {
+    "classid": "1989282607",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbL90nCVGITXHXwRZ/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Brick Red)": {
+    "classid": "1989284997",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOVynHVGcSL3xrCU/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Cash Green)": {
+    "classid": "1989287424",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbLxzy3UTcKAz_XUe/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Desert Amber)": {
+    "classid": "1989321871",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbLwgkHJBISrS-WT5/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Dust Brown)": {
+    "classid": "1989286992",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOUjnyVHIf4FR1uM/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Frog Green)": {
+    "classid": "1989337302",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOl9kCdKdTWb_TsQ/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Jungle Green)": {
+    "classid": "1989286926",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOl0nyBGJN23XmZp/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Monarch Blue)": {
+    "classid": "1989300101",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOkgnycTfGqXpK1h/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Monster Purple)": {
+    "classid": "1989301456",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOsgnCdLIzvXO5eo/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Princess Pink)": {
+    "classid": "1989306807",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOQhnXdFJHohXDqq/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Shark White)": {
+    "classid": "1989315568",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbL50y3ARdK-9_DQD/512fx512f"
+  },
+  "Sealed Graffiti | Eco (SWAT Blue)": {
+    "classid": "1989343470",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOkmnSNLfRFbFNZ5/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Tiger Orange)": {
+    "classid": "1989279931",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbL99n3BGfeAsqxFB/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Tracer Yellow)": {
+    "classid": "1989296362",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbLlxy3hHJ8o4PInk/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Violent Violet)": {
+    "classid": "1989303758",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbLwjkXMWI08QaEqi/512fx512f"
+  },
+  "Sealed Graffiti | Eco (War Pig Pink)": {
+    "classid": "1989294266",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbLhxyyIWcIWL0yxt/512fx512f"
+  },
+  "Sealed Graffiti | Eco (Wire Blue)": {
+    "classid": "1989349147",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pOGCI2T-eyPLI2-IRQcwSOZeNmDQ-TDwt-2dQWvNRb4vRV0FefFWozZOaMCJNkBsgYFf5XW2kAJ-ERonYMhTfBuy2ngKbOsnyXQQd-jzN72m/512fx512f"
+  },
+  "Sealed Graffiti | ELEAGUE | Atlanta 2017": {
+    "classid": "2135300936",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/i0CoZ81Ui0m-9KwlBY1L_18myuGuq1wfhWSaZgMttyVfPaERSR0Wqmu7LAocGJai0ki7VeTHjMu1OXqZ8VcnpNajpVzrRBz2i5Pf-jBa6fSnfK0jdKDKVmXBkrx16bY4Tnvrxkl3tWTTzov4cy3Bb1QlW5ZyQrEIsRKxlcqnab0utx-RVw/512fx512f"
+  },
+  "Sealed Graffiti | ELEAGUE | Boston 2018": {
+    "classid": "2658254858",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/i0CoZ81Ui0m-9KwlBY1L_18myuGuq1wfhWSaZgMttyVfPaERSR0Wqmu7LAocGJai0ki7VeTHjMiuJm-Y6wQlpd-771XiQBrkm6nn7yNd6fu6Yeo_JaGQWGLJkr11trBsTXu3wkV-5zzUmI6reX3DblN1CsB5QrENtRbpjJS5YJPCvEAC/512fx512f"
+  },
+  "Sealed Graffiti | Eye Spy (Battle Green)": {
+    "classid": "1989289094",
+    "instanceid": "",
+    "icon_url": "https://community.cloudflare.steamstatic.com/economy/image/IzMF03bi9WpSBq-S-ekoE33L-iLqGFHVaU25ZzQNQcXdB2ozio1RrlIWFK3UfvMYB8UsvjiMXojflsZalyxSh31CIyHz2GZ-KuFpPsrTzBG0pPuIHnX7ZHnAfCSPTg5tSeELZzrRqjCi5OXAE2vNQe5_QVpQfqNQpGYcb86Ba0A1ysdVrCO7mEhyDBs9ftFPYAOilyNLaLlwm2nK305B/512fx512f"
+  }
+}
