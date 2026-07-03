@@ -3,6 +3,7 @@ Test Steam pricehistory API with authenticated session.
 Compares data with existing DB records.
 """
 import sys
+import os
 import time
 import json
 from datetime import datetime
@@ -10,6 +11,7 @@ import requests
 
 sys.path.insert(0, '.')
 from database import SessionLocal, Item, PriceHistory
+from config import settings
 
 TEST_ITEMS = [
     "AK-47 | Redline (Field-Tested)",
@@ -19,10 +21,15 @@ TEST_ITEMS = [
     "Desert Eagle | Blaze (Factory New)",
 ]
 
+# Load cookies from env/config (never hardcode secrets)
 COOKIES = {
-    "sessionid": "34f66e6ce691ef30cc429743",
-    "steamLoginSecure": "76561199024662624%7C%7CeyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInI6MDAwNl8yN0RBM0RGNV82OTMwNCIsICJzdWIiOiAiNzY1NjExOTkwMjQ2NjI2MjQiLCAiYXVkIjogWyAid2ViOmNvbW11bml0eSIgXSwgImV4cCI6IDE3ODMwMjkxNzYsICJuYmYiOiAxNzc0MzAxMTY2LCAiaWF0IjogMTc4Mjk0MTE2NiwgImp0aSI6ICIwMDE2XzI4NjRBRjNCXzJCQTYwIiwgIm9hdCI6IDE3NzM0MTkzOTMsICJydF9leHAiOiAxNzkxNzIyNzAxLCAicGVyIjogMCwgImlwX3N1YmplY3QiOiAiMTU1LjMzLjEzMy40MCIsICJpcF9jb25maXJtZXIiOiAiMTU1LjMzLjEzNC4zMyIgfQ.APg0l9LO3lecXidSkQwDKpi8TTwcEykpS4mNw9T2PCmb1SDL8SUDGgiCFacXh1-JZQKYIG8A3zebqPMGf2hICA",
+    "sessionid": settings.steam_session_id,
+    "steamLoginSecure": settings.steam_login_secure,
 }
+
+if not COOKIES["sessionid"] or not COOKIES["steamLoginSecure"]:
+    print("ERROR: Set STEAM_SESSION_ID and STEAM_LOGIN_SECURE in .env first.")
+    sys.exit(1)
 
 DELAY_BETWEEN = 10.0
 

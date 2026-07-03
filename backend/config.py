@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # Used for: GetAssetClassInfo, GetSchemaItems, inventory lookups
     steam_api_key: Optional[str] = None
     cs2sh_api_key: Optional[str] = None
+
+    # Steam session cookies (from browser DevTools → Application → Cookies → steamcommunity.com)
+    # Required for /market/pricehistory/ endpoint (historical price data)
+    steam_session_id: Optional[str] = None
+    steam_login_secure: Optional[str] = None
     frontend_url: str = "http://localhost:3000"
     api_url: str = "http://localhost:8000"
     
