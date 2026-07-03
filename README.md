@@ -1,112 +1,130 @@
-# CS2 Market Analyzer
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/CS2%20Market%20Analyzer-121212?style=for-the-badge&logo=counter-strike&logoColor=white">
+    <img alt="CS2 Market Analyzer" src="https://img.shields.io/badge/CS2%20Market%20Analyzer-FFFFFF?style=for-the-badge&logo=counter-strike&logoColor=black" width="320">
+  </picture>
+</p>
 
-CS2 Market Analyzer is a Counter-Strike 2 market intelligence project for collecting, processing, and visualizing item price data. The backend handles collection, validation, migration, pruning, and trend analysis; the frontend provides a modern dashboard for exploring the data.
+<p align="center">
+  <em>Counter-Strike 2 market intelligence — collect, analyze, and visualize item price data.</em>
+</p>
 
-## Contents
+<p align="center">
+  <a href="#overview">Overview</a> •
+  <a href="#features">Features</a> •
+  <a href="#stack">Stack</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#usage">Usage</a> •
+  <a href="#deployment">Deployment</a>
+</p>
 
-- [Overview](#overview)
-- [Features](#features)
-- [Stack](#stack)
-- [Repository structure](#repository-structure)
-- [Prerequisites](#prerequisites)
-- [Environment variables](#environment-variables)
-- [Setup](#setup)
-- [Common commands](#common-commands)
-- [Docs](#docs)
-- [Testing](#testing)
-- [Deployment](#deployment)
-- [Contributing](#contributing)
-- [Security](#security)
-- [License](#license)
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/node-18%2B-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
+  <img src="https://img.shields.io/badge/next.js-16-000000?style=flat-square&logo=next.js&logoColor=white" alt="Next.js">
+  <img src="https://img.shields.io/badge/fastapi-0.115%2B-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/postgresql-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="License">
+</p>
+
+---
 
 ## Overview
 
-The project is organized as a full-stack analytics platform:
+CS2 Market Analyzer is a full-stack analytics platform that collects, validates, and visualizes Counter-Strike 2 skin market data. The backend runs scheduled data pipelines (collection, trend analysis, pruning) and exposes a REST API consumed by the frontend dashboard.
 
-- **Backend**: Python data pipeline, collectors, validation, migrations, and scheduled maintenance tasks
-- **Frontend**: Next.js dashboard that consumes the backend API configured through `NEXT_PUBLIC_API_URL`
-- **Automation**: GitHub Actions workflows for recurring collection and database maintenance
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Collectors   │────▶│    API / DB   │────▶│   Dashboard  │
+│  (Python)     │     │  (FastAPI)   │     │  (Next.js)   │
+└──────────────┘     └──────────────┘     └──────────────┘
+       │                                       │
+       ▼                                       ▼
+  GitHub Actions                          Recharts + Framer
+  (scheduled jobs)                        (interactive UI)
+```
 
 ## Features
 
-- Market data collection from CS2-related sources
-- Data validation and cleanup before persistence
-- Trend and opportunity analysis for long-term item tracking
-- Pruning and downsampling jobs for historical data management
-- Interactive frontend charts and market views
-- Scheduled workflow automation for recurring jobs
+- **Automated Collection** — scrapes 17,000+ CS2 items via priority and full-aggregator pipelines
+- **Trend Analysis** — 90-day and full-history trend computation with opportunity detection
+- **Database Maintenance** — automated pruning, downsampling, and schema migrations
+- **Interactive Dashboard** — responsive charts, market views, and portfolio tracking
+- **Scheduled Automation** — GitHub Actions workflows for recurring collection and maintenance
+- **Price Forecasting** — ML-based price predictions (LightGBM)
+- **Event Correlation** — tracks how game updates and major events affect skin prices
 
 ## Stack
 
-| Layer | Tech |
-| --- | --- |
-| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, Framer Motion |
-| Backend | Python, SQLAlchemy, Alembic, Pydantic Settings, Requests, HTTPX |
-| Data | PostgreSQL / Supabase compatible storage |
-| Automation | GitHub Actions |
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, Framer Motion |
+| **Backend** | Python, FastAPI, SQLAlchemy, Alembic, Pydantic Settings |
+| **Data** | PostgreSQL / Supabase, Pandas, NumPy, SciPy |
+| **ML** | LightGBM (price forecasting) |
+| **Automation** | GitHub Actions (7 scheduled workflows) |
 
-## Repository structure
+## Repository Structure
 
-| Path | Purpose |
-| --- | --- |
-| `backend/` | Collectors, analytics, migration config, scripts, and tests |
-| `frontend/` | Next.js application and client-side API layer |
-| `.github/workflows/` | Scheduled collection and maintenance workflows |
-| `PRODUCT.md` | Product positioning and audience notes |
-| `DESIGN.md` | Visual and UX direction for the interface |
-| `WORKFLOW_MONITORING.md` | Operational guide for scheduled jobs |
+```
+├── backend/
+│   ├── analytics/        # Trend computation, opportunity detection
+│   ├── api/              # FastAPI route handlers
+│   ├── collectors/       # Steam, aggregator, and market data collectors
+│   ├── models/           # SQLAlchemy ORM models
+│   ├── migrations/       # Alembic migration scripts
+│   ├── scripts/          # Task runners, analyzers, maintenance
+│   ├── tests/            # pytest suite
+│   ├── main.py           # FastAPI app entry point
+│   └── config.py         # Pydantic settings
+├── frontend/
+│   ├── app/              # Next.js App Router pages
+│   ├── components/       # React components
+│   └── lib/              # API client, utilities
+├── .github/workflows/    # 7 CI/CD workflows
+├── PRODUCT.md             # Product positioning & audience
+├── DESIGN.md              # Visual direction & UX principles
+└── WORKFLOW_MONITORING.md # Scheduled job operational guide
+```
 
-## Prerequisites
+## Getting Started
+
+### Prerequisites
 
 - Python 3.9+
 - Node.js 18+
-- npm
-- PostgreSQL or Supabase
+- PostgreSQL 14+ (or Supabase account)
 
-## Environment variables
-
-Create local environment files before running anything:
-
-### `backend/.env`
-
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | Database connection string |
-| `ENVIRONMENT` | `development` or `production` |
-| `DEBUG` | Enables local debug behavior |
-| `STEAM_API_KEY` | Optional Steam integration key |
-| `CS2SH_API_KEY` | Optional secondary market API key |
-| `FRONTEND_URL` | Frontend origin used by backend components |
-| `SECRET_KEY` | Replace the default value for production |
-
-### `frontend/.env.local`
-
-| Variable | Purpose |
-| --- | --- |
-| `NEXT_PUBLIC_API_URL` | Backend API base URL, defaults to `http://localhost:8000` |
-
-## Setup
-
-### 1. Clone the repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/RayanR000/cs2-market-analyzer.git
 cd cs2-market-analyzer
 ```
 
-### 2. Configure the backend
+### 2. Backend Setup
 
 ```bash
 cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp ../.env.example .env
+cp .env.example .env   # then edit with your database URL
 ```
 
-Update `backend/.env` with your database URL and any optional keys.
+Configure `backend/.env`:
 
-### 3. Run database migrations
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `ENVIRONMENT` | `development` or `production` |
+| `DEBUG` | Enable debug logging |
+| `STEAM_API_KEY` | (Optional) Steam Web API key |
+| `CS2SH_API_KEY` | (Optional) CS2 secondary market key |
+| `FRONTEND_URL` | Frontend origin for CORS |
+| `SECRET_KEY` | Session signing secret (rotate in production) |
+
+### 3. Database Migrations
 
 ```bash
 cd backend
@@ -114,113 +132,152 @@ source venv/bin/activate
 python scripts/run_task.py migrate
 ```
 
-### 4. Configure the frontend
+### 4. Frontend Setup
 
 ```bash
 cd frontend
 npm install
 ```
 
-Create `frontend/.env.local` and set `NEXT_PUBLIC_API_URL` if your backend runs somewhere other than `http://localhost:8000`.
+Create `frontend/.env.local`:
 
-### 5. Start development
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend API base URL |
 
-```bash
-cd frontend
-npm run dev
-```
-
-The frontend runs on `http://localhost:3000`.
-
-## Common commands
-
-### Backend tasks
+### 5. Start Development
 
 ```bash
-cd backend
-source venv/bin/activate
-python scripts/run_task.py aggregate
-python scripts/run_task.py priority
-python scripts/run_task.py prune
-python scripts/run_task.py trends
-python scripts/run_task.py long_term_trends
-python scripts/run_task.py migrate
+# Terminal 1 — Backend API
+cd backend && source venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2 — Frontend
+cd frontend && npm run dev
 ```
 
-### Frontend tasks
+Open [http://localhost:3000](http://localhost:3000).
 
-```bash
-cd frontend
-npm run dev
-npm run lint
-npm run build
-npm run start
-```
+## Usage
 
-### Tests
+### Backend Tasks
 
 ```bash
 cd backend
 source venv/bin/activate
-pytest
+python scripts/run_task.py <task>
 ```
 
-## Docs
+| Task | Description |
+|------|-------------|
+| `aggregate` | Full collector run (all 17k items) |
+| `priority` | Scrape top 2000 priority items |
+| `prune` | Database pruning & downsampling |
+| `trends` | 90-day trend analysis & opportunity detection |
+| `long_term_trends` | Full-history trend analysis |
+| `migrate` | Run pending Alembic migrations |
 
-- `PRODUCT.md` for product goals and audience
-- `DESIGN.md` for visual direction and UI principles
-- `WORKFLOW_MONITORING.md` for scheduled job monitoring
-- `backend/data/HISTORICAL_DATA_SOURCES.md` for data provenance notes
-- `frontend/README.md` for default Next.js project guidance
+### Frontend Commands
 
-## Testing
+```bash
+cd frontend
+npm run dev     # Development server
+npm run build   # Production build
+npm run start   # Start production server
+npm run lint    # Run ESLint
+```
 
-Recommended checks before merging:
+### API Endpoints
 
-- `cd backend && pytest`
-- `cd frontend && npm run lint`
-- `cd frontend && npm run build`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/items/` | List items (paginated) |
+| GET | `/items/search?q=` | Search items |
+| GET | `/items/trending` | Trending items |
+| GET | `/items/{id}/price-history` | Price history for an item |
+| GET | `/items/{id}` | Item details |
+| GET | `/trends` | Trend analysis results |
+| GET | `/prediction` | Price predictions |
+| GET | `/opportunities/` | Market opportunities |
+| GET | `/opportunities/undervalued` | Undervalued items |
+| GET | `/opportunities/momentum` | Momentum items |
+| GET | `/events/` | Market events |
+| GET | `/events/recent` | Recent events |
+| GET | `/auth/me` | Current user |
+| GET | `/portfolio/inventory` | User portfolio |
 
-## Deployment
+### Testing
 
-- **Frontend**: deploy as a standard Next.js application
-- **Backend jobs**: run through GitHub Actions or your preferred scheduler
-- **Database**: point `DATABASE_URL` at your production Postgres or Supabase instance
+```bash
+cd backend && source venv/bin/activate && pytest
+```
 
-## Contributing
-
-1. Keep changes focused and documented.
-2. Update migrations when the schema changes.
-3. Run the relevant backend and frontend checks before opening a PR.
-4. Add or update docs when behavior changes.
-
-## Security
-
-- Never commit `.env` files or secrets. The repository now ignores `backend/.env` and includes `backend/.env.example` as a template.
-- Replace the default backend `SECRET_KEY` in production and rotate any exposed credentials immediately.
-- Restrict database credentials to the minimum required permissions.
-- Review workflow secrets before enabling scheduled jobs in a production repository.
-
-Security hardening steps applied:
-
-1. Added `backend/.env` to `.gitignore` and created `backend/.env.example` (sanitized template).
-2. Performed a git-history search for the exposed DB host and `DATABASE_URL`; no matches were found in commits (the secret existed only in the working tree).
-3. Added a `pre-commit` configuration with `detect-secrets` to detect accidental secret commits. Install it locally with:
+### Pre-commit Checks
 
 ```bash
 pip install pre-commit detect-secrets
 pre-commit install
-# (Optional) create an initial baseline:
-detect-secrets scan > .secrets.baseline
+detect-secrets scan > .secrets.baseline  # optional
 ```
 
-Recommended next steps (must do now):
+## Deployment
 
-- Rotate/revoke the exposed database credential in Supabase/Postgres immediately.
-- If the secret was accidentally pushed historically (unlikely per scan), rewrite history with `git-filter-repo` or BFG and force-push; coordinate with collaborators.
-- Enable GitHub Secret Scanning in the repository settings and add repository/organization-level protections.
-- Consider adding CI checks to block merging of secrets and require passing pre-commit checks in your pipeline.
+### Frontend
+
+Deploy as a standard Next.js application (Vercel recommended):
+
+```bash
+cd frontend
+npm run build
+npm run start   # or deploy via Vercel CLI / GitHub import
+```
+
+### Backend
+
+The backend runs on-demand via scheduled GitHub Actions. For a persistent API server:
+
+```bash
+cd backend
+source venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### Scheduled Workflows
+
+Seven GitHub Actions workflows handle recurring operations:
+
+| Workflow | Schedule | Purpose |
+|----------|----------|---------|
+| `aggregator-update` | Every 6h | Full item data collection |
+| `daily-trend-analysis` | Daily | 90-day trend computation |
+| `long-term-trend-analysis` | Weekly | Full history analysis |
+| `db-maintenance` | Daily | Pruning & downsampling |
+| `discover-new-items` | Daily | Detect new market items |
+| `event-correlation-analysis` | Weekly | Game event impact analysis |
+| `price-forecast` | Weekly | ML price predictions |
+
+### Database
+
+Point `DATABASE_URL` to your production PostgreSQL or Supabase instance. Run migrations:
+
+```bash
+python scripts/run_task.py migrate
+```
+
+## Security
+
+- Never commit `.env` files — the repository includes `.env.example` as a template
+- Replace the default `SECRET_KEY` in production
+- Enable [GitHub Secret Scanning](https://docs.github.com/en/code-security/secret-scanning) for your repository
+- Restrict database credentials to the minimum required permissions
+
+## Contributing
+
+1. Keep changes focused and well-documented.
+2. Update Alembic migrations when the schema changes.
+3. Run `pytest` and `npm run lint` before opening a PR.
+4. Update docs when behavior changes.
 
 ## License
 
-No license file is currently included in this repository.
+MIT — see [LICENSE](LICENSE) for details.
