@@ -40,15 +40,15 @@ from sqlalchemy import text
 
 from config import settings
 
-# Ensure data directory exists before setting up file logging
-(Path(__file__).parent.parent / "data").mkdir(parents=True, exist_ok=True)
+# Ensure runtime directory exists before setting up file logging
+(Path(__file__).parent.parent / "runtime").mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(str(Path(__file__).parent.parent / "data" / "ssr_backfill.log")),
+        logging.FileHandler(str(Path(__file__).parent.parent / "runtime" / "ssr_backfill.log")),
     ],
 )
 logger = logging.getLogger("ssr_backfill")
@@ -57,8 +57,8 @@ logger = logging.getLogger("ssr_backfill")
 # Config
 # ---------------------------------------------------------------------------
 
-LOCAL_DB_PATH = Path(__file__).parent.parent / "data" / "ssr_history.db"
-PROGRESS_FILE = Path(__file__).parent.parent / "data" / "ssr_backfill_progress.json"
+LOCAL_DB_PATH = Path(__file__).parent.parent / "runtime" / "ssr_history.db"
+PROGRESS_FILE = Path(__file__).parent.parent / "runtime" / "ssr_backfill_progress.json"
 
 REQUEST_DELAY = 5.0  # seconds between API calls
 RETRY_ATTEMPTS = 5
@@ -800,7 +800,7 @@ def print_status():
     logger.info(f"  Updated: {progress.get('updated_at', 'N/A')}")
 
     # Parse recent log entries for health metrics
-    log_path = Path(__file__).parent.parent / "data" / "ssr_backfill.log"
+    log_path = Path(__file__).parent.parent / "runtime" / "ssr_backfill.log"
     if log_path.exists():
         try:
             lines = log_path.read_text().strip().split("\n")

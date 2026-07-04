@@ -37,15 +37,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import requests
 
-# Ensure data directory exists before setting up file logging
-(Path(__file__).parent.parent / "data").mkdir(parents=True, exist_ok=True)
+# Ensure runtime directory exists before setting up file logging
+(Path(__file__).parent.parent / "runtime").mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(str(Path(__file__).parent.parent / "data" / "market_catalog.log")),
+        logging.FileHandler(str(Path(__file__).parent.parent / "runtime" / "market_catalog.log")),
     ],
 )
 logger = logging.getLogger("market_catalog")
@@ -54,8 +54,8 @@ logger = logging.getLogger("market_catalog")
 # Config
 # ---------------------------------------------------------------------------
 
-CATALOG_DB_PATH = Path(__file__).parent.parent / "data" / "market_catalog.db"
-PROGRESS_FILE = Path(__file__).parent.parent / "data" / "market_catalog_progress.json"
+CATALOG_DB_PATH = Path(__file__).parent.parent / "runtime" / "market_catalog.db"
+PROGRESS_FILE = Path(__file__).parent.parent / "runtime" / "market_catalog_progress.json"
 
 # Rate limiting — burst pattern
 DEFAULT_BURST_SIZE = 10        # requests per burst
@@ -731,7 +731,7 @@ def print_status():
         logger.info(f"  To retry: python scripts/build_market_catalog.py --retry-failed")
 
     # Parse log for health
-    log_path = Path(__file__).parent.parent / "data" / "market_catalog.log"
+    log_path = Path(__file__).parent.parent / "runtime" / "market_catalog.log"
     if log_path.exists():
         try:
             lines = log_path.read_text().strip().split("\n")

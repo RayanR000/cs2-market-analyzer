@@ -5,7 +5,7 @@ Repair gaps in market_catalog.db by re-fetching missing items.
 Uses the same burst pattern (10 rapid + 30s cooldown) that worked for the
 original build. Saves gaps incrementally for resumability.
 
-Monitor:  tail -f backend/data/gap_repair.log
+Monitor:  tail -f backend/runtime/gap_repair.log
 Resume:   python3 scripts/repair_catalog_gaps.py --resume
 Fetch:    python3 scripts/repair_catalog_gaps.py --fetch-only
 Scan:     python3 scripts/repair_catalog_gaps.py --scan-only
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone
 
-LOG_PATH = Path(__file__).parent.parent / "data" / "gap_repair.log"
+LOG_PATH = Path(__file__).parent.parent / "runtime" / "gap_repair.log"
 
 file_handler = logging.FileHandler(str(LOG_PATH))
 file_handler.stream = open(str(LOG_PATH), "a", buffering=1)  # line-buffered for tail -f
@@ -34,8 +34,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent / "data" / "market_catalog.db"
-GAPS_FILE = Path(__file__).parent.parent / "data" / "pending_gaps.txt"
+DB_PATH = Path(__file__).parent.parent / "runtime" / "market_catalog.db"
+GAPS_FILE = Path(__file__).parent.parent / "runtime" / "pending_gaps.txt"
 ITEMS_PER_PAGE = 10
 BURST_SIZE = 10
 BURST_COOLDOWN = 30

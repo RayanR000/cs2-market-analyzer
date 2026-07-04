@@ -49,6 +49,9 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 
+# Runtime artifacts (logs, DBs, state files)
+backend/runtime/
+
 # Data Files
 backend/data/items/
 backend/data/*.csv

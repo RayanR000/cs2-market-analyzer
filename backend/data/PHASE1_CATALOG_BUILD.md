@@ -284,7 +284,7 @@ After the catalog build completed with 23,490 items, spot-checking revealed **10
 
 Created `backend/scripts/repair_catalog_gaps.py` to identify and fetch missing items in two phases:
 
-**Phase 1 — Scan:** Iterate through every offset (0–35,000), fetch each page, and check which items are missing from the DB. Save gap offsets to `backend/data/pending_gaps.txt` incrementally. Added `--start-offset` flag to resume from any offset without re-scanning.
+**Phase 1 — Scan:** Iterate through every offset (0–35,000), fetch each page, and check which items are missing from the DB. Save gap offsets to `backend/runtime/pending_gaps.txt` incrementally. Added `--start-offset` flag to resume from any offset without re-scanning.
 
 **Phase 2 — Fetch:** For each saved gap offset, fetch the page and insert any missing items. Skip items already in the DB.
 
@@ -371,7 +371,7 @@ After the second fetch pass, ~2,393 gap offsets remain unfetched. These are like
 | Rate limits | ~5 (all recovered) |
 | Errors | 12 (offsets that failed after retry) |
 
-**What was saved:** All 1,272 gap offsets were written to `backend/data/pending_gaps.txt` incrementally — nothing was lost when the process was killed by rate limits.
+**What was saved:** All 1,272 gap offsets were written to `backend/runtime/pending_gaps.txt` incrementally — nothing was lost when the process was killed by rate limits.
 
 **Command used:**
 ```bash

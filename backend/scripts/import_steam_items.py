@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("import_steam_items")
 
-CLASSID_MAP_FILE = Path(__file__).parent / "classid_map.json"
-API_TRACKER_FILE = Path(__file__).parent / ".steam_api_usage.json"
+CLASSID_MAP_FILE = Path(__file__).parent.parent / "data" / "classid_map.json"
+API_TRACKER_FILE = Path(__file__).parent.parent / "runtime" / ".steam_api_usage.json"
 CDN_BASE = "https://community.cloudflare.steamstatic.com/economy/image"
 SCHEMA_API_URL = "https://api.steampowered.com/ISteamEconomy/GetSchemaItems/v2/"
 MAX_ITEMS_PER_CALL = 50000
@@ -208,7 +208,7 @@ def import_items_from_schema(api_key: str, limit: Optional[int] = None):
 
         if mapping:
             save_classid_map(mapping)
-            logger.info(f"Saved {len(mapping)} entries to classid_map.json")
+            logger.info(f"Saved {len(mapping)} entries to data/classid_map.json")
 
     except KeyboardInterrupt:
         logger.info("\nInterrupted — partial data committed.")
@@ -236,7 +236,7 @@ def apply_classid_map():
         logger.error(f"No mapping file at {CLASSID_MAP_FILE}")
         logger.info("Run without --from-map first to build the mapping.")
         sys.exit(1)
-    logger.info(f"Loaded {len(mapping)} entries from classid_map.json")
+    logger.info(f"Loaded {len(mapping)} entries from data/classid_map.json")
     db = SessionLocal()
     try:
         updated = created = skipped = 0
@@ -314,8 +314,8 @@ def main():
         description="Import CS2 items from Steam Schema API"
     )
     parser.add_argument("--limit", type=int, help="Max items to import (testing)")
-    parser.add_argument("--from-map", action="store_true", help="Skip API; apply classid_map.json to DB")
-    parser.add_argument("--build-map", action="store_true", help="Build classid_map.json from existing DB items")
+    parser.add_argument("--from-map", action="store_true", help="Skip API; apply data/classid_map.json to DB")
+    parser.add_argument("--build-map", action="store_true", help="Build data/classid_map.json from existing DB items")
     parser.add_argument("--usage", action="store_true", help="Show API call history")
     parser.add_argument("--skip-migration", action="store_true", help="Skip alembic migration")
     args = parser.parse_args()
