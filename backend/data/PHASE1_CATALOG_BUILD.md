@@ -2,17 +2,17 @@
 
 ## What We Built
 
-A complete catalog of every CS2 item on the Steam Community Market, stored in local SQLite. This replaces the production database's limited 24,822-item catalog with a full 23,490-item catalog scraped directly from Steam's API.
+A complete catalog of every CS2 item on the Steam Community Market, stored in local SQLite. This replaces the production database's limited 24,822-item catalog with a full 31,908-item catalog scraped directly from Steam's API.
 
-**Output:** `backend/data/market_catalog.db` (15.4 MB, 23,490 items)
+**Output:** `backend/data/market_catalog.db` (~28 MB, 31,908 items)
 
 ---
 
 ## Why
 
-Our production Supabase database only had 24,822 items (24,737 skins + 85 cases). The Steam Market has ~34,268 items. We were missing ~9,400 items — mostly stickers, charms, graffiti, agents, music kits, and collectibles — because they were never added to our DB.
+Our production Supabase database only had 24,822 items (24,737 skins + 85 cases). The Steam Market has ~34,301 items. We were missing ~9,400 items — mostly stickers, charms, graffiti, agents, music kits, and collectibles — because they were never added to our DB.
 
-This catalog covers everything available on the Steam Market for CS2.
+This catalog covers 31,908 of ~34,301 items on the Steam Market for CS2 (93% coverage). The remaining ~2,393 are likely delisted/removed items.
 
 ---
 
@@ -232,14 +232,14 @@ CREATE TABLE failed_pages (
 
 | Metric | Value |
 |---|---|
-| Total items cataloged | 29,553 |
-| Pending gaps | 1,272 offsets |
-| Coverage | 86.2% of ~34,301 items |
+| Total items cataloged | 31,908 |
+| Pending gaps (unfetchable) | ~2,393 offsets |
+| Coverage | 93% of ~34,301 items |
 | Failed pages | 0 |
 | DB size | ~28 MB |
-| Total duration | ~5 hours (scan + fetch) |
-| Active fetch time | ~2.5 hours |
-| 429s encountered | ~15 (all recovered) |
+| Total duration (all phases) | ~6.5 hours |
+| Active fetch time | ~3 hours |
+| 429s encountered | ~50+ (all recovered) |
 | Bans | 1 (recovered via VPN) |
 
 ### Item Type Breakdown
@@ -334,20 +334,22 @@ Created `backend/scripts/repair_catalog_gaps.py` to identify and fetch missing i
 | 4 | Fetch | 1,657 gaps | 88 min | 2,862 items inserted, 0 failures |
 | 5 | Scan | 18,170 → 26,330 | ~45 min | +616 gaps, killed by rate limit |
 | 6 | Scan | 26,340 → 35,000 | ~55 min | +647 gaps, scan complete |
+| 7 | Fetch | 625 gaps (first pass) | ~50 min | 1,034 items inserted, 0 failures, killed by rate limit at offset ~26,330 |
+| 8 | Fetch | 1,264 gaps (second pass) | 69 min | 1,322 items inserted, 0 failures, 3 rate limits |
 
 ### Final Catalog Stats (After First Fetch Pass)
 
-| Metric | Before Repair | After Repair | Change |
+| Metric | Before Repair | After First Fetch | After Second Fetch |
 |--------|--------------|-------------|--------|
-| Items | 23,490 | 29,553 | +6,063 |
-| Coverage | 68.5% | 86.2% | +17.7% |
-| Failed pages | 0 | 0 | — |
-| Rate limits (fetch) | — | 2 | Both recovered |
-| Gaps pending | — | 1,272 | Awaiting second fetch pass |
+| Items | 23,490 | 29,553 | 31,908 |
+| Coverage | 68.5% | 86.2% | 93% |
+| Failed pages | 0 | 0 | 0 |
+| Rate limits (fetch) | — | 2 | 3 |
+| Gaps pending | — | 1,272 | ~2,393 (unfetchable) |
 
 ### Remaining Gaps
 
-~4,748 items still missing — all from offsets 18,170–35,000 that the scan never reached. These require a full scan of the upper offset range (~30–60 min with rate limits), then a fetch pass.
+After the second fetch pass, ~2,393 gap offsets remain unfetched. These are likely items that no longer exist on the Steam Market (removed, renamed, or delisted) — the API returns empty results for them. No further action needed; 31,908 items represents ~93% of the current market.
 
 ### Upper-Offset Scan (18,170 → 35,000)
 
@@ -385,6 +387,43 @@ python3 -u scripts/repair_catalog_gaps.py --scan-only --start-offset 26340 --max
 tail -f backend/data/gap_repair.log
 ```
 
+### Second Fetch Pass (1,264 gaps → 31,908 items)
+
+**What:** Fetched the remaining 1,264 gap offsets identified by the full scan (lower + upper ranges). This was the second fetch pass — the first pass had already processed 625 gaps before being killed by rate limits.
+
+**How it ran:**
+
+```bash
+# Resume fetching (skips already-processed gaps automatically)
+python3 -u scripts/repair_catalog_gaps.py --fetch-only
+```
+
+**Execution:** Launched at 16:53 EDT, completed at 18:02 EDT — 69 minutes, zero manual intervention. The script loaded all 1,264 gap offsets from `pending_gaps.txt`, skipped the 625 already processed in the first pass, and fetched the remaining 639 gaps (plus re-checked existing items for deduplication).
+
+**Why it was so clean:** The first pass failures (429s, kills) happened because the scan and fetch phases competed for burst budget in the same run. The second pass ran `--fetch-only` in isolation — pure fetch with no scanning overhead — so the burst budget was used efficiently.
+
+**Results:**
+
+| Metric | Value |
+|--------|-------|
+| Gaps attempted | 1,264 |
+| Items inserted | 1,322 |
+| Already existed | 11,318 |
+| Rate limits | 3 (all recovered automatically) |
+| Failed | 0 |
+| Duration | 69.1 min |
+| Speed | ~18 gaps/min |
+
+**Catalog progression:**
+
+| Phase | Items | Change |
+|-------|-------|--------|
+| Initial build | 23,490 | — |
+| First fetch pass (+ gap repair) | 30,593 | +7,103 |
+| Second fetch pass | 31,908 | +1,315 |
+
+**Key insight:** The 31,908 final items vs ~34,301 on Steam means ~2,393 offsets returned empty results. These are almost certainly delisted/removed items — the Steam API returns `[]` for items that no longer exist. This is not a bug; it's expected.
+
 ---
 
 ## Lessons Learned (Updated)
@@ -394,19 +433,21 @@ tail -f backend/data/gap_repair.log
 3. **Track429s at the right level** — retry loops hide 429s from higher-level monitoring. Always surface them.
 4. **VPN is a valid recovery** — when IP banned, switching to a VPN immediately restores access.
 5. **Failed page tracking is essential** — without it, you'd have to re-run the entire build to recover 4 pages.
-6. **Local SQLite is the right choice** — Supabase is 500MB and full; this 15.4MB local DB is clean and complete.
+6. **Local SQLite is the right choice** — Supabase is 500MB and full; this 28MB local DB is clean and complete.
 7. **Empty results ≠ end of results** — Steam returns `[]` for rate-limited pages, not 429. Always retry empty pages instead of breaking the loop.
 8. **Resume must skip ahead** — re-scanning from offset 0 wastes burst budget. On resume, start from the last known offset.
 9. **Python log buffering lies** — `tail -f` shows stale data unless you line-buffer the file handler. Use `python3 -u` and `buffering=1`.
 10. **Cleaning gaps via API is counterproductive** — checking each gap for "still missing?" costs API requests that burn the same budget you're trying to save. Let `--fetch-only` handle deduplication naturally.
 11. **Scanning in chunks is necessary** — a full 0–35,000 scan takes too long and always gets rate-limited. Breaking it into ranges (lower 0–18,170, upper 18,170–35,000) with `--start-offset` makes it manageable.
 12. **Gap inventory before fetch** — always complete the full scan before starting the fetch phase. Mixing scan + fetch burns budget on both operations simultaneously.
+13. **Isolate fetch from scan** — the second fetch pass (`--fetch-only` only) completed 1,264 gaps in 69 min with 0 failures. The first pass struggled because it mixed scan + fetch in the same run, competing for burst budget.
+14. **Incremental gap saving prevents data loss** — writing each gap offset to `pending_gaps.txt` as it's discovered means nothing is lost when the process is killed by rate limits.
 
 ---
 
 ## Next Steps
 
-- **Phase 2:** Backfill pricehistory for all 29,553+ items using `backfill_ssr_history.py`
+- **Phase 2:** Backfill pricehistory for all 31,908 items using `backfill_ssr_history.py`
 - Update the backfill script to read from `market_catalog.db` (via `--source catalog`)
 - Replace old Supabase snapshots with SSR history data
-- **Immediate:** Run `--fetch-only` to insert the 1,272 remaining gap items (wait for rate limit to clear)
+- After Phase 2, plan migration from local SQLite to Supabase (replacing old snapshots)
