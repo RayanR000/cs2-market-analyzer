@@ -228,16 +228,18 @@ CREATE TABLE failed_pages (
 
 ---
 
-## Final Stats
+## Final Stats (After Gap Repair)
 
 | Metric | Value |
 |---|---|
-| Total items cataloged | 23,490 |
+| Total items cataloged | 29,553 |
+| Pending gaps | 1,272 offsets |
+| Coverage | 86.2% of ~34,301 items |
 | Failed pages | 0 |
-| DB size | 15.4 MB |
-| Total duration | ~3.5 hours (including ban cooldown) |
-| Active fetch time | ~1.5 hours |
-| 429s encountered | ~110+ (11 in final run, all recovered) |
+| DB size | ~28 MB |
+| Total duration | ~5 hours (scan + fetch) |
+| Active fetch time | ~2.5 hours |
+| 429s encountered | ~15 (all recovered) |
 | Bans | 1 (recovered via VPN) |
 
 ### Item Type Breakdown
@@ -270,8 +272,141 @@ CREATE TABLE failed_pages (
 
 ---
 
+## Gap Repair (Post-Build)
+
+### What Happened
+
+After the catalog build completed with 23,490 items, spot-checking revealed **10,782 missing items** (Steam total: 34,272). The catalog only covered ~68% of the market. After the first fetch pass, we're at 29,553 items (86.2%) with 1,272 gap offsets still pending fetch.
+
+**Root cause:** The original build treated empty API results (`results: []`) as "end of results" and broke the burst loop. This happened when rate limits returned empty pages instead of 429 status codes. Those items were never stored, but the progress tracker saved the offset as completed — so the resume skipped them silently.
+
+### What We Did
+
+Created `backend/scripts/repair_catalog_gaps.py` to identify and fetch missing items in two phases:
+
+**Phase 1 — Scan:** Iterate through every offset (0–35,000), fetch each page, and check which items are missing from the DB. Save gap offsets to `backend/data/pending_gaps.txt` incrementally. Added `--start-offset` flag to resume from any offset without re-scanning.
+
+**Phase 2 — Fetch:** For each saved gap offset, fetch the page and insert any missing items. Skip items already in the DB.
+
+**Scan execution:** The scan was run in two parts due to rate limits:
+1. Lower range (0–18,170): 3 runs, ~1,657 gaps found
+2. Upper range (18,170–35,000): 2 runs, ~1,272 gaps found
+3. Total: ~2,929 gap offsets identified (1,272 pending fetch)
+
+### Why the Repair Was Difficult
+
+1. **Rate limit fatigue:** Each scan/fetch run burns through Steam's burst budget (10 rapid + 30s cooldown). After 13,000+ requests, the budget depletes and recovery takes 30–60 minutes between runs.
+
+2. **Scan re-scanning problem:** On `--resume`, the scan started from offset 0 and skipped known gaps sequentially. This meant re-scanning thousands of already-verified offsets, wasting burst budget. Fixed by starting the scan from the last known gap offset + 10.
+
+3. **Flat delay vs burst pattern:** The initial repair script used a flat 0.3s delay between requests, which burned through the burst budget ~3x faster than the 10+30 burst pattern. Fixed by matching the original build's burst pattern.
+
+4. **Python log buffering:** File output was buffered, so `tail -f` showed stale logs. Fixed by opening the file handler with `buffering=1` (line-buffered) and using `python3 -u` for unbuffered stdout.
+
+5. **Upper-offset scan required:** The first scan only covered 52% of the market (0–18,170). A second scan of the upper range (18,170–35,000) was needed to identify the remaining ~4,748 missing items. This required adding a `--start-offset` flag to avoid re-scanning.
+
+### What We Built
+
+**Script:** `backend/scripts/repair_catalog_gaps.py`
+
+| Flag | Description |
+|------|-------------|
+| `--scan-only` | Scan for gaps, don't fetch |
+| `--fetch-only` | Fetch saved gaps, skip scan |
+| `--resume` | Resume scan from last known gap offset |
+| `--start-offset N` | Start scan from this offset (overrides `--resume`) |
+| `--dry-run` | Preview gaps without fetching |
+| `--max-offset N` | Max offset to scan (default: 35000) |
+
+**Logs to:** `backend/data/gap_repair.log` (thorough logging: every INSERT, every page, progress every 25 gaps, timing, rate limits, failures)
+
+**Monitor:** `tail -f backend/data/gap_repair.log`
+
+**Resume after kill:** `python3 scripts/repair_catalog_gaps.py --fetch-only`
+
+### Gap Repair Timeline
+
+| Run | Phase | Offset Range | Duration | Result |
+|-----|-------|-------------|----------|--------|
+| 1 | Scan | 0 → 13,600 | ~45 min | 1,001 gaps found, killed by rate limit |
+| 2 | Scan | 14,210 → 15,200 | ~10 min | +100 gaps, killed by rate limit |
+| 3 | Scan | 17,780 → 18,170 | ~5 min | +50 gaps, killed by rate limit |
+| 4 | Fetch | 1,657 gaps | 88 min | 2,862 items inserted, 0 failures |
+| 5 | Scan | 18,170 → 26,330 | ~45 min | +616 gaps, killed by rate limit |
+| 6 | Scan | 26,340 → 35,000 | ~55 min | +647 gaps, scan complete |
+
+### Final Catalog Stats (After First Fetch Pass)
+
+| Metric | Before Repair | After Repair | Change |
+|--------|--------------|-------------|--------|
+| Items | 23,490 | 29,553 | +6,063 |
+| Coverage | 68.5% | 86.2% | +17.7% |
+| Failed pages | 0 | 0 | — |
+| Rate limits (fetch) | — | 2 | Both recovered |
+| Gaps pending | — | 1,272 | Awaiting second fetch pass |
+
+### Remaining Gaps
+
+~4,748 items still missing — all from offsets 18,170–35,000 that the scan never reached. These require a full scan of the upper offset range (~30–60 min with rate limits), then a fetch pass.
+
+### Upper-Offset Scan (18,170 → 35,000)
+
+**Why:** The initial gap repair scan only covered offsets 0–18,170 (52% of the market). The remaining 48% (offsets 18,170–35,000) was never scanned, so ~4,748 items were never identified as missing. A second scan of this range was needed to complete the gap inventory.
+
+**What we did:** Added a `--start-offset` flag to `repair_catalog_gaps.py` to allow scanning from any offset. Ran the scan in two parts:
+
+1. **First run (offset 18,170 → 26,330):** Reached 75% of the upper range before hitting rate limits. Saved 616 gaps.
+2. **Second run (offset 26,340 → 35,000):** Completed the remaining 25%. Found 647 additional gaps.
+
+**Results:**
+
+| Metric | Value |
+|--------|-------|
+| Offsets scanned | 866 (upper range) |
+| Gaps found | 647 new (upper range) |
+| Total gaps in file | 1,272 |
+| Duration | 54.7 min |
+| Rate limits | ~5 (all recovered) |
+| Errors | 12 (offsets that failed after retry) |
+
+**What was saved:** All 1,272 gap offsets were written to `backend/data/pending_gaps.txt` incrementally — nothing was lost when the process was killed by rate limits.
+
+**Command used:**
+```bash
+# First part
+python3 -u scripts/repair_catalog_gaps.py --scan-only --start-offset 18170 --max-offset 35000
+
+# Resume after rate limit cooldown
+python3 -u scripts/repair_catalog_gaps.py --scan-only --start-offset 26340 --max-offset 35000
+```
+
+**Monitor:**
+```bash
+tail -f backend/data/gap_repair.log
+```
+
+---
+
+## Lessons Learned (Updated)
+
+1. **Test rate limits empirically** — don't guess. We found Steam's actual limits differ from what people report online.
+2. **Burst pattern beats flat delay** — same safety, 2-3x faster.
+3. **Track429s at the right level** — retry loops hide 429s from higher-level monitoring. Always surface them.
+4. **VPN is a valid recovery** — when IP banned, switching to a VPN immediately restores access.
+5. **Failed page tracking is essential** — without it, you'd have to re-run the entire build to recover 4 pages.
+6. **Local SQLite is the right choice** — Supabase is 500MB and full; this 15.4MB local DB is clean and complete.
+7. **Empty results ≠ end of results** — Steam returns `[]` for rate-limited pages, not 429. Always retry empty pages instead of breaking the loop.
+8. **Resume must skip ahead** — re-scanning from offset 0 wastes burst budget. On resume, start from the last known offset.
+9. **Python log buffering lies** — `tail -f` shows stale data unless you line-buffer the file handler. Use `python3 -u` and `buffering=1`.
+10. **Cleaning gaps via API is counterproductive** — checking each gap for "still missing?" costs API requests that burn the same budget you're trying to save. Let `--fetch-only` handle deduplication naturally.
+11. **Scanning in chunks is necessary** — a full 0–35,000 scan takes too long and always gets rate-limited. Breaking it into ranges (lower 0–18,170, upper 18,170–35,000) with `--start-offset` makes it manageable.
+12. **Gap inventory before fetch** — always complete the full scan before starting the fetch phase. Mixing scan + fetch burns budget on both operations simultaneously.
+
+---
+
 ## Next Steps
 
-- **Phase 2:** Backfill pricehistory for all 23,490 items using `backfill_ssr_history.py`
+- **Phase 2:** Backfill pricehistory for all 29,553+ items using `backfill_ssr_history.py`
 - Update the backfill script to read from `market_catalog.db` (via `--source catalog`)
 - Replace old Supabase snapshots with SSR history data
+- **Immediate:** Run `--fetch-only` to insert the 1,272 remaining gap items (wait for rate limit to clear)
