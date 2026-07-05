@@ -13,11 +13,12 @@ Features:
     - Rate limiting with exponential backoff on 429s
 
 Usage:
-    python scripts/backfill_ssr_history.py                    # Full backfill
-    python scripts/backfill_ssr_history.py --resume           # Resume from last position
-    python scripts/backfill_ssr_history.py --limit 100        # Backfill only first 100 items
-    python scripts/backfill_ssr_history.py --dry-run          # Preview without writing
-    python scripts/backfill_ssr_history.py --status           # Show progress + health
+    python scripts/backfill_ssr_history.py                          # Full backfill (prod source)
+    python scripts/backfill_ssr_history.py --source catalog         # Backfill from market_catalog.db (32k items)
+    python scripts/backfill_ssr_history.py --resume                 # Resume from last position
+    python scripts/backfill_ssr_history.py --limit 100              # Backfill only first 100 items
+    python scripts/backfill_ssr_history.py --dry-run                # Preview without writing
+    python scripts/backfill_ssr_history.py --source catalog --status  # Show catalog backfill progress
     python scripts/backfill_ssr_history.py --max-consecutive-failures 5   # Custom threshold
 """
 
@@ -58,6 +59,8 @@ logger = logging.getLogger("ssr_backfill")
 # ---------------------------------------------------------------------------
 
 LOCAL_DB_PATH = Path(__file__).parent.parent / "runtime" / "ssr_history.db"
+CATALOG_LOCAL_DB_PATH = Path(__file__).parent.parent / "runtime" / "ssr_history_catalog.db"
+CATALOG_DB_PATH = Path(__file__).parent.parent / "runtime" / "market_catalog.db"
 PROGRESS_FILE = Path(__file__).parent.parent / "runtime" / "ssr_backfill_progress.json"
 
 REQUEST_DELAY = 5.0  # seconds between API calls
@@ -304,6 +307,28 @@ def load_items_from_prod() -> List[Dict]:
         return [{"id": item.id, "item_id": item.item_id, "name": item.name, "type": item.type} for item in items]
     finally:
         db.close()
+
+
+def load_items_from_catalog() -> List[Dict]:
+    """Load item list from the local market catalog database."""
+    import sqlite3
+
+    if not CATALOG_DB_PATH.exists():
+        logger.error(f"Market catalog not found at {CATALOG_DB_PATH}")
+        return []
+
+    conn = sqlite3.connect(str(CATALOG_DB_PATH))
+    try:
+        rows = conn.execute(
+            "SELECT id, hash_name, name, type FROM market_items ORDER BY id"
+        ).fetchall()
+        logger.info(f"Loaded {len(rows)} items from market catalog")
+        return [
+            {"id": row[0], "item_id": row[1], "name": row[2], "type": row[3] or ""}
+            for row in rows
+        ]
+    finally:
+        conn.close()
 
 
 def sync_items_to_local(prod_items: List[Dict], local_conn: sqlite3.Connection):
@@ -580,11 +605,19 @@ def run_backfill(
     max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
     max_consecutive_429: int = DEFAULT_MAX_CONSECUTIVE_429,
     max_consecutive_empty_after_ok: int = DEFAULT_MAX_CONSECUTIVE_EMPTY_AFTER_OK,
+    source: str = "prod",
 ):
-    """Run the SSR history backfill."""
+    """Run the SSR history backfill.
+
+    Args:
+        source: "prod" for production Supabase, "catalog" for local market_catalog.db
+    """
     logger.info("=" * 70)
     logger.info("SSR History Backfill — Starting")
     logger.info("=" * 70)
+
+    # 0. Pick local DB path based on source
+    local_db_path = CATALOG_LOCAL_DB_PATH if source == "catalog" else LOCAL_DB_PATH
 
     # 1. Validate session
     client = SteamPriceHistoryClient()
@@ -592,13 +625,17 @@ def run_backfill(
         logger.error("Steam session is invalid. Update STEAM_SESSION_ID and STEAM_LOGIN_SECURE in .env")
         return
 
-    # 2. Load items from production
-    logger.info("Loading items from production database...")
-    prod_items = load_items_from_prod()
-    logger.info(f"Loaded {len(prod_items)} items from production")
+    # 2. Load items from source
+    if source == "catalog":
+        logger.info("Loading items from local market catalog...")
+        prod_items = load_items_from_catalog()
+    else:
+        logger.info("Loading items from production database...")
+        prod_items = load_items_from_prod()
+    logger.info(f"Loaded {len(prod_items)} items")
 
     # 3. Initialize local DB
-    local_conn = init_local_db(LOCAL_DB_PATH)
+    local_conn = init_local_db(local_db_path)
     sync_items_to_local(prod_items, local_conn)
 
     # 4. Determine starting point
@@ -758,37 +795,40 @@ def run_backfill(
     logger.info(f"  Duration: {elapsed/3600:.1f} hours")
     logger.info("=" * 70)
 
-    print_progress_summary(local_conn)
+    print_progress_summary(local_conn, db_path=local_db_path)
     local_conn.close()
 
     # Return pause state for programmatic use
     return paused
 
 
-def print_progress_summary(local_conn: sqlite3.Connection):
+def print_progress_summary(local_conn: sqlite3.Connection, db_path: Optional[Path] = None):
     """Print a summary of what's in the local database."""
+    db_path = db_path or LOCAL_DB_PATH
     item_count = local_conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
     price_count = local_conn.execute("SELECT COUNT(*) FROM price_history").fetchone()[0]
     unique_items = local_conn.execute(
         "SELECT COUNT(DISTINCT item_id) FROM price_history"
     ).fetchone()[0]
 
-    db_size = LOCAL_DB_PATH.stat().st_size / (1024 * 1024) if LOCAL_DB_PATH.exists() else 0
+    db_size = db_path.stat().st_size / (1024 * 1024) if db_path.exists() else 0
 
-    logger.info(f"Local DB ({LOCAL_DB_PATH.name}):")
+    logger.info(f"Local DB ({db_path.name}):")
     logger.info(f"  Items: {item_count}")
     logger.info(f"  Price rows: {price_count}")
     logger.info(f"  Items with history: {unique_items}")
     logger.info(f"  DB size: {db_size:.1f} MB")
 
 
-def print_status():
+def print_status(source: str = "prod"):
     """Print current backfill status."""
-    if not LOCAL_DB_PATH.exists():
-        logger.info("No local database found — backfill not started")
+    local_db_path = CATALOG_LOCAL_DB_PATH if source == "catalog" else LOCAL_DB_PATH
+
+    if not local_db_path.exists():
+        logger.info(f"No local database found at {local_db_path.name} — backfill not started")
         return
 
-    local_conn = init_local_db(LOCAL_DB_PATH)
+    local_conn = init_local_db(local_db_path)
     progress = load_progress(local_conn)
 
     logger.info("SSR Backfill Status:")
@@ -824,7 +864,7 @@ def print_status():
         except Exception as e:
             logger.info(f"  (Could not parse log for health metrics: {e})")
 
-    print_progress_summary(local_conn)
+    print_progress_summary(local_conn, db_path=local_db_path)
     local_conn.close()
 
 
@@ -838,6 +878,10 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, help="Only process N items")
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing to DB")
     parser.add_argument("--status", action="store_true", help="Show current progress")
+    parser.add_argument(
+        "--source", choices=["prod", "catalog"], default="prod",
+        help="Source of item list: prod (Supabase, 24k items) or catalog (local market_catalog.db, 32k items)"
+    )
     parser.add_argument(
         "--max-consecutive-failures", type=int, default=DEFAULT_MAX_CONSECUTIVE_FAILURES,
         help=f"Auto-pause after N consecutive failures (default: {DEFAULT_MAX_CONSECUTIVE_FAILURES})"
@@ -853,7 +897,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.status:
-        print_status()
+        print_status(source=args.source)
     else:
         run_backfill(
             limit=args.limit,
@@ -862,4 +906,5 @@ if __name__ == "__main__":
             max_consecutive_failures=args.max_consecutive_failures,
             max_consecutive_429=args.max_consecutive_429,
             max_consecutive_empty_after_ok=args.max_consecutive_empty_after_ok,
+            source=args.source,
         )

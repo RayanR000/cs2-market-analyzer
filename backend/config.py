@@ -30,6 +30,29 @@ class Settings(BaseSettings):
     # Required for /market/pricehistory/ endpoint (historical price data)
     steam_session_id: Optional[str] = None
     steam_login_secure: Optional[str] = None
+
+    # CSMarketAPI keys (https://csmarketapi.com)
+    # Each key gets 1,000 free requests/month. Add account name for tracking.
+    csmarketapi_key_1: Optional[str] = None
+    csmarketapi_account_1: Optional[str] = None
+    csmarketapi_key_2: Optional[str] = None
+    csmarketapi_account_2: Optional[str] = None
+    csmarketapi_key_3: Optional[str] = None
+    csmarketapi_account_3: Optional[str] = None
+    csmarketapi_key_4: Optional[str] = None
+    csmarketapi_account_4: Optional[str] = None
+
+    @property
+    def csmarketapi_keys(self) -> list[dict[str, str]]:
+        """Return all configured CSMarketAPI keys as (account, key) pairs."""
+        keys = []
+        for i in range(1, 5):
+            key = getattr(self, f"csmarketapi_key_{i}", None)
+            account = getattr(self, f"csmarketapi_account_{i}", None) or f"account_{i}"
+            if key:
+                keys.append({"account": account, "key": key})
+        return keys
+
     frontend_url: str = "http://localhost:3000"
     api_url: str = "http://localhost:8000"
     
