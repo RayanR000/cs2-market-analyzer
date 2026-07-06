@@ -41,12 +41,14 @@ class Settings(BaseSettings):
     csmarketapi_account_3: Optional[str] = None
     csmarketapi_key_4: Optional[str] = None
     csmarketapi_account_4: Optional[str] = None
+    csmarketapi_key_5: Optional[str] = None
+    csmarketapi_account_5: Optional[str] = None
 
     @property
     def csmarketapi_keys(self) -> list[dict[str, str]]:
         """Return all configured CSMarketAPI keys as (account, key) pairs."""
         keys = []
-        for i in range(1, 5):
+        for i in range(1, 6):
             key = getattr(self, f"csmarketapi_key_{i}", None)
             account = getattr(self, f"csmarketapi_account_{i}", None) or f"account_{i}"
             if key:
