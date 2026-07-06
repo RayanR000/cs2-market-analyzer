@@ -128,6 +128,15 @@ def init_output_db(conn: sqlite3.Connection):
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS failed_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hash_name TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            key_account TEXT,
+            attempted_at TEXT NOT NULL,
+            listings INTEGER DEFAULT 0
+        );
     """)
 
     for k, v in {"last_hash_name": "", "total_attempted": "0",
@@ -547,6 +556,11 @@ def run_backfill(dry_run: bool = False, limit: int = 0):
 
         if sales_data is None:
             log.warning(f"       FAILED — rotating key")
+            out_conn.execute(
+                "INSERT INTO failed_items (hash_name, reason, key_account, attempted_at, listings) VALUES (?, ?, ?, ?, ?)",
+                (hash_name, "429 / exhausted", cred["account"], datetime.now().isoformat(), listings),
+            )
+            out_conn.commit()
             inc(out_conn, "total_failed")
             sv(out_conn, "active_key_idx", str((key_idx + 1) % len(settings.csmarketapi_keys)))
             continue
@@ -685,6 +699,32 @@ def show_stats():
         print(f"  {'─'*20} {'─'*10} {'─'*7}")
         for mkt, cnt in sorted(mkt_dist.items(), key=lambda x: -x[1]):
             print(f"  {mkt:<20} {cnt:>10,} {100*cnt/price_rows:>6.1f}%")
+
+    # Failed items
+    conn3 = connect_db(str(OUTPUT_DB))
+    conn3.execute("""
+        CREATE TABLE IF NOT EXISTS failed_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hash_name TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            key_account TEXT,
+            attempted_at TEXT NOT NULL,
+            listings INTEGER DEFAULT 0
+        )
+    """)
+    fail_rows = conn3.execute(
+        "SELECT hash_name, reason, key_account, attempted_at FROM failed_items ORDER BY id DESC LIMIT 10"
+    ).fetchall()
+    fail_count = conn3.execute("SELECT COUNT(*) FROM failed_items").fetchone()[0]
+    conn3.close()
+    if fail_rows:
+        print(f"\n  ── Recent failures (last 10) ──")
+        print(f"  {'Item':<45} {'Reason':<20} {'Key':<18} {'Time':<19}")
+        print(f"  {'─'*45} {'─'*20} {'─'*18} {'─'*19}")
+        for h, r, k, t in fail_rows:
+            print(f"  {h:<45} {r:<20} {k:<18} {t[:19]}")
+        if fail_count > 10:
+            print(f"  … and {fail_count - 10} more")
 
     print(f"\n  ── Key quota ──")
     for i, cred in enumerate(settings.csmarketapi_keys):
