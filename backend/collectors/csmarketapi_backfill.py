@@ -305,19 +305,32 @@ def find_key(conn: sqlite3.Connection) -> Optional[int]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_queue(local_conn: sqlite3.Connection,
-                api_items: set[str]) -> list[tuple[str, int]]:
+                api_items: set[str],
+                out_conn: sqlite3.Connection = None) -> list[tuple[str, int]]:
     c = local_conn.execute(
         "SELECT hash_name, sell_listings FROM market_items ORDER BY sell_listings DESC"
     )
     queue = [(r[0], r[1] or 0) for r in c.fetchall() if r[0]]
 
     local_names = {h for h, _ in queue}
-    unknown = [(h, -1) for h in api_items - local_names if h]
+    missing = [h for h in api_items - local_names if h]
 
-    if unknown:
-        log.info(f"  {len(unknown)} CSMarketAPI-only items appended (no listing data)")
+    if missing:
+        if out_conn is None:
+            queue.extend((h, -1) for h in missing)
+            log.info(f"  {len(missing)} items without listing data (no out_conn provided)")
+        else:
+            lookup = {}
+            for row in out_conn.execute(
+                "SELECT market_hash_name, sell_listings FROM items WHERE market_hash_name IN ({})".format(
+                    ",".join("?" for _ in missing)
+                ), missing
+            ):
+                lookup[row[0]] = row[1] or 0
+            queue.extend((h, lookup.get(h, 0)) for h in missing)
+            log.info(f"  {len(missing)} items resolved from CSMarketAPI catalog")
 
-    queue.extend(unknown)
+    queue.sort(key=lambda x: -x[1])
 
     tiers = Counter()
     for _, sl in queue:
@@ -366,7 +379,7 @@ def run_backfill(dry_run: bool = False, limit: int = 0):
     if dry_run:
         log.info("─" * 50)
         log.info("[DRY-RUN] Building queue from local DB only (no catalog fetch)…")
-        queue = build_queue(local_conn, set())
+        queue = build_queue(local_conn, set(), out_conn)
         log.info(f"[DRY-RUN] Top 25 items:")
         for h, _ in queue[:25]:
             log.info(f"  {h}")
@@ -431,7 +444,7 @@ def run_backfill(dry_run: bool = False, limit: int = 0):
         for h, sl in local_conn.execute(
                 "SELECT hash_name, sell_listings FROM market_items").fetchall():
             out_conn.execute(
-                "UPDATE items SET sell_listings = ? WHERE market_hash_name = ?",
+                "UPDATE items SET sell_listings = ? WHERE hash_name = ?",
                 (sl or 0, h))
         out_conn.commit()
         log.info(f"  Catalog stored — {len(catalog)} items in DB")
@@ -445,7 +458,7 @@ def run_backfill(dry_run: bool = False, limit: int = 0):
     # ── Build queue ─────────────────────────────────────────────────────────
     log.info("─" * 50)
     log.info("Building priority queue …")
-    queue = build_queue(local_conn, api_names)
+    queue = build_queue(local_conn, api_names, out_conn)
     if not queue:
         log.warning("Empty queue.")
         return

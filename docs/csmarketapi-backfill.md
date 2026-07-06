@@ -225,6 +225,18 @@ python backend/collectors/csmarketapi_backfill.py
 
 Next item to process: `Sir Bloody Skullhead Darryl | The Professionals` (#4,941 of 36,607).
 
+### Coverage by Tier (Corrected)
+
+| Tier | Items in Queue | Fetched | Remaining | Coverage |
+|------|:-------------:|:-------:|:---------:|:--------:|
+| **1000+** (most liquid) | 1,960 | 1,824 | 136 | **93.1%** |
+| 100-999 | 5,754 | 2,794 | 2,960 | 48.6% |
+| 10-99 | 13,392 | 0 | 13,392 | 0% |
+| 1-9 | 10,802 | 0 | 10,802 | 0% |
+| CSAPI-only (0 listings) | 4,699 | 0 | 4,699 | 0% |
+
+The 136 remaining high-priority items (1000+ tier) include capsules, stickers, and skins not yet reached. No items were skipped due to queue ordering — all popular items in the local DB were correctly prioritized. The `build_queue` function was hardened to resolve CSMarketAPI-only items from the `items` table (defensive improvement, no queue order change).
+
 ### Future Optimizations
 
 - **cs2.sh batch endpoint**: POST with 100 items/request. $75/mo Developer plan. Would reduce ~37K requests to ~370 requests.
