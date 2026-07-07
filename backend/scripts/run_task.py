@@ -42,6 +42,7 @@ def run_task(task_name):
 
     try:
         start_time = datetime.now()
+        result = result2 = result3 = None
 
         if task_name == "aggregate":
             logger.info("="*60)
@@ -108,6 +109,17 @@ def run_task(task_name):
 
         else:
             logger.error(f"Unknown task: {task_name}")
+            sys.exit(1)
+
+        # Pipeline methods catch their own exceptions and return status dicts;
+        # exit non-zero so scheduled workflows report the failure instead of
+        # showing green on a run that collected nothing.
+        failures = [
+            r for r in (result, result2, result3)
+            if isinstance(r, dict) and r.get("status") in ("failed", "error")
+        ]
+        if failures:
+            logger.error(f"❌ TASK '{task_name}' reported failure: {failures[0].get('error', failures[0])}")
             sys.exit(1)
 
         elapsed = (datetime.now() - start_time).total_seconds()

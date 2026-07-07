@@ -96,13 +96,35 @@ def prune_price_history(db_session, days_to_keep_granular=7, dry_run=False):
     )
 
 
+# Only live-collected snapshot sources may be downsampled. Imported historical
+# series (market_csgo, steam_historical, cs2sh_archive, ...) already have their
+# intended granularity and must never be collapsed — see
+# backend/data/SESSION_NOTES_DB_STRATEGY.md ("Do not downsample price_history").
+def _scope_filter(alias, has_end_date):
+    prefix = f"{alias}." if alias else ""
+    if has_end_date:
+        time_filter = (
+            f"{prefix}timestamp >= :start_date AND {prefix}timestamp < :end_date"
+        )
+    else:
+        time_filter = f"{prefix}timestamp < :start_date"
+    source_filter = (
+        f"({prefix}source IN ('aggregator_sync', 'steam_batch', 'synthetic_demo') "
+        f"OR {prefix}source LIKE 'historical_fallback:%')"
+    )
+    return f"{time_filter} AND {source_filter}"
+
+
 def downsample_price_history(db_session, days_to_keep_granular=7, dry_run=False):
     """
-    Downsample price history with tiered strategy.
+    Downsample live-collected price history with tiered strategy.
     - 0-7 days: Keep all data
     - 7-30 days: Keep daily average (1 record per item per day)
     - 30-365 days: Keep weekly average (1 record per item per week)
     - 365+ days: Keep monthly average (1 record per item per month)
+
+    Only touches live snapshot sources (see _scope_filter); imported
+    historical sources are left untouched.
     """
     now = datetime.utcnow()
     week_ago = now - timedelta(days=7)
@@ -163,10 +185,7 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
     except Exception:
         pass
 
-    if end_date:
-        raw_filter = "timestamp >= :start_date AND timestamp < :end_date"
-    else:
-        raw_filter = "timestamp < :start_date"
+    raw_filter = _scope_filter("", end_date is not None)
 
     params = {"start_date": start_date}
     if end_date:
@@ -187,9 +206,13 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
 
     # Keep the one row per (item_id, time_bucket) closest to the median price.
     # Uses a CTE to compute group medians (PERCENTILE_CONT), then ROW_NUMBER to
-    # pick the nearest row.  Unlike the original code this does NOT nest
-    # PERCENTILE_CONT inside OVER(), so PostgreSQL accepts it.
-    def build_delete_sql(extra_filter=""):
+    # pick the nearest row. Rows are identified by the composite key
+    # (item_id, timestamp, source) — price_history has no surrogate id column.
+    # The inner query re-applies the time+source scope so rows from protected
+    # sources sharing a bucket are never joined in and deleted.
+    ph2_filter = _scope_filter("ph2", end_date is not None)
+
+    def build_delete_sql(extra_filter="", ph2_extra_filter=""):
         return f"""
         WITH bucket_medians AS (
             SELECT item_id, ({group_expr}) AS bucket,
@@ -200,20 +223,24 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
         )
         DELETE FROM price_history ph
         USING (
-            SELECT id FROM (
-                SELECT ph2.id,
+            SELECT item_id, timestamp, source FROM (
+                SELECT ph2.item_id, ph2.timestamp, ph2.source,
                     ROW_NUMBER() OVER (
                         PARTITION BY ph2.item_id, ({group_expr})
-                        ORDER BY ABS(ph2.price - bm.median_price)
+                        ORDER BY ABS(ph2.price - bm.median_price),
+                                 ph2.timestamp, ph2.source
                     ) AS rn
                 FROM price_history ph2
                 JOIN bucket_medians bm
                   ON ph2.item_id = bm.item_id
                  AND ({group_expr}) = bm.bucket
+                WHERE {ph2_filter} {ph2_extra_filter}
             ) sub
             WHERE rn > 1
-        ) keep
-        WHERE ph.id = keep.id
+        ) doomed
+        WHERE ph.item_id = doomed.item_id
+          AND ph.timestamp = doomed.timestamp
+          AND ph.source = doomed.source
         """
 
     # Single-pass: try full range first
@@ -240,7 +267,10 @@ def _downsample_tier(db_session, start_date, end_date, group_expr, desc, dry_run
     for i in range(0, len(item_ids), 20):
         batch = item_ids[i:i + 20]
         id_list = list(batch)
-        delete_batch_sql = build_delete_sql("AND item_id = ANY(:id_list)")
+        delete_batch_sql = build_delete_sql(
+            "AND item_id = ANY(:id_list)",
+            "AND ph2.item_id = ANY(:id_list)",
+        )
         try:
             batch_params = {**params, "id_list": id_list}
             result = db_session.execute(

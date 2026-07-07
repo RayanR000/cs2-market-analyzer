@@ -416,8 +416,12 @@ class DataPipeline:
                     successful=0,
                     failed=1,
                     duration_seconds=duration_seconds,
-                    error_message=str(e)
+                    # error_message is VARCHAR(1000); oversized values abort
+                    # the failure record itself
+                    error_message=str(e)[:1000]
                 )
+                # discard the failed transaction so this insert can commit
+                self.db_session.rollback()
                 self.db_session.add(failed_run)
                 self.db_session.commit()
             except Exception as record_error:
@@ -1068,8 +1072,12 @@ class DataPipeline:
                     successful=0,
                     failed=1,
                     duration_seconds=duration_seconds,
-                    error_message=str(e)
+                    # error_message is VARCHAR(1000); oversized values abort
+                    # the failure record itself
+                    error_message=str(e)[:1000]
                 )
+                # discard the failed transaction so this insert can commit
+                self.db_session.rollback()
                 self.db_session.add(failed_run)
                 self.db_session.commit()
             except Exception as record_error:
