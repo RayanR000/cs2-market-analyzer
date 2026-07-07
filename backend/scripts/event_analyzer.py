@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import SessionLocal, Event, Item, PriceHistory, EventImpact, EventPattern, EventCorrelation
+from sqlalchemy import func
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,22 +43,26 @@ class EventAnalyzer:
         start_dt = datetime.combine(start_date, datetime.min.time())
         end_dt = datetime.combine(end_date, datetime.max.time())
 
-        prices = self.db.query(PriceHistory).filter(
+        rows = self.db.query(
+            PriceHistory.item_id,
+            PriceHistory.timestamp,
+            PriceHistory.price
+        ).filter(
             PriceHistory.item_id.in_(item_ids),
             PriceHistory.timestamp >= start_dt,
             PriceHistory.timestamp <= end_dt
         ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
 
         # Organize by item_id for fast lookup
-        for price in prices:
-            if price.item_id not in self.price_cache:
-                self.price_cache[price.item_id] = []
-                self.price_timestamps[price.item_id] = []
+        for item_id, timestamp, price in rows:
+            if item_id not in self.price_cache:
+                self.price_cache[item_id] = []
+                self.price_timestamps[item_id] = []
 
-            self.price_cache[price.item_id].append((price.timestamp, price.price))
-            self.price_timestamps[price.item_id].append(price.timestamp)
+            self.price_cache[item_id].append((timestamp, price))
+            self.price_timestamps[item_id].append(timestamp)
 
-        logger.info(f"Loaded {len(prices)} price records into cache")
+        logger.info(f"Loaded {len(rows)} price records into cache")
 
     def get_price_on_date(self, item_id, target_date):
         """Get the closest price to a target date from cache."""
@@ -105,7 +110,12 @@ class EventAnalyzer:
         return ((price_after - price_before) / price_before) * 100
 
     def record_event_impact(self, event, item_id=None):
-        """Record price changes around an event for an item."""
+        """Record price changes around an event for an item.
+
+        Returns None when the item has no usable price data around the event
+        (every impact metric needs price_before), so no-signal pairs don't
+        become all-NULL rows.
+        """
         event_date = event.timestamp.date()
         day_before = event_date - timedelta(days=1)
         day_1 = event_date
@@ -113,9 +123,15 @@ class EventAnalyzer:
         day_7 = event_date + timedelta(days=7)
 
         price_before = self.get_price_on_date(item_id, day_before)
+        if price_before is None or price_before == 0:
+            return None
+
         price_day_1 = self.get_price_on_date(item_id, day_1)
         price_day_3 = self.get_price_on_date(item_id, day_3)
         price_day_7 = self.get_price_on_date(item_id, day_7)
+
+        if price_day_1 is None and price_day_3 is None and price_day_7 is None:
+            return None
 
         # Calculate impacts
         impact_1day = self.get_price_change_percentage(price_before, price_day_1)
@@ -182,23 +198,16 @@ class EventAnalyzer:
 
         return impact
 
-    def build_event_patterns(self):
-        """Build event patterns from recorded impacts in one grouped pass."""
-        impact_rows = self.db.query(
-            Event.type,
-            EventImpact.item_id,
-            EventImpact.impact_pct_1day,
-            EventImpact.impact_pct_3day,
-            EventImpact.impact_pct_7day
-        ).join(
-            Event, EventImpact.event_id == Event.id
-        ).filter(
-            EventImpact.item_id.isnot(None)
-        ).all()
-
+    def build_event_patterns(self, impacts, event_type_by_id):
+        """Build event patterns from the in-memory impacts in one grouped pass."""
         grouped = defaultdict(list)
-        for event_type, item_id, impact_1day, impact_3day, impact_7day in impact_rows:
-            grouped[(event_type, item_id)].append((impact_1day, impact_3day, impact_7day))
+        for impact in impacts:
+            if impact.item_id is None:
+                continue
+            event_type = event_type_by_id.get(impact.event_id)
+            grouped[(event_type, impact.item_id)].append(
+                (impact.impact_pct_1day, impact.impact_pct_3day, impact.impact_pct_7day)
+            )
 
         patterns = {}
         for (event_type, item_id), impacts in grouped.items():
@@ -328,10 +337,23 @@ class EventAnalyzer:
         total_events = len(events)
         logger.info(f"Analyzing {total_events} events...")
 
-        # Analyze top 1000 items by trading volume (can adjust this number)
-        top_items = self.db.query(Item.id).limit(1000).all()
+        # Analyze the 1000 items with the richest price history, so the
+        # limit keeps the most informative items instead of an arbitrary set.
+        top_items = self.db.query(
+            PriceHistory.item_id
+        ).group_by(
+            PriceHistory.item_id
+        ).order_by(
+            func.count(PriceHistory.id).desc()
+        ).limit(1000).all()
         item_ids = [item[0] for item in top_items]
         logger.info(f"Analyzing {len(item_ids)} items")
+
+        # Full rebuild: clear previous results so re-runs don't duplicate rows.
+        self.db.query(EventCorrelation).delete(synchronize_session=False)
+        self.db.query(EventPattern).delete(synchronize_session=False)
+        self.db.query(EventImpact).delete(synchronize_session=False)
+        self.db.commit()
 
         # Batch load all prices needed for analysis (single query vs thousands)
         # Get date range: earliest event minus 1 day to latest event plus 7 days
@@ -354,54 +376,64 @@ class EventAnalyzer:
         correlations_validated = 0
         impact_lookup = {}
 
+        # Only iterate items that actually have cached prices; items without
+        # any data in the event window can never produce an impact.
+        items_with_data = [item_id for item_id in item_ids if item_id in self.price_cache]
+
         # 1. Record impacts for each event-item pair
+        impacts = []
         for event in events:
-            for item_id in item_ids:
+            for item_id in items_with_data:
                 try:
                     impact = self.record_event_impact(event, item_id)
                     if impact:
-                        self.db.add(impact)
+                        impacts.append(impact)
                         impact_lookup[(event.id, item_id)] = impact
                         impacts_recorded += 1
                 except Exception as e:
                     logger.warning(f"Error recording impact for event {event.id}, item {item_id}: {e}")
 
-        if impacts_recorded > 0:
+        if impacts:
+            self.db.bulk_save_objects(impacts)
             self.db.commit()
             logger.info(f"Recorded {impacts_recorded} event impacts")
 
         # 2. Learn patterns from events by type in one grouped pass
-        patterns = self.build_event_patterns()
-        for pattern in patterns.values():
-            self.db.add(pattern)
-            patterns_learned += 1
-
-        if patterns_learned > 0:
+        event_type_by_id = {event.id: event.type for event in events}
+        patterns = self.build_event_patterns(impacts, event_type_by_id)
+        if patterns:
+            self.db.bulk_save_objects(list(patterns.values()))
             self.db.commit()
+            patterns_learned = len(patterns)
             logger.info(f"Learned {patterns_learned} event patterns")
 
-        # 3. Validate correlations for each event-item pair
+        # 3. Validate correlations for each recorded event-item impact
+        correlations = []
         for event in events:
             event_date = event.timestamp.date()
             control_avg = control_avg_by_date.get(event_date)
             same_day_events = max(0, same_day_counts[event_date] - 1)
-            for item_id in item_ids:
+            for item_id in items_with_data:
+                impact = impact_lookup.get((event.id, item_id))
+                if impact is None:
+                    continue
                 try:
                     correlation = self.validate_event_correlation(
                         event,
                         item_id,
-                        impact=impact_lookup.get((event.id, item_id)),
+                        impact=impact,
                         pattern=patterns.get((event.type, item_id)),
                         control_avg=control_avg,
                         same_day_events=same_day_events
                     )
                     if correlation:
-                        self.db.add(correlation)
+                        correlations.append(correlation)
                         correlations_validated += 1
                 except Exception as e:
                     logger.warning(f"Error validating correlation for event {event.id}, item {item_id}: {e}")
 
-        if correlations_validated > 0:
+        if correlations:
+            self.db.bulk_save_objects(correlations)
             self.db.commit()
             logger.info(f"Validated {correlations_validated} event correlations")
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from database import SessionLocal, PriceHistory
 from prune_database import downsample_price_history, prune_trend_indicators

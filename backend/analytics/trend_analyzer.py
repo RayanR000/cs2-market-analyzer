@@ -153,25 +153,23 @@ class TrendAnalyzer:
         """
         if len(prices) < 26:
             return None
-        
+
         try:
-            # Compute exponential moving averages
-            def ema(data: List[float], period: int) -> float:
-                if len(data) < period:
-                    return statistics.mean(data)
+            def ema_series(data: List[float], period: int) -> List[float]:
                 alpha = 2 / (period + 1)
-                ema_val = data[0]
+                out = [data[0]]
                 for price in data[1:]:
-                    ema_val = price * alpha + ema_val * (1 - alpha)
-                return ema_val
-            
-            ema_12 = ema(prices[-26:], 12) if len(prices) >= 12 else 0
-            ema_26 = ema(prices[-26:], 26) if len(prices) >= 26 else 0
-            
-            macd_line = ema_12 - ema_26
-            
-            # Signal line is 9-period EMA of MACD
-            signal_line = ema([macd_line], 9) if macd_line != 0 else 0
+                    out.append(price * alpha + out[-1] * (1 - alpha))
+                return out
+
+            # MACD series over the full history so the signal line
+            # (9-period EMA of MACD) has real values to smooth.
+            ema_12 = ema_series(prices, 12)
+            ema_26 = ema_series(prices, 26)
+            macd_series = [f - s for f, s in zip(ema_12, ema_26)]
+
+            macd_line = macd_series[-1]
+            signal_line = ema_series(macd_series, 9)[-1]
             histogram = macd_line - signal_line
             
             return {

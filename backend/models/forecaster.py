@@ -109,20 +109,14 @@ class ItemForecaster:
             col = f"price_lag_{lag}d"
             df[f"return_{lag}d"] = (df["price"] - df[col]) / df[col].replace(0, np.nan) * 100
 
-        # Rolling statistics
+        # Rolling statistics (groupby.rolling is vectorized; transform(lambda)
+        # would fall back to a Python loop per group)
         for window in [7, 14, 30]:
-            df[f"price_mean_{window}d"] = grouped["price"].transform(
-                lambda x: x.rolling(window, min_periods=3).mean()
-            )
-            df[f"price_std_{window}d"] = grouped["price"].transform(
-                lambda x: x.rolling(window, min_periods=3).std()
-            )
-            df[f"price_min_{window}d"] = grouped["price"].transform(
-                lambda x: x.rolling(window, min_periods=3).min()
-            )
-            df[f"price_max_{window}d"] = grouped["price"].transform(
-                lambda x: x.rolling(window, min_periods=3).max()
-            )
+            roll = grouped["price"].rolling(window, min_periods=3)
+            df[f"price_mean_{window}d"] = roll.mean().reset_index(level=0, drop=True)
+            df[f"price_std_{window}d"] = roll.std().reset_index(level=0, drop=True)
+            df[f"price_min_{window}d"] = roll.min().reset_index(level=0, drop=True)
+            df[f"price_max_{window}d"] = roll.max().reset_index(level=0, drop=True)
 
         # Z-score vs 30d rolling
         mean_30 = df["price_mean_30d"]
@@ -133,9 +127,9 @@ class ItemForecaster:
         if "volume" in df.columns and df["volume"].notna().any():
             df["volume_lag_1d"] = grouped["volume"].shift(1)
             df["volume_lag_7d"] = grouped["volume"].shift(7)
-            df["volume_mean_7d"] = grouped["volume"].transform(
-                lambda x: x.rolling(7, min_periods=2).mean()
-            )
+            df["volume_mean_7d"] = grouped["volume"].rolling(
+                7, min_periods=2
+            ).mean().reset_index(level=0, drop=True)
             df["volume_change_1d"] = df["volume"] / df["volume_lag_1d"].replace(0, np.nan)
             df["volume_change_7d"] = df["volume"] / df["volume_lag_7d"].replace(0, np.nan)
         else:
@@ -216,9 +210,7 @@ class ItemForecaster:
     def prepare_targets(self, df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         logger.info(f"Preparing {horizon}d targets...")
         df = df.sort_values(["item_id", "date"]).copy()
-        df[f"target_{horizon}d"] = df.groupby("item_id")["price"].transform(
-            lambda x: x.shift(-horizon)
-        )
+        df[f"target_{horizon}d"] = df.groupby("item_id")["price"].shift(-horizon)
         df[f"target_return_{horizon}d"] = (
             (df[f"target_{horizon}d"] - df["price"]) / df["price"].replace(0, np.nan) * 100
         )
@@ -315,21 +307,22 @@ class ItemForecaster:
         for horizon in self.HORIZONS:
             tdf = targets_by_horizon[horizon]
 
+            # Sampling is deterministic (fixed random_state), so build the
+            # train/val split once per horizon and reuse it for all quantiles.
+            train_df = self._sample_training_data(tdf, horizon, max_rows)
+            train_df = train_df.sort_values("date")
+            split_idx = int(len(train_df) * 0.8)
+
+            train_set = train_df.iloc[:split_idx]
+            val_set = train_df.iloc[split_idx:]
+
+            X_train = train_set[self.feature_cols].fillna(0)
+            y_train = train_set[f"target_{horizon}d"]
+            X_val = val_set[self.feature_cols].fillna(0)
+            y_val = val_set[f"target_{horizon}d"]
+
             for q in self.QUANTILES:
                 logger.info(f"Training {horizon}d p{int(q*100)} model...")
-                train_df = self._sample_training_data(tdf, horizon, max_rows)
-
-                train_df = train_df.sort_values("date")
-                train_dates = pd.to_datetime(train_df["date"])
-                split_idx = int(len(train_df) * 0.8)
-
-                train_set = train_df.iloc[:split_idx]
-                val_set = train_df.iloc[split_idx:]
-
-                X_train = train_set[self.feature_cols].fillna(0)
-                y_train = train_set[f"target_{horizon}d"]
-                X_val = val_set[self.feature_cols].fillna(0)
-                y_val = val_set[f"target_{horizon}d"]
 
                 params = {
                     "objective": "quantile",
@@ -404,7 +397,21 @@ class ItemForecaster:
 
         X_batch = latest_rows[self.feature_cols].fillna(0)
 
-        results = []
+        item_id_arr = latest_rows["item_id"].to_numpy()
+        current_price_arr = latest_rows["price"].to_numpy()
+        generated_at = self._now()
+
+        # One row per item, filled in horizon by horizon.
+        agg = {
+            iid: {
+                "item_id": iid,
+                "current_price": float(cur),
+                "forecasts": {},
+                "generated_at": generated_at,
+            }
+            for iid, cur in zip(item_id_arr, current_price_arr)
+        }
+
         for horizon in self.HORIZONS:
             preds = {}
             for q in self.QUANTILES:
@@ -412,45 +419,29 @@ class ItemForecaster:
                 if key in self.models:
                     preds[q] = self.models[key].predict(X_batch)
 
-            if len(preds) == 3:
-                lows = np.round(preds[0.1], 2)
-                mids = np.round(preds[0.5], 2)
-                highs = np.round(preds[0.9], 2)
+            if len(preds) != 3:
+                continue
 
-                for i, (_, row) in enumerate(latest_rows.iterrows()):
-                    item_id = row["item_id"]
-                    current_price = row["price"]
-                    prices = sorted([float(lows[i]), float(mids[i]), float(highs[i])])
+            # Sort the quantile predictions per item so low <= mid <= high
+            # even when quantile crossing occurs.
+            quantile_preds = np.sort(
+                np.round(np.vstack([preds[0.1], preds[0.5], preds[0.9]]), 2), axis=0
+            )
 
-                    results.append({
-                        "item_id": item_id,
-                        "current_price": current_price,
-                        "forecasts": {
-                            horizon: {
-                                "low": prices[0],
-                                "mid": prices[1],
-                                "high": prices[2],
-                                "direction": "up" if prices[1] > current_price else "down" if prices[1] < current_price else "flat",
-                                "confidence": self._compute_confidence(prices[1], prices[0], prices[2], current_price),
-                            }
-                        },
-                        "generated_at": self._now(),
-                    })
-
-        # Aggregate results: one row per item with all horizons
-        agg = {}
-        for r in results:
-            iid = r["item_id"]
-            if iid not in agg:
-                agg[iid] = {
-                    "item_id": iid,
-                    "current_price": r["current_price"],
-                    "forecasts": {},
-                    "generated_at": r["generated_at"],
+            for i, iid in enumerate(item_id_arr):
+                low, mid, high = (float(quantile_preds[0, i]),
+                                  float(quantile_preds[1, i]),
+                                  float(quantile_preds[2, i]))
+                current_price = float(current_price_arr[i])
+                agg[iid]["forecasts"][horizon] = {
+                    "low": low,
+                    "mid": mid,
+                    "high": high,
+                    "direction": "up" if mid > current_price else "down" if mid < current_price else "flat",
+                    "confidence": self._compute_confidence(mid, low, high, current_price),
                 }
-            agg[iid]["forecasts"].update(r["forecasts"])
 
-        result_df = pd.DataFrame(list(agg.values()))
+        result_df = pd.DataFrame([r for r in agg.values() if r["forecasts"]])
         logger.info(f"  Forecasts generated for {len(result_df)} items")
         return result_df
 

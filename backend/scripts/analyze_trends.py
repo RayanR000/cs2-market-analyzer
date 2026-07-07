@@ -16,7 +16,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import SessionLocal, Item, PriceHistory, DailyAnalysis, utcnow_naive
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -54,7 +54,8 @@ class TrendAnalyzer:
 
     def __init__(self, db_session):
         self.db = db_session
-        self.analysis_date = datetime.utcnow().date()
+        self.now = utcnow_naive()
+        self.analysis_date = self.now.date()
 
     def _daily_analysis_upsert(self, rows):
         """Upsert daily analysis rows in one database round trip."""
@@ -93,25 +94,41 @@ class TrendAnalyzer:
             )
             self.db.execute(stmt)
 
-    def get_item_price_history(self, item_id, days=90):
-        """Fetch price history for an item."""
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+    @staticmethod
+    def _to_daily(rows):
+        """Collapse raw (timestamp, price) rows to one (date, mean price) per day.
 
-        prices = self.db.query(PriceHistory).filter(
+        Prices are collected several times a day, so windowing over raw rows
+        makes "7-day" metrics actually span ~2 days. All MA/momentum math
+        operates on this daily series instead.
+        """
+        by_day = defaultdict(list)
+        for timestamp, price in rows:
+            by_day[timestamp.date()].append(price)
+        return [(day, sum(prices) / len(prices)) for day, prices in sorted(by_day.items())]
+
+    def get_item_price_history(self, item_id, days=90):
+        """Fetch daily price history for an item."""
+        cutoff_date = self.now - timedelta(days=days)
+
+        rows = self.db.query(
+            PriceHistory.timestamp,
+            PriceHistory.price
+        ).filter(
             PriceHistory.item_id == item_id,
             PriceHistory.timestamp >= cutoff_date,
             ~PriceHistory.source.like('synthetic_demo'),
             ~PriceHistory.source.like('historical_fallback:%'),
         ).order_by(PriceHistory.timestamp).all()
 
-        return [(p.timestamp, p.price) for p in prices]
+        return self._to_daily(rows)
 
     def get_recent_price_history_bulk(self, item_ids, days=90):
-        """Fetch recent price history for many items in one query."""
+        """Fetch recent daily price history for many items in one query."""
         if not item_ids:
             return {}
 
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = self.now - timedelta(days=days)
         rows = self.db.query(
             PriceHistory.item_id,
             PriceHistory.timestamp,
@@ -123,11 +140,11 @@ class TrendAnalyzer:
             ~PriceHistory.source.like('historical_fallback:%'),
         ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
 
-        prices_by_item = defaultdict(list)
+        raw_by_item = defaultdict(list)
         for item_id, timestamp, price in rows:
-            prices_by_item[item_id].append((timestamp, price))
+            raw_by_item[item_id].append((timestamp, price))
 
-        return prices_by_item
+        return {item_id: self._to_daily(item_rows) for item_id, item_rows in raw_by_item.items()}
 
     def get_update_counts_bulk(self, item_ids, start_dt, end_dt=None):
         """Fetch per-item update counts for a date window in one query."""
@@ -149,6 +166,26 @@ class TrendAnalyzer:
 
         rows = query.group_by(PriceHistory.item_id).all()
         return {item_id: count for item_id, count in rows}
+
+    def get_volume_window_counts_bulk(self, item_ids, mid_dt, start_dt):
+        """Fetch recent (>= mid) and older (start..mid) update counts in one query."""
+        if not item_ids:
+            return {}, {}
+
+        rows = self.db.query(
+            PriceHistory.item_id,
+            func.sum(case((PriceHistory.timestamp >= mid_dt, 1), else_=0)),
+            func.sum(case((PriceHistory.timestamp < mid_dt, 1), else_=0)),
+        ).filter(
+            PriceHistory.item_id.in_(item_ids),
+            PriceHistory.timestamp >= start_dt,
+            ~PriceHistory.source.like('synthetic_demo'),
+            ~PriceHistory.source.like('historical_fallback:%'),
+        ).group_by(PriceHistory.item_id).all()
+
+        recent = {item_id: int(r or 0) for item_id, r, _ in rows}
+        older = {item_id: int(o or 0) for item_id, _, o in rows}
+        return recent, older
 
     def calculate_moving_average(self, prices, days):
         """Calculate moving average for last N days."""
@@ -262,8 +299,8 @@ class TrendAnalyzer:
 
             # Simple volume trend (more price updates = more trading)
             if recent_updates is None or older_updates is None:
-                seven_days_ago = datetime.utcnow() - timedelta(days=7)
-                fourteen_days_ago = datetime.utcnow() - timedelta(days=14)
+                seven_days_ago = self.now - timedelta(days=7)
+                fourteen_days_ago = self.now - timedelta(days=14)
 
                 if recent_updates is None:
                     recent_updates = self.db.query(PriceHistory).filter(
@@ -324,7 +361,7 @@ class TrendAnalyzer:
         results = []
 
         # Only pull full history for items that already have enough recent data.
-        ninety_day_cutoff = datetime.utcnow() - timedelta(days=90)
+        ninety_day_cutoff = self.now - timedelta(days=90)
         ninety_day_counts = self.db.query(
             PriceHistory.item_id,
             func.count(PriceHistory.id)
@@ -349,10 +386,11 @@ class TrendAnalyzer:
 
         prices_by_item = self.get_recent_price_history_bulk(eligible_item_ids, days=90)
 
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
-        fourteen_days_ago = datetime.utcnow() - timedelta(days=14)
-        recent_update_counts = self.get_update_counts_bulk(eligible_item_ids, seven_days_ago)
-        older_update_counts = self.get_update_counts_bulk(eligible_item_ids, fourteen_days_ago, seven_days_ago)
+        seven_days_ago = self.now - timedelta(days=7)
+        fourteen_days_ago = self.now - timedelta(days=14)
+        recent_update_counts, older_update_counts = self.get_volume_window_counts_bulk(
+            eligible_item_ids, seven_days_ago, fourteen_days_ago
+        )
 
         skipped = total_items - len(eligible_item_ids)
         processed = 0

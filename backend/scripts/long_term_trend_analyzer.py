@@ -12,12 +12,13 @@ Time window strategy:
 import sys
 import logging
 from pathlib import Path
+from collections import defaultdict
 from datetime import datetime, timedelta
 from statistics import mean, stdev
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from database import SessionLocal, Item, PriceHistory, TrendIndicator
+from database import SessionLocal, Item, PriceHistory, TrendIndicator, utcnow_naive
 from sqlalchemy import func
 
 logging.basicConfig(
@@ -28,46 +29,55 @@ logger = logging.getLogger("long_term_analyzer")
 
 
 class LongTermTrendAnalyzer:
+    # Items fetched per bulk history query; bounds memory usage.
+    ITEM_CHUNK_SIZE = 500
+
     def __init__(self, db_session):
         self.db = db_session
-        self.analysis_date = datetime.utcnow()
+        self.analysis_date = utcnow_naive()
         self.min_data_points = 7
         self.min_age_days = 60
         self.max_lookback_days = 365 * 3  # 3 years
 
-    def get_item_age_days(self, item_id):
-        """Get days since item was first seen in database."""
-        first_price = self.db.query(func.min(PriceHistory.timestamp)).filter(
-            PriceHistory.item_id == item_id
-        ).scalar()
+    def get_first_seen_bulk(self):
+        """Get first price timestamp for every item in one grouped query."""
+        rows = self.db.query(
+            PriceHistory.item_id,
+            func.min(PriceHistory.timestamp)
+        ).group_by(PriceHistory.item_id).all()
 
-        if not first_price:
-            return 0
+        return {item_id: first_seen for item_id, first_seen in rows}
 
-        age = (self.analysis_date - first_price).days
-        return age
+    def get_price_history_bulk(self, item_ids):
+        """Fetch daily price history for a chunk of items in one query.
 
-    def get_item_price_history(self, item_id):
-        """Fetch price history from release date (or 3yr cap)."""
-        first_price_date = self.db.query(func.min(PriceHistory.timestamp)).filter(
-            PriceHistory.item_id == item_id
-        ).scalar()
+        A single 3-year cutoff is correct for every item: items younger than
+        the cap simply have no rows before their first price. Raw rows are
+        collapsed to one mean price per day so "N-day" windows really span
+        N days rather than N collection runs.
+        """
+        if not item_ids:
+            return {}
 
-        if not first_price_date:
-            return []
+        lookback_date = self.analysis_date - timedelta(days=self.max_lookback_days)
 
-        # Calculate lookback: use all data but cap at 3 years
-        lookback_date = max(
-            first_price_date,
-            self.analysis_date - timedelta(days=self.max_lookback_days)
-        )
-
-        prices = self.db.query(PriceHistory).filter(
-            PriceHistory.item_id == item_id,
+        rows = self.db.query(
+            PriceHistory.item_id,
+            PriceHistory.timestamp,
+            PriceHistory.price
+        ).filter(
+            PriceHistory.item_id.in_(item_ids),
             PriceHistory.timestamp >= lookback_date
-        ).order_by(PriceHistory.timestamp).all()
+        ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
 
-        return [(p.timestamp, p.price) for p in prices]
+        daily = defaultdict(lambda: defaultdict(list))
+        for item_id, timestamp, price in rows:
+            daily[item_id][timestamp.date()].append(price)
+
+        return {
+            item_id: [(day, sum(prices) / len(prices)) for day, prices in sorted(days.items())]
+            for item_id, days in daily.items()
+        }
 
     def calculate_moving_average(self, prices, days):
         """Calculate moving average for last N days."""
@@ -91,15 +101,26 @@ class LongTermTrendAnalyzer:
         return ((new_price - old_price) / old_price) * 100
 
     def calculate_volatility(self, prices):
-        """Calculate price volatility (standard deviation)."""
+        """Calculate price volatility as a percentage of the mean price.
+
+        Using the coefficient of variation keeps the value comparable across
+        cheap and expensive items and keeps price_stability (100 - volatility)
+        meaningful.
+        """
         if not prices or len(prices) < 2:
             return 0
 
         price_list = [p[1] for p in prices]
-        try:
-            return stdev(price_list)
-        except:
+        mean_price = mean(price_list)
+        if mean_price == 0:
             return 0
+
+        try:
+            volatility_pct = (stdev(price_list) / mean_price) * 100
+        except Exception:
+            return 0
+
+        return min(volatility_pct, 100.0)
 
     def determine_trend(self, ma_7, ma_30):
         """Determine trend direction based on moving averages."""
@@ -137,15 +158,11 @@ class LongTermTrendAnalyzer:
 
         return max(-100, min(100, opportunity))
 
-    def analyze_item(self, item_id):
-        """Analyze a single item using full history."""
+    def analyze_item(self, item_id, prices, age_days):
+        """Analyze a single item using its (pre-fetched) daily history."""
         try:
-            # Check if item is old enough
-            age_days = self.get_item_age_days(item_id)
             if age_days < self.min_age_days:
                 return None
-
-            prices = self.get_item_price_history(item_id)
 
             # Need at least minimum data points
             if not prices or len(prices) < self.min_data_points:
@@ -206,46 +223,62 @@ class LongTermTrendAnalyzer:
         total_items = len(all_items)
         logger.info(f"Total items in database: {total_items}")
 
-        analyzed = 0
+        first_seen = self.get_first_seen_bulk()
+
+        eligible = []
         skipped = 0
-        created_records = 0
-
         for (item_id,) in all_items:
-            result = self.analyze_item(item_id)
-
-            if result:
-                # Create trend indicator record
-                trend_indicator = TrendIndicator(
-                    item_id=item_id,
-                    timestamp=self.analysis_date,
-                    sma_7=result['ma_7day'],
-                    sma_30=result['ma_30day'],
-                    volatility=result['volatility'],
-                    trend_score=result['momentum_score'],
-                    trend_direction=result['trend_direction'],
-                    confidence='high' if result['data_points'] > 100 else 'medium'
-                )
-                self.db.add(trend_indicator)
-                analyzed += 1
-                created_records += 1
-
-                if analyzed % 500 == 0:
-                    logger.info(f"Progress: {analyzed} items analyzed...")
+            seen = first_seen.get(item_id)
+            age_days = (self.analysis_date - seen).days if seen else 0
+            if age_days >= self.min_age_days:
+                eligible.append((item_id, age_days))
             else:
                 skipped += 1
 
+        logger.info(f"Eligible items (>= {self.min_age_days} days old): {len(eligible)}")
+
+        analyzed = 0
+        indicator_rows = []
+
+        for start in range(0, len(eligible), self.ITEM_CHUNK_SIZE):
+            chunk = eligible[start:start + self.ITEM_CHUNK_SIZE]
+            prices_by_item = self.get_price_history_bulk([item_id for item_id, _ in chunk])
+
+            for item_id, age_days in chunk:
+                result = self.analyze_item(item_id, prices_by_item.get(item_id, []), age_days)
+
+                if result:
+                    indicator_rows.append({
+                        'item_id': item_id,
+                        'timestamp': self.analysis_date,
+                        'sma_7': result['ma_7day'],
+                        'sma_30': result['ma_30day'],
+                        'volatility': result['volatility'],
+                        'trend_score': result['momentum_score'],
+                        'trend_direction': result['trend_direction'],
+                        'confidence': 'high' if result['data_points'] > 100 else 'medium'
+                    })
+                    analyzed += 1
+
+                    if analyzed % 500 == 0:
+                        logger.info(f"Progress: {analyzed} items analyzed...")
+                else:
+                    skipped += 1
+
+        if indicator_rows:
+            self.db.bulk_insert_mappings(TrendIndicator, indicator_rows)
         self.db.commit()
 
         logger.info(f"\n✅ Analysis complete:")
         logger.info(f"  Analyzed: {analyzed} items")
         logger.info(f"  Skipped: {skipped} items (too new or insufficient data)")
-        logger.info(f"  Records created: {created_records}")
+        logger.info(f"  Records created: {len(indicator_rows)}")
 
         return {
             'status': 'success',
             'analyzed': analyzed,
             'skipped': skipped,
-            'records_created': created_records
+            'records_created': len(indicator_rows)
         }
 
 

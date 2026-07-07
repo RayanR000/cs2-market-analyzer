@@ -48,7 +48,7 @@ def test_daily_analysis_upsert_uses_reflected_table():
     source = module_path.read_text()
 
     assert "sa.Table(table.name, sa.MetaData(), autoload_with=bind)" in source
-    assert "insert_stmt(target_table).values(filtered_rows)" in source
+    assert "insert_stmt(target_table).values(chunk)" in source
     assert "updated_at" not in source.split("DAILY_ANALYSIS_WRITE_COLUMNS = (", 1)[1].split(")", 1)[0]
 
 
