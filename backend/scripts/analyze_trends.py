@@ -153,7 +153,7 @@ class TrendAnalyzer:
 
         query = self.db.query(
             PriceHistory.item_id,
-            func.count(PriceHistory.id)
+            func.count(PriceHistory.item_id)
         ).filter(
             PriceHistory.item_id.in_(item_ids),
             PriceHistory.timestamp >= start_dt,
@@ -364,7 +364,7 @@ class TrendAnalyzer:
         ninety_day_cutoff = self.now - timedelta(days=90)
         ninety_day_counts = self.db.query(
             PriceHistory.item_id,
-            func.count(PriceHistory.id)
+            func.count(PriceHistory.item_id)
         ).filter(
             PriceHistory.item_id.in_(item_ids),
             PriceHistory.timestamp >= ninety_day_cutoff,

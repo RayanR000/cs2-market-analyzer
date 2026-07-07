@@ -344,7 +344,7 @@ class EventAnalyzer:
         ).group_by(
             PriceHistory.item_id
         ).order_by(
-            func.count(PriceHistory.id).desc()
+            func.count(PriceHistory.item_id).desc()
         ).limit(1000).all()
         item_ids = [item[0] for item in top_items]
         logger.info(f"Analyzing {len(item_ids)} items")

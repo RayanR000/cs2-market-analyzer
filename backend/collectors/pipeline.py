@@ -444,7 +444,8 @@ class DataPipeline:
             .order_by(
                 PriceHistory.item_id,
                 PriceHistory.timestamp.desc(),
-                PriceHistory.id.desc(),
+                PriceHistory.created_at.desc().nullslast(),
+                PriceHistory.source.desc(),
             )
             .all()
         )
@@ -473,7 +474,8 @@ class DataPipeline:
             .order_by(
                 PriceHistory.item_id,
                 PriceHistory.timestamp.desc(),
-                PriceHistory.id.desc(),
+                PriceHistory.created_at.desc().nullslast(),
+                PriceHistory.source.desc(),
             )
             .all()
         )
@@ -839,7 +841,7 @@ class DataPipeline:
         cutoff = datetime.utcnow() - timedelta(days=days)
         rows = self.db_session.query(
             PriceHistory.item_id,
-            func.count(PriceHistory.id)
+            func.count(PriceHistory.item_id)
         ).filter(
             PriceHistory.item_id.in_(item_ids),
             PriceHistory.timestamp >= cutoff,

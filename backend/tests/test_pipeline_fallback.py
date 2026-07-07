@@ -73,7 +73,11 @@ def test_full_aggregator_collection_recovers_exact_item_from_history(monkeypatch
         latest_row = (
             db.query(PriceHistory)
             .filter(PriceHistory.item_id == item.id)
-            .order_by(PriceHistory.timestamp.desc(), PriceHistory.id.desc())
+            .order_by(
+                PriceHistory.timestamp.desc(),
+                PriceHistory.created_at.desc().nullslast(),
+                PriceHistory.source.desc(),
+            )
             .first()
         )
         assert latest_row is not None
@@ -125,7 +129,11 @@ def test_full_aggregator_collection_does_not_stack_fallback_prefix(monkeypatch):
         latest_row = (
             db.query(PriceHistory)
             .filter(PriceHistory.item_id == item.id)
-            .order_by(PriceHistory.timestamp.desc(), PriceHistory.id.desc())
+            .order_by(
+                PriceHistory.timestamp.desc(),
+                PriceHistory.created_at.desc().nullslast(),
+                PriceHistory.source.desc(),
+            )
             .first()
         )
         assert latest_row is not None
@@ -170,7 +178,11 @@ def test_full_aggregator_collection_recovers_from_previous_aggregator_sync(monke
         latest_row = (
             db.query(PriceHistory)
             .filter(PriceHistory.item_id == item.id)
-            .order_by(PriceHistory.timestamp.desc(), PriceHistory.id.desc())
+            .order_by(
+                PriceHistory.timestamp.desc(),
+                PriceHistory.created_at.desc().nullslast(),
+                PriceHistory.source.desc(),
+            )
             .first()
         )
         assert latest_row is not None

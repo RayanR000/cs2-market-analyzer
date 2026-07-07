@@ -65,22 +65,21 @@ class PriceHistory(Base):
     """Price history model - time-series price data"""
     __tablename__ = "price_history"
 
-    id = Column(Integer, primary_key=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
-    timestamp = Column(DateTime, nullable=False, index=True)
+    # Composite natural primary key — no surrogate id. Saves the pkey index
+    # (~80 MB at 2.8M rows) and lets the PK arbitrate the
+    # ON CONFLICT (item_id, timestamp, source) upserts used by all writers.
+    item_id = Column(Integer, ForeignKey("items.id"), primary_key=True)
+    timestamp = Column(DateTime, primary_key=True, index=True)
     price = Column(Float, nullable=False)
     volume = Column(Integer, nullable=True)
     median_price = Column(Float, nullable=True)
-    source = Column(String(255), nullable=False, default="steam")
+    source = Column(String(255), primary_key=True, default="steam")
     created_at = Column(DateTime, default=utcnow_naive)
 
     item = relationship("Item", back_populates="price_histories")
 
     __table_args__ = (
-        Index('idx_price_history_item_timestamp', 'item_id', 'timestamp'),
         Index('idx_price_history_source', 'source'),
-        UniqueConstraint('item_id', 'timestamp', 'source',
-                         name='uq_price_history_item_timestamp_source'),
     )
 
 class CollectionRun(Base):

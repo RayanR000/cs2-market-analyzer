@@ -18,6 +18,10 @@ depends_on = None
 
 def _index_exists(bind, table_name: str, index_name: str) -> bool:
     inspector = sa.inspect(bind)
+    # The analysis tables were dropped from Supabase (Phase 0 cleanup) and are
+    # recreated separately; skip index creation when the table is absent.
+    if table_name not in inspector.get_table_names():
+        return True
     return any(
         idx["name"] == index_name
         for idx in inspector.get_indexes(table_name)
