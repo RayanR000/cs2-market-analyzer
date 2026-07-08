@@ -67,7 +67,11 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           ENVIRONMENT: production
           DEBUG: false
-        run: python scripts/append_to_parquet.py --date $(date -u +%F) --out-dir ../archive
+        run: >
+          python scripts/append_to_parquet.py
+          --date $(date -u +%F)
+          --out-dir ../archive
+          --backfilled-csv /tmp/aggregator-backfilled-$(date -u +%F).csv
 
       - name: Commit snapshot to data-archive
         working-directory: ./archive

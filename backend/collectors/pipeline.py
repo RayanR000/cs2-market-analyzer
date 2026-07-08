@@ -3,7 +3,9 @@ Data pipeline orchestration
 Manages scheduled data collection, validation, and storage
 """
 
+import csv
 import logging
+import os
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
 from typing import Any, Optional, List, Dict
@@ -189,33 +191,16 @@ class DataPipeline:
                 errors_count = sum(len(item_map[name]) for name in missing_names)
 
             # 4. Save prices
+            backfilled_csv_path = None
             if price_records:
-                # Two-tier storage: items with an imported historical series
-                # (market_csgo / steam_historical) accumulate daily history.
-                # Items without one keep only their latest snapshot — prior
-                # live rows are replaced each run, since CSMarketAPI provides
-                # the full daily series when an item is eventually promoted
-                # by a monthly backfill run.
-                hist_item_ids = {
-                    row[0]
-                    for row in self.db_session.execute(text(
-                        "SELECT DISTINCT item_id FROM price_history "
-                        "WHERE source IN ('market_csgo', 'steam_historical')"
-                    ))
-                }
-                snapshot_ids = list({
-                    r.item_id for r in price_records
-                    if r.item_id not in hist_item_ids
-                })
-                for i in range(0, len(snapshot_ids), 1000):
-                    self.db_session.execute(
-                        text(
-                            "DELETE FROM price_history "
-                            "WHERE item_id IN :ids "
-                            "AND source NOT IN ('market_csgo', 'steam_historical')"
-                        ).bindparams(bindparam("ids", expanding=True)),
-                        {"ids": snapshot_ids[i:i + 1000]},
-                    )
+                from database import Item
+
+                # Get backfilled items: slug map and id set in one query
+                backfilled_items = self.db_session.query(Item.id, Item.item_id).filter(
+                    Item.is_backfilled == True
+                ).all()
+                id_to_slug = {row.id: row.item_id for row in backfilled_items}
+                hist_item_ids = set(id_to_slug.keys())
 
                 rows_as_dicts = [
                     {
@@ -227,15 +212,48 @@ class DataPipeline:
                     }
                     for r in price_records
                 ]
-                self.db_session.execute(
-                    text("""
-                        INSERT INTO price_history (item_id, timestamp, price, volume, source)
-                        VALUES (:item_id, :timestamp, :price, :volume, :source)
-                        ON CONFLICT (item_id, timestamp, source) DO NOTHING
-                    """),
-                    rows_as_dicts,
-                )
-                logger.info(f"Saving {len(price_records)} price records...")
+
+                # Split: backfilled items go to Parquet, snapshot to Supabase
+                backfilled_dicts = [d for d in rows_as_dicts if d["item_id"] in hist_item_ids]
+                snapshot_dicts = [d for d in rows_as_dicts if d["item_id"] not in hist_item_ids]
+
+                # Delete old snapshot rows for snapshot-tier items
+                snapshot_ids = list({d["item_id"] for d in snapshot_dicts})
+                for i in range(0, len(snapshot_ids), 1000):
+                    self.db_session.execute(
+                        text(
+                            "DELETE FROM price_history "
+                            "WHERE item_id IN :ids "
+                            "AND source NOT IN ('market_csgo', 'steam_historical')"
+                        ).bindparams(bindparam("ids", expanding=True)),
+                        {"ids": snapshot_ids[i:i + 1000]},
+                    )
+
+                # Insert only snapshot items into price_history
+                if snapshot_dicts:
+                    self.db_session.execute(
+                        text("""
+                            INSERT INTO price_history (item_id, timestamp, price, volume, source)
+                            VALUES (:item_id, :timestamp, :price, :volume, :source)
+                            ON CONFLICT (item_id, timestamp, source) DO NOTHING
+                        """),
+                        snapshot_dicts,
+                    )
+                    logger.info("Saved %s snapshot records to Supabase", len(snapshot_dicts))
+
+                # Write backfilled items to temp CSV for the Parquet pipeline
+                if backfilled_dicts:
+                    agg_date = now.strftime("%Y-%m-%d")
+                    csv_path = f"/tmp/aggregator-backfilled-{agg_date}.csv"
+                    with open(csv_path, "w", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["item_slug", "day", "price", "volume"])
+                        for d in backfilled_dicts:
+                            slug = id_to_slug.get(d["item_id"])
+                            if slug:
+                                writer.writerow([slug, agg_date, d["price"], d.get("volume", 0)])
+                    backfilled_csv_path = csv_path
+                    logger.info("Wrote %s backfilled records to %s", len(backfilled_dicts), csv_path)
 
             if missing_names:
                 sample_missing = missing_names[:20]
@@ -329,7 +347,8 @@ class DataPipeline:
                     name: aggregator.find_source_key_candidates(name, limit=5)
                     for name in missing_names[:5]
                 } if missing_names else {},
-                "duration_seconds": duration_seconds
+                "duration_seconds": duration_seconds,
+                "backfilled_csv_path": backfilled_csv_path,
             }
 
         except Exception as e:

@@ -67,6 +67,33 @@ def trending_items(
     )
 
 
+def _latest_prices(db: Session, item_ids: list[int]) -> dict[int, float]:
+    """Latest price per item from chart_points, falling back to price_history for snapshot items."""
+    prices = {}
+
+    cp_rows = (
+        db.query(ChartPoint.item_id, ChartPoint.close)
+        .filter(ChartPoint.item_id.in_(item_ids))
+        .distinct(ChartPoint.item_id)
+        .order_by(ChartPoint.item_id, desc(ChartPoint.day))
+        .all()
+    )
+    prices.update({r.item_id: r.close for r in cp_rows})
+
+    remaining = [iid for iid in item_ids if iid not in prices]
+    if remaining:
+        ph_rows = (
+            db.query(PriceHistory.item_id, PriceHistory.price)
+            .filter(PriceHistory.item_id.in_(remaining))
+            .distinct(PriceHistory.item_id)
+            .order_by(PriceHistory.item_id, desc(PriceHistory.timestamp))
+            .all()
+        )
+        prices.update({r.item_id: r.price for r in ph_rows})
+
+    return prices
+
+
 def _build_trending(db: Session, limit: int):
     items = (
         db.query(Item)
@@ -76,27 +103,7 @@ def _build_trending(db: Session, limit: int):
         .all()
     )
     item_ids = [i.id for i in items]
-
-    # Single query: latest price per item via a lateral-style subquery
-    latest_price_subq = (
-        db.query(
-            PriceHistory.item_id,
-            PriceHistory.price,
-        )
-        .filter(PriceHistory.item_id.in_(item_ids))
-        .order_by(PriceHistory.item_id, desc(PriceHistory.timestamp))
-        .subquery()
-    )
-    # Distinct on (item_id) — PostgreSQL-friendly, works on SQLite too via outermost query
-    latest_prices = {}
-    if item_ids:
-        rows = (
-            db.query(latest_price_subq.c.item_id, latest_price_subq.c.price)
-            .distinct(latest_price_subq.c.item_id)
-            .order_by(latest_price_subq.c.item_id, desc(latest_price_subq.c.price))
-            .all()
-        )
-        latest_prices = {row.item_id: row.price for row in rows}
+    latest_prices = _latest_prices(db, item_ids) if item_ids else {}
 
     result = [
         TrendingItemOut(
@@ -303,8 +310,16 @@ def get_item_trends(item_id: str, db: Session = Depends(get_db)):
         .order_by(desc(PriceHistory.timestamp))
         .first()
     )
-
-    current_price = latest_price.price if latest_price else 0.0
+    if latest_price is None:
+        cp = (
+            db.query(ChartPoint.close)
+            .filter(ChartPoint.item_id == item.id)
+            .order_by(desc(ChartPoint.day))
+            .first()
+        )
+        current_price = cp.close if cp else 0.0
+    else:
+        current_price = latest_price.price
     trend_dir = "neutral"
     confidence = "low"
     sma_7 = None
@@ -375,7 +390,16 @@ def get_item_prediction(
         .order_by(desc(PriceHistory.timestamp))
         .first()
     )
-    current_price = latest_price.price if latest_price else 0.0
+    if latest_price is None:
+        cp = (
+            db.query(ChartPoint.close)
+            .filter(ChartPoint.item_id == item.id)
+            .order_by(desc(ChartPoint.day))
+            .first()
+        )
+        current_price = cp.close if cp else 0.0
+    else:
+        current_price = latest_price.price
 
     if forecast:
         fl = forecast.price_low or current_price * 0.9

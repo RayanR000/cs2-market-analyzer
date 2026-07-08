@@ -2,12 +2,13 @@
 """
 Daily: append today's aggregator rows to the current year's Parquet file.
 
-Reads today's prices from Supabase (aggregator_sync, steam_batch sources),
-appends to archive/price-archive/prices-YYYY.parquet, then runs
-build_chart_points.py to upsert today's close.
+Reads today's snapshot-tier prices from Supabase and backfilled prices from
+a CSV (written by the aggregator), merges them, appends to Parquet, then
+runs build_chart_points.py to upsert today's close.
 
 Usage:
     python scripts/append_to_parquet.py --date 2026-07-08 --out-dir ../archive
+    python scripts/append_to_parquet.py --date 2026-07-08 --out-dir ../archive --backfilled-csv /tmp/aggregator-backfilled-2026-07-08.csv
 """
 
 import argparse
@@ -52,6 +53,10 @@ def main():
         help="Archive root; price-archive lives under this",
     )
     parser.add_argument(
+        "--backfilled-csv",
+        help="CSV of backfilled item prices (item_slug, day, price, volume)",
+    )
+    parser.add_argument(
         "--skip-chart-points",
         action="store_true",
         help="Skip the chart_points sync step",
@@ -61,20 +66,38 @@ def main():
     day_start = datetime.strptime(args.date, "%Y-%m-%d")
     day_end = day_start + timedelta(days=1)
 
-    # 1. Fetch today's rows from Supabase
+    frames = []
+
+    # 1. Fetch snapshot-tier rows from Supabase (backfilled items no longer go here)
     with engine.connect() as conn:
-        rows = conn.execute(
+        snapshot_rows = conn.execute(
             text(FETCH_TODAY_SQL),
             {"day_start": day_start, "day_end": day_end},
         ).fetchall()
 
-    if not rows:
-        print(f"No rows found for {args.date}")
+    if snapshot_rows:
+        frames.append(pd.DataFrame(
+            snapshot_rows,
+            columns=["item_slug", "day", "price", "volume", "median_price", "source"],
+        ))
+
+    # 2. Read backfilled items from CSV (written by the aggregator)
+    if args.backfilled_csv:
+        csv_path = Path(args.backfilled_csv)
+        if csv_path.exists():
+            backfilled_df = pd.read_csv(csv_path)
+            backfilled_df["median_price"] = None
+            backfilled_df["source"] = "aggregator_sync"
+            frames.append(backfilled_df)
+            print(f"Read {len(backfilled_df)} backfilled rows from {csv_path.name}")
+
+    if not frames:
+        print(f"No data found for {args.date}")
         sys.exit(0)
 
-    df = pd.DataFrame(rows, columns=["item_slug", "day", "price", "volume", "median_price", "source"])
+    df = pd.concat(frames, ignore_index=True)
 
-    # Collapse to daily mean/min/max/median/volume per item slug
+    # 3. Collapse to daily OHLCV per item slug
     daily = df.groupby(["item_slug", "day"]).agg(
         mean_price=("price", "mean"),
         min_price=("price", "min"),
@@ -83,14 +106,14 @@ def main():
         volume=("volume", "sum"),
     ).reset_index()
 
-    daily["day"] = daily["day"].dt.date
+    daily["day"] = pd.to_datetime(daily["day"]).dt.date
 
     year = day_start.year
     out_dir = Path(args.out_dir) / "price-archive"
     out_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = out_dir / f"prices-{year}.parquet"
 
-    # 2. Append to the year's Parquet file
+    # 4. Append to the year's Parquet file
     con = duckdb.connect()
     if parquet_path.exists():
         existing = con.sql(f"SELECT * FROM read_parquet('{parquet_path}')").fetchdf()
@@ -109,7 +132,7 @@ def main():
     size_mb = parquet_path.stat().st_size / (1024 * 1024)
     print(f"Appended {appended} rows to {parquet_path.name} ({total} total, {size_mb:.1f} MB)")
 
-    # 3. Sync to chart_points
+    # 5. Sync to chart_points
     if not args.skip_chart_points:
         import subprocess
         script_path = Path(__file__).parent / "build_chart_points.py"
