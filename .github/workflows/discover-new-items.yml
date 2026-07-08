@@ -1,10 +1,10 @@
 name: Discover New Items
 
 on:
-  schedule:
-    # Every Sunday at 22:00 UTC (before Monday forecast chain: aggregator 01:00 → trends 03:00 → forecast 04:00)
-    - cron: '0 22 * * 0'
-  workflow_dispatch: # Allow manual trigger if needed
+  # Schedule disabled 2026-07-08: the catalog intentionally contains only
+  # backfilled items; new items are added by the monthly CSMarketAPI
+  # backfill runs, not by Steam discovery. Manual trigger kept for one-offs.
+  workflow_dispatch:
 
 defaults:
   run:

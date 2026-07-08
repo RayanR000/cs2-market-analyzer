@@ -92,6 +92,17 @@ DB. This respects the "don't downsample, don't delete years" decisions — nothi
 destroyed; it just doesn't all live in the 500 MB tier. It also dissolves the Aiven
 performance concerns, since heavy scans never touch the hosted DB.
 
+## Update 2026-07-08 (later): snapshot tier retired — backfilled items only
+
+Product decision: the catalog now contains **only backfilled items** (5,525).
+The 13,796 snapshot-tier items were archived to
+`runtime/archived_items_2026-07-08.db` (item metadata) and deleted along with
+their snapshot price rows and degenerate forecasts. New items enter the
+catalog via the monthly CSMarketAPI backfill runs. The weekly Steam
+`discover-new-items` schedule is disabled (manual dispatch only) so the
+catalog doesn't regrow on its own. The two-tier collector logic remains in
+place and is simply a no-op while every item is backfilled.
+
 ## Two-tier price collection (applied 2026-07-08)
 
 Only 5,525 of 19,321 items have CSMarketAPI historical data; 12,328 more had
