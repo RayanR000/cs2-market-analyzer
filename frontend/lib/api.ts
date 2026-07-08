@@ -4,6 +4,15 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+export interface TrendingItem {
+  id: number;
+  item_id: string;
+  name: string;
+  type: string;
+  icon_url: string | null;
+  latest_price: number;
+}
+
 export interface Item {
   id: number;
   item_id: string;
@@ -104,6 +113,7 @@ export async function getItems(type?: string, skip = 0, limit = 50) {
   url.searchParams.append('limit', limit.toString());
 
   const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch items');
   return response.json();
 }
 
@@ -120,6 +130,7 @@ export async function getTrendingItems(limit = 10) {
   url.searchParams.append('limit', limit.toString());
 
   const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch trending items');
   return response.json();
 }
 

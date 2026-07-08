@@ -31,6 +31,9 @@ Analytical, precise, calm. The authority of a professional terminal without the 
 - **Comfortable Analysis.** A soft dark mode that reduces eye strain across long sessions. Visual comfort is a functional requirement, not a theme preference.
 - **Precision Tools.** Every control and component behaves exactly once — predictably, consistently, without surprise. The tool disappears into the task.
 - **Bespoke Authenticity.** No off-the-shelf component libraries. Custom OKLCH tokens, deliberate radii, intentional spacing. Earned familiarity, not templated familiarity.
+- **Purposeful Information Architecture.** Every route earns its existence. Navigation is obvious, hierarchy is clear, and users never wonder where to go next.
+- **Typographic Confidence.** Bold, intentional hierarchy. Every text element has a clear role — display, heading, label, data, or annotation. Nothing floats at an ambiguous weight.
+- **Rich but Not Loud.** The palette carries personality through restraint — deep surfaces, precise accents, and meaningful color only where it signals data or state.
 
 ## Accessibility & Inclusion
 

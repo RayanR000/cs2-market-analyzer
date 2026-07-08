@@ -8,6 +8,7 @@ class ItemOut(BaseModel):
     item_id: str
     name: str
     type: str
+    icon_url: Optional[str] = None
     release_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

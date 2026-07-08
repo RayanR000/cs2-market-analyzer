@@ -2,183 +2,206 @@
 
 ## Philosophy
 
-**Modern Analytical Boutique.** The precision of a high-end trading tool with the visual richness of a premium game showcase. Every data point is grounded by visual context. We prioritize breathing room and clarity over raw data density to ensure a "relaxed" analytical experience.
+**Analytical Instrument.** Not a dashboard, not a terminal — an instrument. Like a precision measuring tool, every element exists to clarify signal from noise. The interface recedes; the data speaks. Carbon surfaces provide deep, restful contrast for extended sessions. Amber accents punctuate only where attention is needed — a selection, a change, a call to action. Restraint is the brand.
 
 ## Color Strategy
 
-**Monochromatic Carbon:** A pure minimalist grayscale palette designed for ultimate data focus and clarity. By removing hue-based distraction, we allow the item assets and numbers to carry the full weight of the interface.
+**Restrained Carbon with Tinted Surface.** A near-monochrome dark palette where the neutral surfaces carry a subtle warm chroma (hue 30) at near-zero saturation. This prevents the "dead gray" feel of pure grayscale while keeping focus on the data. A single accent — warm amber — is used sparingly for primary actions, selection states, and meaningful emphasis.
 
 ### Palette (OKLCH)
 
 **Backgrounds:**
-- **Primary:** `oklch(12% 0 0)` — Deep carbon, main canvas.
-- **Secondary:** `oklch(15% 0 0)` — Subtle panel elevation.
-- **Tertiary:** `oklch(10% 0 0)` — Deepest layer, table headers, asset frames.
+- **Primary:** `oklch(18% 0.004 30)` — Soft carbon, main canvas. Not pitch black — restful without harshness.
+- **Secondary:** `oklch(22% 0.005 30)` — Elevated panel. Visible separation from canvas.
+- **Tertiary:** `oklch(15% 0.003 30)` — Deepest layer. Table headers, asset frames, recessed areas.
 
 **Surfaces:**
-- **Surface:** `oklch(18% 0 0)` — Interactive surfaces (cards, inputs).
-- **Surface-hover:** `oklch(22% 0 0)` — Hovered interactive surfaces.
-- **Surface-active:** `oklch(25% 0 0)` — Active/focused surfaces.
+- **Surface:** `oklch(26% 0.005 30)` — Interactive surfaces. Cards, inputs, clickable areas. Clearly visible against background.
+- **Surface-hover:** `oklch(30% 0.006 30)` — Hovered state. Subtle lift.
+- **Surface-active:** `oklch(33% 0.007 30)` — Active/pressed. Clear feedback.
 
 **Text:**
-- **Primary:** `oklch(95% 0 0)` — Stark white for body and headings.
-- **Secondary:** `oklch(70% 0 0)` — Muted gray for meta info and descriptions.
-- **Tertiary:** `oklch(50% 0 0)` — Lower-priority metadata.
-- **Muted:** `oklch(35% 0 0)` — Placeholder, disabled, decorative labels.
-- **Accent:** `oklch(95% 0 0)` — Links, emphasis, data highlights.
+- **Primary:** `oklch(93% 0 0)` — Headings, body text, primary information. Slightly softened white for less harsh contrast.
+- **Secondary:** `oklch(70% 0.004 30)` — Descriptions, meta info. Readable but subordinate.
+- **Tertiary:** `oklch(52% 0.004 30)` — Labels, captions, secondary metadata.
+- **Muted:** `oklch(38% 0.003 30)` — Placeholders, disabled states, decorative markers.
+- **Accent:** `oklch(72% 0.14 55)` — Links, emphasis, primary data highlights. Warm amber.
 
 **Structural:**
-- **Border:** `oklch(22% 0 0)` — Default dividers and borders.
-- **Border-light:** `oklch(18% 0 0)` — Subtle dividers, inner borders.
-- **Border-accent:** `oklch(40% 0 0)` — Hover/focus border emphasis.
-- **Grid:** `oklch(14% 0 0)` — Chart grid lines and minor dividers.
-- **Divider:** `oklch(18% 0 0)` — Row separators.
+- **Border:** `oklch(28% 0.005 30)` — Default dividers, card borders, table rules.
+- **Border-light:** `oklch(24% 0.004 30)` — Subtle inner dividers, recessed separators.
+- **Border-accent:** `oklch(42% 0.012 30)` — Hover/focus emphasis borders.
+- **Grid:** `oklch(22% 0.004 30)` — Chart grid lines, minor structural dividers.
+- **Divider:** `oklch(24% 0.004 30)` — Row separators, section breaks.
 
 **Data Indicators:**
-- **Up:** `oklch(85% 0.1 150)` — Price increase, positive delta (emerald tint).
-- **Down:** `oklch(75% 0.1 25)` — Price decrease, negative delta (rose tint).
+- **Up:** `oklch(62% 0.14 155)` — Price increase, positive delta. Muted emerald.
+- **Down:** `oklch(62% 0.12 25)` — Price decrease, negative delta. Muted rose.
+- **Up-subtle:** `oklch(24% 0.04 155)` — Positive delta background tint.
+- **Down-subtle:** `oklch(24% 0.04 25)` — Negative delta background tint.
+
+**Brand Accent:**
+- **Brand:** `oklch(62% 0.14 55)` — Primary action color. Warm amber at medium lightness.
+- **Brand-hover:** `oklch(66% 0.15 55)` — Hovered accent. Slightly brighter.
+- **Brand-active:** `oklch(56% 0.13 55)` — Pressed/active accent.
+- **Brand-light:** `oklch(72% 0.1 55)` — Muted accent for secondary emphasis.
+- **Brand-subtle:** `oklch(26% 0.04 30)` — Accent-tinted surface for selection states.
 
 **Radii & Shadows:**
-- **Radius-xs:** `2px` — Tags, small indicators.
-- **Radius-sm:** `4px` — Cards, inputs, buttons, tables, widgets.
-- **Radius-md:** `6px` — Larger containers.
-- **Shadow-sm:** `0 1px 3px rgba(0,0,0,0.4)`
-- **Shadow-md:** `0 4px 12px rgba(0,0,0,0.5)`
+- **Radius-xs:** `2px` — Tags, badges, micro indicators.
+- **Radius-sm:** `4px` — Cards, inputs, buttons, table rows. Crisp, not rounded.
+- **Radius-md:** `6px` — Larger containers, modals, dropdowns.
+- **Shadow-sm:** `0 1px 3px oklch(0% 0 0 / 0.25)` — Subtle lift.
+- **Shadow-md:** `0 4px 16px oklch(0% 0 0 / 0.3)` — Card elevation.
 
-**Theme:** Dark (Default). Carbon base reduces eye strain during extended analysis sessions.
+**Theme:** Dark (Default). Soft carbon base at 18% lightness — dark enough to reduce eye strain, light enough to avoid the harsh "pitch black" feel. Warm tint (hue 30) prevents sterile gray.
 
 ## Typography
 
-The tool uses a single sans family for UI with a monospace sibling for data. This is intentional: product UIs don't need display/body pairing (per register guidance), and a single family keeps the interface calm and consistent.
+**Inter** for all UI, **JetBrains Mono** for all data. One sans family keeps the interface calm; the monospace sibling handles numeric alignment. No display fonts, no decorative type.
 
-- **UI stack:** Inter (variable font via next/font) — modern, clean, neutral.
-- **Data stack:** JetBrains Mono (variable font via next/font) — tabular-nums for price alignment, tight tracking for density.
-- **Body:** 15px, 1.6 line-height, 400 weight, `-0.01em` letter-spacing. Cap line length at 65-75ch.
-- **Scale (fixed rem, not fluid — product register):**
-  - Display H1: 60px (6xl) / 80px (8xl) on hero — 600 weight, `-0.03em` tracking, `leading-[0.85]`.
-  - Section H2: 30px (3xl) — 600 weight, `tracking-tighter`.
-  - Section H3: 18px (lg) — 600 weight, `tracking-tight`.
-  - Body: 15px — 400 weight, 1.6 line-height.
-  - Small: 12px — 500 weight, uppercase labels, tracking-wide.
-  - Data: 14px monospace (tabular-nums, `-0.02em`).
-  - Micro: 10-11px — uppercase labels, annotations, tag-tech elements, `0.15-0.2em` tracking.
+### Scale
+
+| Role | Size | Weight | Tracking | Use |
+|------|------|--------|----------|-----|
+| Display | 48px | 700 | -0.03em | Hero headings only (home page) |
+| H1 | 32px | 700 | -0.025em | Page titles |
+| H2 | 22px | 600 | -0.02em | Section headings |
+| H3 | 16px | 600 | -0.015em | Subsection headings, card titles |
+| Body | 15px | 400 | -0.01em | Paragraphs, descriptions, primary text |
+| Small | 13px | 500 | 0 | Form labels, table body text |
+| Caption | 11px | 600 | 0.08em | Uppercase labels, metadata, tags |
+| Micro | 10px | 600 | 0.15em | Uppercase micro labels, annotations |
+| Data | 14px | 400 | -0.02em | Monospace (JetBrains), prices, numbers |
+| Data-lg | 20px | 500 | -0.02em | Monospace, hero numbers, large prices |
+| Data-sm | 12px | 400 | -0.015em | Monospace, compact data, table numbers |
+
 - Headings use `text-wrap: balance` for even line lengths.
+- Body text caps at 65–70ch line length.
+- Tabular-nums on all numeric content for alignment.
 
 ## Spacing & Layout
 
-- **Base unit:** 4px (scales to 8, 16, 24, 32, 48, 64).
-- **Container max-width:** 1280px (7xl). Side padding: 24px (px-6).
-- **Breathing room:** Minimum 24px padding on main containers. No compact modes.
-- **Tables:** Generous row height (48px+). Th cells: `px-6 py-5`. Td cells: `px-6 py-4`. No vertical borders.
-- **Alignment:** Data right-aligned in tables; text left-aligned. Monospace for all numeric columns.
-- **Product layout patterns:**
-  - **Landing/marketing (home):** Full-width sections, centered content, asymmetric hero.
-  - **Market (data table):** Search bar on top, trending grid, sortable table below.
-  - **Item detail (analytical report):** Two-column — chart (3/4) + sidebar (1/4) with metrics.
-  - **Portfolio (auth dashboard):** Summary stat cards row, full-width table below.
+- **Base unit:** 4px (8, 12, 16, 20, 24, 32, 40, 48, 64).
+- **Container max-width:** 1200px. Side padding: 24px (px-6).
+- **Breathing room:** 24px minimum between major sections.
+- **Section gap:** 32–40px between content blocks.
+- **Tables:** 44px row height. Th: `px-5 py-4`. Td: `px-5 py-3`. Generous but not bloated.
+- **Alignment:** Data right-aligned, text left-aligned. Monospace for all numeric columns.
+
+### Layout Patterns
+
+**Home (`/`):** Full-width, centered. Hero with product statement, key stats, featured items, capabilities summary. No hero-metric template — the product IS the metric.
+
+**Market (`/market`):** Top bar: search + type filter. Trending grid (3-col, compact). Data table below: sortable, paginated, 7 columns with clear hierarchy. Sticky table header.
+
+**Item Detail (`/items/[id]`):** Two-panel — primary (2/3) for chart + quality selector, sidebar (1/3) for metrics + signals. Clean separation, no nested widgets.
+
+**Portfolio (`/portfolio`):** Summary row (3 stat cards). Full-width inventory table. Steam login CTA when unauthenticated.
 
 ## Motion & State
 
-Product register guidance: 150-250ms transitions. Motion conveys state, not decoration. No orchestrated page-load sequences.
+150–250ms transitions. Motion conveys state, never decoration. No orchestrated page loads.
 
-- **Hover:** 200ms ease-out (css). Background and border transitions on widgets.
-- **Page reveals:** Framer Motion — 800ms on hero (marketing), 300-400ms on product pages. Use cubic bezier `[0.16, 1, 0.3, 1]`.
-- **Table rows:** Staggered entrance at 10-50ms delay per row.
-- **Data animations:** CountUpNumber for value changes. Duration proportional to delta.
-- **Preload scan line:** `.progress-line` in header — 2.5s infinite sweep.
-- **Reduced motion:** All animations degrade gracefully. `prefers-reduced-motion: reduce` → instant transitions, no scroll-triggered reveals.
-- **No decorative motion on product pages.** No orchestrated page-load sequences. No bounce or elastic easing.
+- **Hover transitions:** 200ms ease-out. Background + border color shifts on interactive surfaces.
+- **Focus ring:** 2px solid accent with 2px offset. Instant appearance, no transition.
+- **Page content:** 300ms ease-out, staggered children at 30ms intervals. No hero orchestration.
+- **Data updates:** CountUpNumber for value changes. Duration proportional to delta magnitude.
+- **Table loading:** Skeleton rows with subtle pulse. No full-page spinners over content.
+- **Reduced motion:** `prefers-reduced-motion: reduce` → all transitions instant, no scroll triggers, no stagger.
 
 ## Components
 
 ### Header
-- Sticky top, `z-50`, `bg-background-primary/95 backdrop-blur-sm`.
-- Contains: logo (CS mark + "DATA TERMINAL"), nav links (MARKET, PORTFOLIO), auth button.
-- Nav links: uppercase 11px, tracking-[0.2em], underline-on-hover animation via absolute span.
-- Auth: "AUTHENTICATE" button — white bg, black text, or Steam button (portfolio context).
-- States: loading (pulse avatar skeleton), logged-in (avatar + username + logout), logged-out (auth button).
-- Bottom border divider at `oklch(18% 0 0 / 0.6)`.
+- Sticky top, `z-sticky`. `bg-background-primary/95 backdrop-blur-sm`.
+- Left: CS logo mark + "DATA TERMINAL" in caption weight.
+- Center: Nav links — MARKET, PORTFOLIO. Uppercase, 11px, tracking-[0.15em]. Active state: text-accent + bottom border.
+- Right: Theme toggle (sun/moon), auth button or user avatar.
+- Bottom: 1px border divider.
+- States: loading (pulse skeleton), authenticated (avatar + name + logout), unauthenticated (AUTHENTICATE button).
 
 ### Search
-- Full-width input, `bg-background-secondary`, border `--border`, rounded-sm.
-- Left: search icon (SVG, `text-tertiary` → `text-primary` on focus).
-- Right: "Terminal" tag badge.
-- Focus: `bg-surface`, border → `--border-accent`, box-shadow inset highlight.
-- Placeholder: uppercase, bold, `text-muted` (10px).
+- Full-width input, `bg-background-secondary border border-border radius-sm`.
+- Left: search icon SVG (text-muted → text-primary on focus).
+- Right: "Terminal" tag-tech badge.
+- Focus: border → border-accent, `bg-surface`, subtle inner shadow.
+- Placeholder: uppercase, micro weight, text-muted.
 
 ### StatCard
-- Widget-block container (`bg-background-secondary`, border, radius-sm).
-- Top: uppercase label (10px, text-muted). Right: annotation tag (visible on hover).
-- Center: large value via CountUpNumber (30px, font-data, font-medium, tracking-tighter).
-- Optional: change indicator (+4.2%) in data-up/down color.
-- Bottom: subvalue label (10px, uppercase, text-muted).
-- Hover: scan line animation (top edge, scale-x from 0 to 1, 500ms).
+- Widget-block container.
+- Top: caption label (uppercase, 11px, text-tertiary).
+- Center: data-lg value (20px, monospace, font-medium).
+- Optional: change badge (data-up/data-down tint + colored text).
+- Bottom: micro annotation (10px, text-muted).
+- No hover animation — the card exists to display data, not perform.
 
 ### ItemCard
-- Widget-block container, relative overflow-hidden.
-- Top: type label (9px, uppercase, text-muted) + name (14px, font-semibold). Rarity dot (1.5px, colored glow).
-- Center: asset image in aspect-square frame (bg-background-tertiary). Image scales 105% on hover (700ms).
-- Bottom: EST. VALUE (large price, monospace) + 7D DELTA (data-up/down color).
-- Hover: white glow background opacity 0 → 0.03 (500ms), annotation tag fade in.
+- Widget-block container, `overflow-hidden`.
+- Top: type label (micro, text-muted) + name (small, font-semibold). Rarity indicator (colored dot or thin line).
+- Center: asset image in aspect-square frame (`bg-background-tertiary`). Image scales 103% on hover.
+- Bottom: data-lg price (monospace) + data change (data-up/data-down).
+- Hover: border → border-accent. No glow, no annotation fade-in — just clear interaction feedback.
 
 ### Buttons
-- Flat, uppercase, bold, 10-11px, tracking-[0.2em].
-- **Primary (CTA):** `bg-white text-black`, hover `bg-muted`, active `scale-95`.
-- **Nav links:** `text-secondary`, hover `text-primary`, underline animation.
-- **Auth (Steam):** Dark blue `#1b2838`, white text, rounded-lg, hover scale-105.
+- Uppercase, caption weight (11px, 600), tracking-[0.12em].
+- **Primary:** `bg-accent text-background-primary`. Hover: `bg-brand-hover`. Active: `scale-[0.97]`.
+- **Secondary:** `bg-transparent border border-border text-secondary`. Hover: `border-accent text-primary`.
+- **Danger:** `bg-data-down-subtle text-data-down border border-data-down/30`. Hover: `bg-data-down/15`.
+- **Ghost:** `bg-transparent text-secondary`. Hover: `text-primary bg-surface`.
 
 ### Tables
-- Full-width, bg-surface, rounded-sm overflow-hidden.
-- Thead: bg-background-tertiary, uppercase 10px, text-secondary.
-- Rows: stripe-row (bottom border divider). Hover → bg-background-tertiary.
-- Sortable column headers: click buttons, show sort direction arrow.
-- Data-up/down badges: inline-block, rounded, bg tint + colored text.
-- Loading: full-row "Loading backend market data..." centered.
-- Empty: "No items match your search" centered.
-- Error: red-tinted banner at top.
+- Full-width, `bg-background-secondary border border-border radius-sm overflow-hidden`.
+- **Thead:** `bg-background-tertiary`. Caption weight (11px), text-secondary, uppercase.
+- **Rows:** 1px bottom divider. Hover → `bg-surface`.
+- **Sortable headers:** Click button, show sort direction arrow (↑/↓).
+- **Data cells:** Monospace (font-data). Right-aligned for numbers, left-aligned for text.
+- **Change badges:** Inline rounded pill. `bg-data-up-subtle text-data-up` or `bg-data-down-subtle text-data-down`.
+- **States:** Loading — skeleton pulse rows. Empty — centered message + clear action. Error — red-tinted banner.
 
 ### Charts
-- Recharts LineChart, `ResponsiveContainer`, 360px height.
-- Dark theme: stroke `#2d3748` for grid, `#6b7280` for axis labels.
-- Steam line: `#cbd5e1` stroke, 2px. CSFloat line: `#ff6b35` stroke, 2px.
-- Tooltip: dark bg `#1a1f2e`, matching border, white text, rounded-sm.
-- No animation on chart lines (data accuracy > decoration).
-- Time range tabs: 24h / 7d / 30d / all.
+- Recharts `LineChart` with `ResponsiveContainer`. 320px height (slightly shorter than current for less visual weight).
+- Grid: 1px stroke, `--grid` color. No vertical grid lines.
+- Steam line: `oklch(60% 0 0)` stroke, 1.5px. CSFloat line: `--brand` stroke, 1.5px.
+- Tooltip: `bg-background-tertiary border border-border radius-sm`. Monospace data, white text.
+- Time range tabs: 24h / 7d / 30d / All. Caption weight, active = accent color.
+- No animation on chart lines — data accuracy over decoration.
 
-### PriceSourceFilter
-- Toggle-style filter for multi-source chart data (Steam, CSFloat, etc.).
-- Sidebar display: source name + data point count.
+### Quality Selector
+- Horizontal pill group. Each pill: border, radius-sm, caption weight, data-sm price.
+- Active pill: `bg-brand-subtle border-accent text-primary`.
+- Hover: `bg-surface`.
+- Compact — no icons, no decorative elements. Just wear name + price.
 
 ### Loading States
-- **Full-screen:** centering spinner (`border-4 border-t-transparent`, 48px, animate-spin) + text.
-- **Inline (tables):** full-row centered message.
-- **Header avatar:** pulse animation skeleton (8x8 rounded, bg-surface).
+- **Full-page:** Centered spinner (32px, 2px border, accent color) + caption text.
+- **Table:** Skeleton rows (3 per visible page, pulse animation).
+- **Header avatar:** 8x8 rounded skeleton, bg-surface, pulse.
 
 ### Empty States
-- **No inventory:** message + "Browse market →" link.
-- **No search results:** "No items match your search" centered.
-- **No signals:** "No technical factors returned yet."
+- Centered, max-width 400px. Tertiary heading + muted body text + ghost action button.
+- No illustrations, no decorative elements.
 
 ### Error States
-- Red-tinted banner: `border-red-500/35 bg-red-500/8`, text-primary, rounded-lg, px-4 py-3.
-- **Item unavailable:** full page with "← MARKET" back link, "Item unavailable" heading, error message.
-- **Login required (portfolio):** CTA page with Steam sign-in button.
+- Banner: `border-data-down/30 bg-data-down/8 radius-sm`. Text-primary. Dismissible.
+- Full-page error: Back link + heading + description. Clean, no panic.
 
 ## Visual Hierarchy
 
-- **Primary:** High-res skin image (The "What").
-- **Secondary:** Large price/trend chart (The "Value").
-- **Tertiary:** Supporting metadata (Wear, Volume, etc.).
-- **Focus:** Use elevation (Background-secondary) and whitespace rather than color to group elements.
-- **Emphasis:** Inverse focus (white bg + black text) for primary actions.
+1. **Asset image** — the "what." Largest visual element on item-focused views.
+2. **Price/chart** — the "value." Prominent data, clear trend.
+3. **Metadata** — the "context." Wear, volume, signals. Subordinate to the above.
+4. **Navigation/chrome** — the "frame." Present but never competing with content.
+
+Use elevation and whitespace to group, not color or borders. Color carries data meaning (up/down/accent), not decoration.
 
 ## Anti-patterns to avoid
 
-- **Information Overload:** Do not show 20 columns of data at once.
-- **Harsh Contrast:** Avoid `#000` background with pure `#fff` text.
-- **Generic Slop:** Avoid standard shadcn/tailwind defaults without custom OKLCH adjustments.
-- **Gamer Cliche:** No aggressive "tactical" UI or neon glows. Keep it "Boutique."
-- **Decorative motion on product pages:** Motion conveys state, not decoration.
-- **Orchestrated page-load sequences:** Products load into tasks, users don't watch them load.
-- **Inconsistent component vocabulary:** Same button shape, same form control style across all screens.
-- **Display fonts in UI labels:** One sans family (Inter), one data family (JetBrains Mono).
+- **Information Overload:** Max 7 columns in any table. Progressive disclosure for details.
+- **Harsh Contrast:** No `#000` with `#fff`. Use tinted darks and neutral whites.
+- **Generic Slop:** No shadcn defaults without custom OKLCH tokens.
+- **Gamer Cliche:** No neon, no tactical styling, no aggressive gradients.
+- **Decorative motion:** Motion conveys state, never performance.
+- **Identical cards:** Every card type has a distinct purpose and layout.
+- **Display fonts in UI:** One sans (Inter), one mono (JetBrains Mono). Nothing else.
+- **Over-rounding:** Cards top out at 6px. Full-pill only for tags/badges.
+- **Border + shadow on same element:** Pick one. Never both as decoration.

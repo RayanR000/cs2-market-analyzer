@@ -28,7 +28,7 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
-      data-theme="light"
+      data-theme="dark"
     >
       <body className="min-h-full flex flex-col">
         <ThemeProvider>

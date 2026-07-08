@@ -49,7 +49,7 @@ export default function ItemCard({
               <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-muted mb-1">
                 {type}
               </span>
-              <h3 className="font-semibold text-sm text-primary group-hover:text-white transition-colors line-clamp-1 tracking-tight">
+              <h3 className="font-semibold text-sm text-primary group-hover:text-primary transition-colors line-clamp-1 tracking-tight">
                 {name}
               </h3>
             </div>
@@ -85,7 +85,7 @@ export default function ItemCard({
             <span className="text-[9px] font-bold text-muted uppercase tracking-[0.2em] mb-1">
               EST. VALUE
             </span>
-            <p className="text-xl font-data font-medium text-primary tracking-tighter group-hover:text-white">
+            <p className="text-xl font-data font-medium text-primary tracking-tighter group-hover:text-primary">
               {currentPrice !== undefined ? `$${currentPrice.toFixed(2)}` : 'N/A'}
             </p>
           </div>

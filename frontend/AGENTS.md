@@ -11,27 +11,31 @@ This version has breaking changes — APIs, conventions, and file structure may 
 **product** — design SERVES the tool. Familiarity is a feature; the interface should disappear into the analysis task.
 
 ## Brand Personality
-Analytical, minimalist, relaxed. A professional tool that feels comfortable, not overwhelming or sterile.
+Analytical, precise, calm. An analytical instrument — every element clarifies signal from noise.
 
 ## Key Principles
-- **Clarity over Density** — whitespace and hierarchy > crammed data
-- **Asset-Grounded Data** — high-res skin images provide visual context
-- **Comfortable Analysis** — soft carbon dark mode to reduce eye strain
-- **Bespoke Authenticity** — custom OKLCH tokens, no shadcn/tailwind defaults
+- **Clarity over Density** — whitespace and hierarchy guide the eye
+- **Asset-Grounded Data** — high-res skin images anchor every analysis
+- **Comfortable Analysis** — tinted carbon dark mode, warm amber accents, restful for extended sessions
+- **Precision Tools** — every component behaves exactly once, predictably
+- **Rich but Not Loud** — personality through restraint, color only where it signals data or state
 
 ## Palette (OKLCH)
-- Bg: `oklch(12% 0 0)` (primary), `oklch(15% 0 0)` (secondary), `oklch(10% 0 0)` (tertiary)
-- Text: `oklch(95% 0 0)` (primary), `oklch(70% 0 0)` (secondary), `oklch(50% 0 0)` (tertiary), `oklch(35% 0 0)` (muted)
-- Data: Green/red at low chroma (`oklch(85% 0.1 150)` / `oklch(75% 0.1 25)`)
+- Bg: `oklch(18% 0.004 30)` (primary), `oklch(22% 0.005 30)` (secondary), `oklch(15% 0.003 30)` (tertiary)
+- Text: `oklch(93% 0 0)` (primary), `oklch(70% 0.004 30)` (secondary), `oklch(52% 0.004 30)` (tertiary), `oklch(38% 0.003 30)` (muted)
+- Accent: `oklch(62% 0.14 55)` — warm amber for actions, selections, emphasis
+- Data: `oklch(62% 0.14 155)` (up), `oklch(62% 0.12 25)` (down)
 - Radii: 2px (xs), 4px (sm), 6px (md) — no large rounding on cards
 
 ## Typography
 - Inter for UI, JetBrains Mono for data. No display fonts.
-- Fixed rem scale, not fluid. Body 15px, 1.6 line-height. Gaps via 4px base unit.
+- Fixed rem scale: Display 48px, H1 32px, H2 22px, H3 16px, Body 15px, Small 13px, Caption 11px, Micro 10px.
+- Tabular-nums on all numeric content.
 
 ## Styling
 - Use CSS custom properties from `app/globals.css` — never inline hex values.
 - Widget pattern: `bg-background-secondary border border-border radius-sm` with hover → `border-accent bg-surface`.
+- Primary button: `bg-accent text-background-primary`. No border + shadow on same element.
 - No neon, no tactical gaming cliches, no decorative motion on product pages.
 <!-- END:design-context -->
 

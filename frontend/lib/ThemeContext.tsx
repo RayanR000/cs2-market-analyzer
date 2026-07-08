@@ -31,14 +31,19 @@ function applyTheme(theme: Theme) {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return 'light';
-    return getStoredTheme() ?? getSystemTheme();
-  });
+  const [theme, setTheme] = useState<Theme>('dark');
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
+    const stored = getStoredTheme() ?? getSystemTheme();
+    setTheme(stored);
+    applyTheme(stored);
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (mounted) applyTheme(theme);
+  }, [theme, mounted]);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => {

@@ -74,7 +74,7 @@ export default function Header() {
             ) : (
               <a
                 href={getLoginUrl()}
-                className="flex items-center gap-3 px-5 py-2 rounded-sm text-[11px] font-bold uppercase tracking-widest transition-all bg-primary text-background-primary hover:bg-brand"
+                className="flex items-center gap-3 px-5 py-2 rounded-sm text-[11px] font-bold uppercase tracking-widest transition-all bg-accent text-background-primary hover:bg-brand-hover"
               >
                 AUTHENTICATE
               </a>

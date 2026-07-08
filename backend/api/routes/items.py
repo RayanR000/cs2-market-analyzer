@@ -57,8 +57,9 @@ def trending_items(
 ):
     items = (
         db.query(Item)
+        .filter(Item.icon_url.isnot(None))
         .order_by(desc(Item.updated_at))
-        .limit(limit)
+        .limit(max(limit * 10, 100))
         .all()
     )
     item_ids = [i.id for i in items]
@@ -84,7 +85,7 @@ def trending_items(
         )
         latest_prices = {row.item_id: row.price for row in rows}
 
-    return [
+    result = [
         TrendingItemOut(
             id=item.id,
             item_id=item.item_id,
@@ -94,7 +95,9 @@ def trending_items(
             latest_price=latest_prices.get(item.id, 0.0),
         )
         for item in items
+        if latest_prices.get(item.id, 0.0) > 0
     ]
+    return result[:limit]
 
 
 def _parse_item_name(name: str):
