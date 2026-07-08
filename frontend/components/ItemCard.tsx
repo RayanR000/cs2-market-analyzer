@@ -37,9 +37,12 @@ export default function ItemCard({
 
   return (
     <Link href={`/items/${itemId}`} className="widget-block p-5 block group relative overflow-hidden transition-all duration-300">
-      {/* Background Accent Glow (Subtle) */}
-      <div 
-        className="absolute -top-24 -right-24 w-48 h-48 blur-[80px] bg-white opacity-0 group-hover:opacity-[0.03] transition-opacity duration-500"
+      {/* Hover glow — brand accent radiating from center */}
+      <div
+        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse at 50% 50%, oklch(52% 0.12 355 / 0.04) 0%, transparent 70%)',
+        }}
       />
 
       <div className="relative z-10 h-full flex flex-col justify-between">
@@ -59,19 +62,19 @@ export default function ItemCard({
                   {annotation}
                 </span>
               )}
-              <div 
-                className="w-1.5 h-1.5 rounded-full" 
+              <div
+                className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: rarityColor, boxShadow: `0 0 10px ${rarityColor}` }}
               />
             </div>
           </div>
 
           {/* Asset Display */}
-          <div className="aspect-square w-full mb-6 flex items-center justify-center p-6 bg-background-tertiary/50 rounded-sm border border-border group-hover:border-border-accent transition-all duration-500">
+          <div className="aspect-square w-full mb-6 flex items-center justify-center p-6 bg-background-tertiary/50 rounded-sm border border-border group-hover:border-accent-primary/40 transition-all duration-500">
             {imageUrl ? (
-              <img 
-                src={imageUrl} 
-                alt={name} 
+              <img
+                src={imageUrl}
+                alt={name}
                 className="max-w-full max-h-full object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.7)] group-hover:scale-105 transition-transform duration-700 ease-out"
               />
             ) : (
@@ -95,7 +98,7 @@ export default function ItemCard({
               <span className="text-[9px] font-bold text-muted uppercase tracking-[0.2em] mb-1">
                 7D DELTA
               </span>
-              <p 
+              <p
                 className="text-xs font-data font-bold"
                 style={{ color: priceChange7d >= 0 ? 'var(--data-up)' : 'var(--data-down)' }}
               >

@@ -10,12 +10,12 @@ export default function Header() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="sticky top-0 z-50 bg-background-primary/95 backdrop-blur-sm">
+    <header className="sticky top-0 z-50 bg-background-primary/90 backdrop-blur-md">
       <div className="progress-line" />
       <div className="max-w-7xl mx-auto px-6 py-4">
         <div className="flex justify-between items-center">
           <Link href="/" className="flex items-center gap-4 group">
-            <div className="w-8 h-8 rounded-sm border border-border flex items-center justify-center bg-background-secondary transition-all group-hover:border-brand">
+            <div className="w-8 h-8 rounded-sm border border-border flex items-center justify-center bg-background-secondary transition-all duration-300 group-hover:border-accent-primary group-hover:shadow-[0_0_12px_oklch(52%_0.12_355_/_0.15)]">
               <span className="font-data font-bold text-[10px] text-primary tracking-tighter">CS</span>
             </div>
             <div className="flex flex-col">
@@ -36,7 +36,7 @@ export default function Header() {
           <div className="flex items-center gap-5">
             <button
               onClick={toggleTheme}
-              className="w-8 h-8 rounded-sm border border-border flex items-center justify-center bg-background-secondary hover:border-accent-primary hover:bg-surface transition-all text-text-secondary hover:text-text-primary"
+              className="w-8 h-8 rounded-sm border border-border flex items-center justify-center bg-background-secondary hover:border-accent-primary hover:bg-surface transition-all duration-200 text-text-secondary hover:text-text-primary"
               aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
             >
               {theme === 'light' ? (
@@ -67,14 +67,14 @@ export default function Header() {
                   <img
                     src={user.avatar_url}
                     alt={user.username}
-                    className="w-8 h-8 rounded-sm border border-border grayscale hover:grayscale-0 transition-all"
+                    className="w-8 h-8 rounded-sm border border-border grayscale hover:grayscale-0 transition-all duration-300"
                   />
                 )}
               </div>
             ) : (
               <a
                 href={getLoginUrl()}
-                className="flex items-center gap-3 px-5 py-2 rounded-sm text-[11px] font-bold uppercase tracking-widest transition-all bg-accent text-background-primary hover:bg-brand-hover"
+                className="flex items-center gap-3 px-5 py-2 rounded-sm text-[11px] font-bold uppercase tracking-widest transition-all duration-200 bg-accent text-background-primary hover:bg-brand-hover hover:shadow-[0_0_20px_oklch(52%_0.12_355_/_0.2)]"
               >
                 AUTHENTICATE
               </a>
@@ -82,7 +82,7 @@ export default function Header() {
           </div>
         </div>
       </div>
-      <div className="border-b border-border/60" />
+      <div className="h-px bg-gradient-to-r from-transparent via-accent-primary/30 to-transparent" />
     </header>
   );
 }
@@ -91,10 +91,10 @@ function NavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="relative text-[11px] font-bold uppercase tracking-[0.2em] transition-all duration-300 group text-secondary hover:text-primary"
+      className="relative text-[11px] font-bold uppercase tracking-[0.2em] transition-all duration-300 group text-secondary hover:text-primary py-1"
     >
       {label}
-      <span className="absolute -bottom-1 left-0 w-0 h-[1px] transition-all duration-300 group-hover:w-full bg-accent-primary" />
+      <span className="absolute -bottom-0.5 left-0 h-[1.5px] w-0 transition-all duration-300 ease-out group-hover:w-full bg-accent-primary" />
     </Link>
   );
 }

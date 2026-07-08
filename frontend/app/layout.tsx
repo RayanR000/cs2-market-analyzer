@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { UserProvider } from "@/lib/UserContext";
 import { ThemeProvider } from "@/lib/ThemeContext";
+import CursorGlow from "@/components/CursorGlow";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -33,6 +34,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
           <UserProvider>
+            <CursorGlow />
             {children}
           </UserProvider>
         </ThemeProvider>
