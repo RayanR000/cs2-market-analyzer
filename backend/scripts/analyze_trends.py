@@ -49,6 +49,47 @@ def _filter_daily_analysis_row(row):
     """Drop non-portable fields before writing daily analysis rows."""
     return {key: value for key, value in row.items() if key in DAILY_ANALYSIS_WRITE_COLUMNS}
 
+ARCHIVE_DIR = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+
+
+def _load_from_parquet(item_ids, days=90):
+    """Load daily price history from Parquet archive via DuckDB."""
+    import duckdb
+
+    if not item_ids or not ARCHIVE_DIR.exists():
+        return {}
+
+    from database import Item, SessionLocal
+    db = SessionLocal()
+    try:
+        slug_rows = db.query(Item.id, Item.item_id).filter(
+            Item.id.in_(item_ids)
+        ).all()
+        slug_set = {row.item_id for row in slug_rows}
+        slug_to_int = {row.item_id: row.id for row in slug_rows}
+    finally:
+        db.close()
+
+    cutoff = (datetime.utcnow() - timedelta(days=days)).date()
+
+    con = duckdb.connect()
+    try:
+        rows = con.sql("""
+            SELECT item_slug, day, mean_price AS price
+            FROM read_parquet('{}/*.parquet')
+            WHERE item_slug IN ?
+              AND day >= DATE ?
+            ORDER BY item_slug, day
+        """.format(ARCHIVE_DIR), [list(slug_set), cutoff.isoformat()]).fetchall()
+
+        raw = defaultdict(list)
+        for slug, day, price in rows:
+            raw[slug_to_int[slug]].append((day, price))
+        return dict(raw)
+    finally:
+        con.close()
+
+
 class TrendAnalyzer:
     MIN_REQUIRED_HISTORY_POINTS = 7
 
@@ -109,6 +150,11 @@ class TrendAnalyzer:
 
     def get_item_price_history(self, item_id, days=90):
         """Fetch daily price history for an item."""
+        if days > 14 and ARCHIVE_DIR.exists():
+            data = _load_from_parquet([item_id], days)
+            if data and item_id in data:
+                return data[item_id]
+
         cutoff_date = self.now - timedelta(days=days)
 
         rows = self.db.query(
@@ -127,6 +173,12 @@ class TrendAnalyzer:
         """Fetch recent daily price history for many items in one query."""
         if not item_ids:
             return {}
+
+        # Use Parquet archive for longer windows
+        if days > 14 and ARCHIVE_DIR.exists():
+            parquet_data = _load_from_parquet(item_ids, days)
+            if parquet_data:
+                return parquet_data
 
         cutoff_date = self.now - timedelta(days=days)
         rows = self.db.query(

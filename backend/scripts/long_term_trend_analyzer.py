@@ -40,7 +40,31 @@ class LongTermTrendAnalyzer:
         self.max_lookback_days = 365 * 3  # 3 years
 
     def get_first_seen_bulk(self):
-        """Get first price timestamp for every item in one grouped query."""
+        """Get first price timestamp for every item.
+
+        Reads from Parquet archive when available, otherwise Supabase.
+        """
+        archive_dir = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+        if archive_dir.exists():
+            import duckdb
+            con = duckdb.connect()
+            try:
+                rows = con.sql("""
+                    SELECT item_slug, MIN(day) AS first_seen
+                    FROM read_parquet('{}/*.parquet')
+                    GROUP BY item_slug
+                """.format(archive_dir)).fetchall()
+                slug_rows = self.db.query(Item.id, Item.item_id).all()
+                slug_map = {r.item_id: r.id for r in slug_rows}
+                result = {}
+                for slug, first_seen in rows:
+                    int_id = slug_map.get(slug)
+                    if int_id:
+                        result[int_id] = datetime.combine(first_seen, datetime.min.time())
+                return result
+            finally:
+                con.close()
+
         rows = self.db.query(
             PriceHistory.item_id,
             func.min(PriceHistory.timestamp)
@@ -52,15 +76,41 @@ class LongTermTrendAnalyzer:
         return {item_id: first_seen for item_id, first_seen in rows}
 
     def get_price_history_bulk(self, item_ids):
-        """Fetch daily price history for a chunk of items in one query.
+        """Fetch daily price history for a chunk of items.
 
-        A single 3-year cutoff is correct for every item: items younger than
-        the cap simply have no rows before their first price. Raw rows are
-        collapsed to one mean price per day so "N-day" windows really span
-        N days rather than N collection runs.
+        Reads from Parquet archive when available, otherwise Supabase.
         """
         if not item_ids:
             return {}
+
+        archive_dir = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+        if archive_dir.exists():
+            import duckdb
+            slug_rows = self.db.query(Item.id, Item.item_id).filter(
+                Item.id.in_(item_ids)
+            ).all()
+            slug_to_int = {r.item_id: r.id for r in slug_rows}
+            slug_set = list(slug_to_int.keys())
+            lookback_date = self.analysis_date - timedelta(days=self.max_lookback_days)
+
+            con = duckdb.connect()
+            try:
+                rows = con.sql("""
+                    SELECT item_slug, day, mean_price AS price
+                    FROM read_parquet('{}/*.parquet')
+                    WHERE item_slug IN ?
+                      AND day >= DATE ?
+                    ORDER BY item_slug, day
+                """.format(archive_dir), [slug_set, lookback_date.strftime("%Y-%m-%d")]).fetchall()
+
+                daily = defaultdict(list)
+                for slug, day, price in rows:
+                    item_id = slug_to_int.get(slug)
+                    if item_id:
+                        daily[item_id].append((day, price))
+                return dict(daily)
+            finally:
+                con.close()
 
         lookback_date = self.analysis_date - timedelta(days=self.max_lookback_days)
 

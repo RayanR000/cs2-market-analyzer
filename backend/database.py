@@ -51,6 +51,7 @@ class Item(Base):
     release_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow_naive)
     updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+    is_backfilled = Column(Integer, default=0)  # boolean: has CSMarketAPI historical series
     
     price_histories = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
     trend_indicators = relationship("TrendIndicator", back_populates="item", cascade="all, delete-orphan")
@@ -82,25 +83,34 @@ class PriceHistory(Base):
         Index('idx_price_history_source', 'source'),
     )
 
+class ChartPoint(Base):
+    """Daily close price per item for all-time price charts."""
+    __tablename__ = "chart_points"
+
+    item_id = Column(Integer, ForeignKey("items.id"), primary_key=True)
+    day = Column(Date, primary_key=True)
+    close = Column(Float, nullable=False)
+
+    item = relationship("Item")
+
+    __table_args__ = (
+        Index('idx_chart_point_item_day', 'item_id', 'day'),
+    )
+
+
 # Sources whose presence marks an item as "backfilled": it has a real
 # historical price series (from CSMarketAPI), not just a live snapshot.
 BACKFILLED_SOURCES = ("market_csgo", "steam_historical")
 
 
 def backfilled_item_clause():
-    """SQL EXISTS clause: the Item row has backfilled price history.
+    """SQLAlchemy filter expression: item has backfilled history.
 
     Listing endpoints filter on this so the site only surfaces items with
     enough data for charts and analysis; snapshot-tier items stay reachable
     by direct link but are not listed.
     """
-    from sqlalchemy import exists, and_
-    return exists().where(
-        and_(
-            PriceHistory.item_id == Item.id,
-            PriceHistory.source.in_(BACKFILLED_SOURCES),
-        )
-    )
+    return Item.is_backfilled == True
 
 
 class CollectionRun(Base):

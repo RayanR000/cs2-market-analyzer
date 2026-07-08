@@ -8,7 +8,7 @@ import re
 import math
 
 from database import (
-    get_db, Item, PriceHistory, TrendIndicator, DailyAnalysis, ItemForecast,
+    get_db, Item, PriceHistory, ChartPoint, TrendIndicator, DailyAnalysis, ItemForecast,
     Event, EventImpact, backfilled_item_clause,
 )
 from api.cache import get_or_build
@@ -227,12 +227,37 @@ def get_item(item_id: str, db: Session = Depends(get_db)):
 @router.get("/{item_id}/price-history", response_model=list[PricePointOut])
 def get_price_history(
     item_id: str,
-    days: int = Query(30, ge=1, le=365),
+    days: int = Query(30, ge=1, le=5000),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     item = _resolve_item(item_id, db)
+
+    # Use chart_points for deep history (>= 365 days) or all-time range
+    if days >= 365:
+        cutoff_date = datetime.now(timezone.utc).date() - timedelta(days=days)
+        records = (
+            db.query(ChartPoint)
+            .filter(
+                ChartPoint.item_id == item.id,
+                ChartPoint.day >= cutoff_date,
+            )
+            .order_by(ChartPoint.day)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+        return [
+            PricePointOut(
+                timestamp=datetime.combine(r.day, datetime.min.time()),
+                price=r.close,
+                volume=None,
+                median_price=None,
+            )
+            for r in records
+        ]
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     records = (
         db.query(PriceHistory)
@@ -416,6 +441,35 @@ def get_multi_source_prices(
 ):
     item = _resolve_item(item_id, db)
     requested = [s.strip() for s in source.split(",") if s.strip()]
+
+    # Use chart_points for deep history (>= 365 days) or historical source
+    if days >= 365 or "historical" in requested:
+        cutoff_date = datetime.now(timezone.utc).date() - timedelta(days=days)
+        records = (
+            db.query(ChartPoint)
+            .filter(
+                ChartPoint.item_id == item.id,
+                ChartPoint.day >= cutoff_date,
+            )
+            .order_by(ChartPoint.day)
+            .all()
+        )
+        data: dict[str, list[SourcePriceOut]] = {"historical": [
+            SourcePriceOut(
+                timestamp=datetime.combine(r.day, datetime.min.time()),
+                price=r.close,
+                volume=None,
+                median_price=None,
+            )
+            for r in records
+        ]}
+        return MultiSourcePricesOut(
+            item_id=item.item_id,
+            name=item.name,
+            sources=["historical"],
+            data=data,
+        )
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Single query for all requested sources instead of one per source.
@@ -433,7 +487,7 @@ def get_multi_source_prices(
         query = query.filter(PriceHistory.source.in_(requested))
     records = query.order_by(PriceHistory.source, PriceHistory.timestamp).all()
 
-    data: dict[str, list[SourcePriceOut]] = {src: [] for src in requested if src != "all"}
+    data = {src: [] for src in requested if src != "all"}
     for r in records:
         data.setdefault(r.source, []).append(
             SourcePriceOut(

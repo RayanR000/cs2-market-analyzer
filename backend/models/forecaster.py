@@ -50,10 +50,28 @@ class ItemForecaster:
 
     def fetch_price_history(self, days_back: int = 365) -> pd.DataFrame:
         logger.info(f"Fetching price history (last {days_back}d)...")
+
+        archive_dir = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+        if archive_dir.exists() and days_back > 14:
+            import duckdb
+            cutoff = (self._now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+            con = duckdb.connect()
+            try:
+                rows = con.sql("""
+                    SELECT item_slug, day, mean_price AS price, volume
+                    FROM read_parquet('{}/*.parquet')
+                    WHERE day >= DATE ?
+                    ORDER BY item_slug, day
+                """.format(archive_dir), [cutoff]).fetchall()
+                df = pd.DataFrame(rows, columns=["item_id", "timestamp", "price", "volume"])
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df["date"] = df["timestamp"].dt.date
+                logger.info(f"  {len(df):,} rows (Parquet), {df.item_id.nunique():,} items")
+                return df
+            finally:
+                con.close()
+
         cutoff = self._now() - timedelta(days=days_back)
-        # Collapse to one row per item per day in SQL: lag/rolling features
-        # assume a daily series, so intraday or multi-source duplicates would
-        # silently shrink every "N-day" window.
         rows = self.db.execute(text("""
             SELECT item_id, date(timestamp) AS day, AVG(price) AS price, SUM(volume) AS volume
             FROM price_history

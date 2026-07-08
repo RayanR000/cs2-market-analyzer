@@ -43,6 +43,49 @@ class EventAnalyzer:
         start_dt = datetime.combine(start_date, datetime.min.time())
         end_dt = datetime.combine(end_date, datetime.max.time())
 
+        # Try Parquet archive for historical range
+        archive_dir = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+        parquet_ok = archive_dir.exists() and (end_date - start_date).days > 60
+
+        if parquet_ok:
+            import duckdb
+            slug_rows = self.db.query(Item.id, Item.item_id).filter(
+                Item.id.in_(item_ids)
+            ).all()
+            slug_to_int = {r.item_id: r.id for r in slug_rows}
+            slug_set = list(slug_to_int.keys())
+
+            con = duckdb.connect()
+            try:
+                rows = con.sql("""
+                    SELECT item_slug, day, mean_price AS price
+                    FROM read_parquet('{}/*.parquet')
+                    WHERE item_slug IN ?
+                      AND day >= DATE ?
+                      AND day <= DATE ?
+                    ORDER BY item_slug, day
+                """.format(archive_dir), [
+                    slug_set,
+                    start_date.strftime("%Y-%m-%d"),
+                    end_date.strftime("%Y-%m-%d"),
+                ]).fetchall()
+
+                for slug, day, price in rows:
+                    item_id = slug_to_int.get(slug)
+                    if item_id is None:
+                        continue
+                    ts = datetime.combine(day, datetime.min.time())
+                    if item_id not in self.price_cache:
+                        self.price_cache[item_id] = []
+                        self.price_timestamps[item_id] = []
+                    self.price_cache[item_id].append((ts, price))
+                    self.price_timestamps[item_id].append(ts)
+
+                logger.info(f"Loaded {len(rows)} price records from Parquet archive")
+                return
+            finally:
+                con.close()
+
         rows = self.db.query(
             PriceHistory.item_id,
             PriceHistory.timestamp,
@@ -55,7 +98,6 @@ class EventAnalyzer:
             ~PriceHistory.source.like('historical_fallback:%'),
         ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
 
-        # Organize by item_id for fast lookup
         for item_id, timestamp, price in rows:
             if item_id not in self.price_cache:
                 self.price_cache[item_id] = []

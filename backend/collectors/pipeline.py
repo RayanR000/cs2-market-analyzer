@@ -838,11 +838,19 @@ class DataPipeline:
             return {"status": "failed", "error": str(e)}
 
     def _load_recent_price_histories(self, item_ids, days: int = 90):
-        """Load recent price history for many items in one query."""
+        """Load recent price history for many items in one query.
+
+        Falls back to the Supabase price_history for small windows (<=14 days).
+        For longer windows reads from the DuckDB Parquet archive for speed.
+        """
         from database import PriceHistory
 
         if not item_ids:
             return {}
+
+        use_parquet = days > 14
+        if use_parquet:
+            return self._load_parquet_histories(item_ids, days)
 
         cutoff = datetime.utcnow() - timedelta(days=days)
         rows = self.db_session.query(
@@ -861,6 +869,48 @@ class DataPipeline:
             histories[item_id].append((timestamp, price))
 
         return histories
+
+    def _load_parquet_histories(self, item_ids, days: int = 90):
+        """Load price history from Parquet archive via DuckDB.
+
+        Maps internal item_ids to item_slugs, queries the Parquet files,
+        and returns results in the same {item_id: [(timestamp, price)]} format.
+        """
+        import duckdb
+        from database import Item
+
+        if not item_ids or not self.db_session:
+            return {}
+
+        slug_rows = self.db_session.query(Item.id, Item.item_id).filter(
+            Item.id.in_(item_ids)
+        ).all()
+        int_to_slug = {row.id: row.item_id for row in slug_rows}
+        slug_to_int = {v: k for k, v in int_to_slug.items()}
+
+        cutoff = (datetime.utcnow() - timedelta(days=days)).date()
+
+        con = duckdb.connect()
+        try:
+            rows = con.sql("""
+                SELECT item_slug, day, mean_price AS price
+                FROM read_parquet('../archive/price-archive/prices-*.parquet')
+                WHERE item_slug IN ?
+                  AND day >= DATE ?
+                ORDER BY item_slug, day
+            """, [list(slug_to_int.keys()), cutoff.isoformat()]).fetchall()
+
+            histories = defaultdict(list)
+            for slug, day, price in rows:
+                item_id = slug_to_int.get(slug)
+                if item_id is None:
+                    continue
+                day_dt = datetime.combine(day, datetime.min.time())
+                histories[item_id].append((day_dt, price))
+
+            return dict(histories)
+        finally:
+            con.close()
 
     def _load_recent_price_counts(self, item_ids, days: int = 90):
         """Load recent price counts for many items in one grouped query."""
