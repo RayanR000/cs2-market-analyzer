@@ -61,14 +61,6 @@ jobs:
           ref: data-archive
           path: archive
 
-      - name: Export daily price snapshot
-        working-directory: ./backend
-        env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          ENVIRONMENT: production
-          DEBUG: false
-        run: python scripts/export_daily_snapshot.py --out-dir ../archive
-
       - name: Append to Parquet archive
         working-directory: ./backend
         env:

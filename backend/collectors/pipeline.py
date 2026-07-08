@@ -6,9 +6,7 @@ Manages scheduled data collection, validation, and storage
 import logging
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
-from typing import Any, Optional, List, Dict, Callable
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+from typing import Any, Optional, List, Dict
 from sqlalchemy import bindparam, func, text
 from sqlalchemy.orm import scoped_session
 
@@ -42,8 +40,6 @@ class DataPipeline:
             db_session: SQLAlchemy database session
         """
         self.db_session = db_session
-        self.scheduler: Optional[BackgroundScheduler] = None
-        self.is_running = False
 
     def _ensure_session(self):
         """Return a thread-safe session. Creates a thread-local one if none was injected."""
@@ -51,95 +47,6 @@ class DataPipeline:
             from database import SessionLocal
             self.db_session = scoped_session(SessionLocal)
         return self.db_session
-    
-    def start(self, scheduler: Optional[BackgroundScheduler] = None):
-        """
-        Start the data pipeline scheduler
-        
-        Args:
-            scheduler: Optional BackgroundScheduler instance to use
-        """
-        if self.is_running:
-            logger.warning("Data pipeline already running")
-            return
-        
-        try:
-            self.scheduler = scheduler or BackgroundScheduler()
-            
-            # Schedule priority data collection (Top 2000) every 6 hours
-            self.scheduler.add_job(
-                self.run_priority_collection,
-                CronTrigger(hour='0,6,12,18', minute=30),
-                id='priority_collection',
-                name='Priority market data collection (Top 2000)',
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-                misfire_grace_time=300
-            )
-            
-            # Schedule full daily data collection at 1 AM UTC
-            self.scheduler.add_job(
-                self.run_daily_collection,
-                CronTrigger(hour=1, minute=0),
-                id='daily_collection',
-                name='Full daily market data collection',
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-                misfire_grace_time=300
-            )
-            
-            # Schedule feature computation every 6 hours after priority collection
-            self.scheduler.add_job(
-                self.run_feature_computation,
-                CronTrigger(hour='1,7,13,19', minute=0),
-                id='six_hourly_features',
-                name='6-hourly feature computation',
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-                misfire_grace_time=300
-            )
-            
-            # Schedule daily trend analysis at 2 AM UTC
-            self.scheduler.add_job(
-                self.run_trend_analysis,
-                CronTrigger(hour=2, minute=0),
-                id='daily_trends',
-                name='Daily trend analysis',
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-                misfire_grace_time=300
-            )
-            
-            # Schedule weekly database pruning at 3 AM UTC every Sunday
-            self.scheduler.add_job(
-                self.run_database_pruning,
-                CronTrigger(day_of_week='sun', hour=3, minute=0),
-                id='weekly_pruning',
-                name='Weekly database pruning',
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-                misfire_grace_time=300
-            )
-            
-            self.scheduler.start()
-            self.is_running = True
-            logger.info("Data pipeline started successfully")
-            
-        except Exception as e:
-            logger.error(f"Error starting data pipeline: {e}")
-            raise
-    
-    def stop(self):
-        """Stop the data pipeline scheduler"""
-        if self.scheduler and self.is_running:
-            self.scheduler.shutdown()
-            self.is_running = False
-            logger.info("Data pipeline stopped")
     
     def run_priority_collection(self):
         """Execute priority collection for top 2000 items using fast aggregator"""
@@ -726,117 +633,6 @@ class DataPipeline:
             "buckets": [buckets[key] for key in bucket_order if buckets[key]["count"] > 0],
         }
 
-    def run_daily_collection(self):
-        """Execute daily market data collection using high-efficiency batch method"""
-        try:
-            logger.info("Starting daily market data collection (Batch Method)")
-            
-            from collectors.steam_market import SteamMarketCollector
-            from database import Item, PriceHistory
-            
-            # Using 20.0s delay as requested for safety
-            collector = SteamMarketCollector(rate_limit_delay=20.0)
-            
-            if not self.db_session:
-                logger.error("Database session not available")
-                return {"status": "failed", "error": "No database session"}
-            
-            # Pre-load all items for mapping
-            logger.info("Loading items from database...")
-            all_items = self.db_session.query(Item).all()
-            # Map item_id (hash_name) to database internal ID
-            item_id_map = {item.item_id: item.id for item in all_items}
-            logger.info(f"Loaded {len(item_id_map)} items for mapping")
-            
-            successful_collections = 0
-            total_processed = 0
-            start_index = 0
-            batch_size = 100
-            
-            while True:
-                logger.info(f"Fetching batch: items {start_index} to {start_index + batch_size}...")
-                
-                batch_data = collector.get_market_listings(start=start_index, count=batch_size)
-                
-                if not batch_data or not batch_data.get('results'):
-                    logger.info("No more items found or request failed.")
-                    break
-                
-                results = batch_data['results']
-                total_on_steam = batch_data.get('total_count', 0)
-                
-                price_records = []
-                now = datetime.utcnow()
-                
-                for res in results:
-                    total_processed += 1
-                    hash_name = res['hash_name']
-                    
-                    # Map to our DB
-                    internal_id = item_id_map.get(hash_name)
-                    if not internal_id:
-                        # Log but don't stop; might be a new item
-                        logger.debug(f"Steam item not in database: {hash_name}")
-                        continue
-                    
-                    if res['price'] > 0:
-                        price_records.append(PriceHistory(
-                            item_id=internal_id,
-                            timestamp=now,
-                            price=res['price'],
-                            volume=res['volume'],
-                            source='steam_batch'
-                        ))
-                        successful_collections += 1
-                
-                # Bulk insert this batch
-                if price_records:
-                    try:
-                        rows_as_dicts = [
-                            {
-                                "item_id": r.item_id,
-                                "timestamp": r.timestamp,
-                                "price": r.price,
-                                "volume": r.volume,
-                                "source": r.source,
-                            }
-                            for r in price_records
-                        ]
-                        self.db_session.execute(
-                            text("""
-                                INSERT INTO price_history (item_id, timestamp, price, volume, source)
-                                VALUES (:item_id, :timestamp, :price, :volume, :source)
-                                ON CONFLICT (item_id, timestamp, source) DO NOTHING
-                            """),
-                            rows_as_dicts,
-                        )
-                        self.db_session.commit()
-                        logger.info(f"  → Committed {len(price_records)} prices.")
-                    except Exception as e:
-                        logger.error(f"Failed to commit batch: {e}")
-                        self.db_session.rollback()
-                
-                # Check if we've reached the end
-                if start_index + batch_size >= total_on_steam or len(results) < batch_size:
-                    logger.info("Reached end of Steam market catalog.")
-                    break
-                    
-                start_index += batch_size
-                
-            logger.info(f"Daily collection completed: {successful_collections} successful, {total_processed} items seen")
-            return {
-                "status": "success",
-                "timestamp": datetime.utcnow(),
-                "successful": successful_collections,
-                "total_seen": total_processed
-            }
-            
-        except Exception as e:
-            if self.db_session:
-                self.db_session.rollback()
-            logger.error(f"Error in daily collection: {e}", exc_info=True)
-            return {"status": "failed", "error": str(e)}
-
     def _load_recent_price_histories(self, item_ids, days: int = 90):
         """Load recent price history for many items in one query.
 
@@ -1168,70 +964,4 @@ class DataPipeline:
             logger.error(f"❌ Database pruning failed: {e}", exc_info=True)
             return {"status": "failed", "error": str(e), "duration_seconds": duration_seconds}
     
-    def get_scheduled_jobs(self) -> List[Dict]:
-        """Get list of scheduled jobs"""
-        if not self.scheduler:
-            return []
-        
-        jobs = []
-        for job in self.scheduler.get_jobs():
-            jobs.append({
-                'id': job.id,
-                'name': job.name,
-                'trigger': str(job.trigger),
-                'next_run_time': job.next_run_time.isoformat() if job.next_run_time else None
-            })
-        return jobs
 
-
-class PipelineMonitor:
-    """Monitors pipeline health and performance"""
-    
-    def __init__(self):
-        """Initialize pipeline monitor"""
-        self.collection_stats = {
-            'last_run': None,
-            'last_success': None,
-            'last_error': None,
-            'total_runs': 0,
-            'total_failures': 0,
-            'items_collected': 0
-        }
-        self.feature_stats = {
-            'last_run': None,
-            'last_success': None,
-            'items_processed': 0,
-            'total_features_computed': 0
-        }
-    
-    def record_collection_run(self, success: bool, items_count: int = 0, error: Optional[str] = None):
-        """Record a collection run"""
-        self.collection_stats['last_run'] = datetime.utcnow()
-        self.collection_stats['total_runs'] += 1
-        
-        if success:
-            self.collection_stats['last_success'] = datetime.utcnow()
-            self.collection_stats['items_collected'] += items_count
-        else:
-            self.collection_stats['total_failures'] += 1
-            self.collection_stats['last_error'] = error
-    
-    def get_collection_health(self) -> Dict:
-        """Get collection pipeline health status"""
-        if self.collection_stats['total_runs'] == 0:
-            return {'status': 'never_run'}
-        
-        success_rate = (self.collection_stats['total_runs'] - self.collection_stats['total_failures']) / self.collection_stats['total_runs']
-        
-        return {
-            'status': 'healthy' if success_rate > 0.9 else 'degraded' if success_rate > 0.5 else 'unhealthy',
-            'success_rate': success_rate,
-            **self.collection_stats
-        }
-    
-    def get_stats(self) -> Dict:
-        """Get all pipeline statistics"""
-        return {
-            'collection': self.get_collection_health(),
-            'features': self.feature_stats
-        }
