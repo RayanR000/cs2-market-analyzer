@@ -7,7 +7,10 @@ from pydantic import BaseModel
 import re
 import math
 
-from database import get_db, Item, PriceHistory, TrendIndicator, DailyAnalysis, ItemForecast, Event, EventImpact
+from database import (
+    get_db, Item, PriceHistory, TrendIndicator, DailyAnalysis, ItemForecast,
+    Event, EventImpact, backfilled_item_clause,
+)
 from api.cache import get_or_build
 from api.schemas import (
     ItemOut, PricePointOut, TrendAnalysisOut, PredictionOut,
@@ -32,7 +35,7 @@ def list_items(
     db: Session = Depends(get_db),
 ):
     def build():
-        q = db.query(Item)
+        q = db.query(Item).filter(backfilled_item_clause())
         if type:
             q = q.filter(Item.type == type)
         return q.order_by(Item.name).offset(skip).limit(limit).all()
@@ -47,7 +50,7 @@ def search_items(
 ):
     return (
         db.query(Item)
-        .filter(Item.name.ilike(f"%{q}%"))
+        .filter(Item.name.ilike(f"%{q}%"), backfilled_item_clause())
         .order_by(Item.name)
         .limit(50)
         .all()
@@ -67,7 +70,7 @@ def trending_items(
 def _build_trending(db: Session, limit: int):
     items = (
         db.query(Item)
-        .filter(Item.icon_url.isnot(None))
+        .filter(Item.icon_url.isnot(None), backfilled_item_clause())
         .order_by(desc(Item.updated_at))
         .limit(max(limit * 10, 100))
         .all()
@@ -406,7 +409,9 @@ def get_item_events(
 def get_multi_source_prices(
     item_id: str,
     source: str = Query("all", description="Comma-separated sources, or 'all' for every real source"),
-    days: int = Query(30, ge=1, le=365),
+    # Historical series reach back to 2013; the chart's "ALL" range needs
+    # the full depth, not a one-year window.
+    days: int = Query(30, ge=1, le=5000),
     db: Session = Depends(get_db),
 ):
     item = _resolve_item(item_id, db)

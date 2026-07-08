@@ -82,6 +82,27 @@ class PriceHistory(Base):
         Index('idx_price_history_source', 'source'),
     )
 
+# Sources whose presence marks an item as "backfilled": it has a real
+# historical price series (from CSMarketAPI), not just a live snapshot.
+BACKFILLED_SOURCES = ("market_csgo", "steam_historical")
+
+
+def backfilled_item_clause():
+    """SQL EXISTS clause: the Item row has backfilled price history.
+
+    Listing endpoints filter on this so the site only surfaces items with
+    enough data for charts and analysis; snapshot-tier items stay reachable
+    by direct link but are not listed.
+    """
+    from sqlalchemy import exists, and_
+    return exists().where(
+        and_(
+            PriceHistory.item_id == Item.id,
+            PriceHistory.source.in_(BACKFILLED_SOURCES),
+        )
+    )
+
+
 class CollectionRun(Base):
     """Collection run model - persisted collector health and run metadata"""
     __tablename__ = "collection_runs"

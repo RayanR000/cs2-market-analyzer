@@ -184,7 +184,7 @@ export async function getItemEvents(itemId: string, limit = 20) {
 export async function getMultiSourcePrices(
   itemId: string,
   sources: string[] = ['all'],
-  days: number = 365
+  days: number = 5000
 ): Promise<MultiSourcePrices> {
   const sourceParam = sources.join(',');
   const url = new URL(`${API_URL}/items/${encodeURIComponent(itemId)}/prices`);

@@ -6,7 +6,7 @@ from sqlalchemy import desc, or_, func, case
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
-from database import get_db, Item, DailyAnalysis, PriceHistory
+from database import get_db, Item, DailyAnalysis, PriceHistory, backfilled_item_clause
 from api.cache import get_or_build
 from pydantic import BaseModel
 
@@ -90,7 +90,7 @@ def market_summary(
 
 
 def _build_market_summary(db: Session, type: Optional[str], q: Optional[str]):
-    query = db.query(Item)
+    query = db.query(Item).filter(backfilled_item_clause())
     if type:
         query = query.filter(Item.type == type)
     if q:

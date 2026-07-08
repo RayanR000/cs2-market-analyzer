@@ -200,7 +200,7 @@ export default function ItemDetailPage() {
           getPriceHistory(itemId, 90, 0, 500),
           getItemTrends(itemId),
           getItemPrediction(itemId, '30_days'),
-          getMultiSourcePrices(itemId, ['all'], 365),
+          getMultiSourcePrices(itemId, ['all'], 5000),
         ]);
 
         if (cancelled) return;
