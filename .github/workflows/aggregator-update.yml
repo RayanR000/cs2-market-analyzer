@@ -50,6 +50,7 @@ jobs:
           DEBUG: false
         run: |
           echo "🚀 Starting aggregator market update..."
+          set -o pipefail
           python scripts/run_task.py aggregate 2>&1 | tee aggregator.log
 
       # Snapshot-tier items keep only their latest row in Supabase, so each

@@ -251,32 +251,43 @@ def get_price_history(
                 ChartPoint.day >= cutoff_date,
             )
             .order_by(ChartPoint.day)
-            .offset(skip)
-            .limit(limit)
             .all()
         )
+        all_prices = [r.close for r in records]
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        all_records = (
+            db.query(PriceHistory)
+            .filter(
+                PriceHistory.item_id == item.id,
+                PriceHistory.timestamp >= cutoff,
+            )
+            .order_by(PriceHistory.timestamp)
+            .all()
+        )
+        all_prices = [r.price for r in all_records]
+        records = all_records[skip:skip + limit]
+
+    sma_7 = None
+    sma_30 = None
+    if len(all_prices) >= 7:
+        sma_7 = sum(all_prices[-7:]) / 7
+    if len(all_prices) >= 30:
+        sma_30 = sum(all_prices[-30:]) / 30
+
+    if days >= 365:
+        records = records[skip:skip + limit]
         return [
             PricePointOut(
                 timestamp=datetime.combine(r.day, datetime.min.time()),
                 price=r.close,
                 volume=None,
                 median_price=None,
+                sma_7=sma_7,
+                sma_30=sma_30,
             )
             for r in records
         ]
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    records = (
-        db.query(PriceHistory)
-        .filter(
-            PriceHistory.item_id == item.id,
-            PriceHistory.timestamp >= cutoff,
-        )
-        .order_by(PriceHistory.timestamp)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
 
     return [
         PricePointOut(
@@ -284,9 +295,59 @@ def get_price_history(
             price=r.price,
             volume=r.volume,
             median_price=r.median_price,
+            sma_7=sma_7,
+            sma_30=sma_30,
         )
         for r in records
     ]
+
+
+def _compute_bollinger_bands(prices, window=20, num_std=2):
+    if len(prices) < window:
+        return None, None, None
+    recent = prices[-window:]
+    sma = sum(recent) / window
+    variance = sum((p - sma) ** 2 for p in recent) / window
+    std = math.sqrt(variance)
+    return sma + num_std * std, sma, sma - num_std * std
+
+def _compute_rsi(prices, window=14):
+    if len(prices) < window + 1:
+        return None
+    gains, losses = 0.0, 0.0
+    for i in range(-window, 0):
+        diff = prices[i] - prices[i - 1]
+        if diff > 0:
+            gains += diff
+        else:
+            losses -= diff
+    avg_gain = gains / window
+    avg_loss = losses / window
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100.0 - (100.0 / (1.0 + rs))
+
+def _compute_macd(prices, fast=12, slow=26, signal=9):
+    if len(prices) < slow + signal:
+        return None, None
+    def ema(data, period):
+        k = 2.0 / (period + 1)
+        result = [data[0]]
+        for v in data[1:]:
+            result.append(v * k + result[-1] * (1 - k))
+        return result
+    fast_ema = ema(prices, fast)
+    slow_ema = ema(prices, slow)
+    macd_line = [f - s for f, s in zip(fast_ema, slow_ema)]
+    signal_line = ema(macd_line, signal)
+    return macd_line[-1], signal_line[-1]
+
+def _compute_support_resistance(prices, window=20):
+    if len(prices) < window:
+        return None, None
+    recent = prices[-window:]
+    return min(recent), max(recent)
 
 
 @router.get("/{item_id}/trends", response_model=TrendAnalysisOut)
@@ -335,6 +396,45 @@ def get_item_trends(item_id: str, db: Session = Depends(get_db)):
             confidence = "medium"
 
     explanation = _build_trend_explanation(trend_dir, confidence, sma_7, current_price)
+
+    price_points = [
+        r.price for r in (
+            db.query(PriceHistory)
+            .filter(PriceHistory.item_id == item.id)
+            .order_by(PriceHistory.timestamp)
+            .all()
+        )
+    ]
+    if not price_points:
+        cp_records = (
+            db.query(ChartPoint)
+            .filter(ChartPoint.item_id == item.id)
+            .order_by(ChartPoint.day)
+            .all()
+        )
+        price_points = [r.close for r in cp_records]
+
+    bollinger_upper, bollinger_middle, bollinger_lower = _compute_bollinger_bands(price_points)
+    rsi = _compute_rsi(price_points)
+    macd, macd_signal = _compute_macd(price_points) if price_points else (None, None)
+    support, resistance = _compute_support_resistance(price_points)
+
+    factors = []
+    if rsi is not None:
+        if rsi > 70:
+            factors.append("RSI overbought (>70)")
+        elif rsi < 30:
+            factors.append("RSI oversold (<30)")
+    if trend_dir == "up":
+        factors.append("Short-term MA above long-term MA")
+    elif trend_dir == "down":
+        factors.append("Short-term MA below long-term MA")
+    if volatility is not None and volatility > 10:
+        factors.append(f"High volatility ({volatility:.1f}%)")
+    if support is not None and resistance is not None:
+        band_width = ((resistance - support) / support) * 100
+        factors.append(f"Trading range: {band_width:.1f}%")
+
     return TrendAnalysisOut(
         item_id=item.id,
         item_name=item.name,
@@ -346,6 +446,15 @@ def get_item_trends(item_id: str, db: Session = Depends(get_db)):
         volatility=volatility,
         trend_score=trend_score,
         explanation=explanation,
+        rsi=rsi,
+        bollinger_upper=bollinger_upper,
+        bollinger_middle=bollinger_middle,
+        bollinger_lower=bollinger_lower,
+        macd=macd,
+        macd_signal=macd_signal,
+        support=support,
+        resistance=resistance,
+        factors=factors,
     )
 
 

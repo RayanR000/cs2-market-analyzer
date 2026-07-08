@@ -51,7 +51,7 @@ class ItemForecaster:
     def fetch_price_history(self, days_back: int = 365) -> pd.DataFrame:
         logger.info(f"Fetching price history (last {days_back}d)...")
 
-        archive_dir = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+        archive_dir = Path(__file__).parent.parent.parent / "price-archive"
         if archive_dir.exists() and days_back > 14:
             import duckdb
             cutoff = (self._now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
@@ -179,6 +179,11 @@ class ItemForecaster:
         df["quarter"] = dates.dt.quarter
         df["day_of_year"] = dates.dt.dayofyear
         df["is_weekend"] = (dates.dt.dayofweek >= 5).astype(int)
+        if "item_id" in df.columns:
+            item_first_date = df.groupby("item_id")["date"].transform("min")
+            df["item_age_days"] = (pd.to_datetime(df["date"]) - pd.to_datetime(item_first_date)).dt.days
+        else:
+            df["item_age_days"] = 0
         return df
 
     def _add_event_features(self, df: pd.DataFrame, events_df: pd.DataFrame) -> pd.DataFrame:
@@ -187,7 +192,7 @@ class ItemForecaster:
             df["events_next_30d"] = 0
             return df
 
-        for event_type in ["major", "operation", "case_drop", "update"]:
+        for event_type in ["major", "operation", "case_drop", "update", "game_update"]:
             type_events = events_df[events_df["type"] == event_type].sort_values("date")
 
             if type_events.empty:

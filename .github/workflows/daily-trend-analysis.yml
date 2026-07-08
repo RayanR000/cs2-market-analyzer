@@ -44,6 +44,7 @@ jobs:
           ENVIRONMENT: production
           DEBUG: false
         run: |
+          set -o pipefail
           echo "📊 Starting daily trend analysis..."
           python scripts/run_task.py trends 2>&1 | tee analysis.log
 

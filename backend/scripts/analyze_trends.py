@@ -49,7 +49,7 @@ def _filter_daily_analysis_row(row):
     """Drop non-portable fields before writing daily analysis rows."""
     return {key: value for key, value in row.items() if key in DAILY_ANALYSIS_WRITE_COLUMNS}
 
-ARCHIVE_DIR = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+ARCHIVE_DIR = Path(__file__).parent.parent.parent / "price-archive"
 
 
 def _load_from_parquet(item_ids, days=90):

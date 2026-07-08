@@ -45,6 +45,7 @@ jobs:
           DEBUG: false
         run: |
           echo "📊 Starting event correlation analysis..."
+          set -o pipefail
           python scripts/event_analyzer.py 2>&1 | tee event_analysis.log
 
       - name: Notify on failure

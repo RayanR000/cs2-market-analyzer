@@ -73,6 +73,7 @@ jobs:
           DEBUG: false
         run: |
           echo "🔮 Mode: ${{ steps.mode.outputs.mode }}"
+          set -o pipefail
           case "${{ steps.mode.outputs.mode }}" in
             predict-only)
               python scripts/forecast_prices.py --predict-only 2>&1 | tee forecast.log

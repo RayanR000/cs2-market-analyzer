@@ -45,6 +45,7 @@ jobs:
           DEBUG: false
         run: |
           echo "🔍 Starting item discovery..."
+          set -o pipefail
           python scripts/discover_steam_items.py 2>&1 | tee discovery.log
 
       - name: Notify on failure

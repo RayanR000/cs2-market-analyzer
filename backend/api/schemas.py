@@ -52,6 +52,15 @@ class TrendAnalysisOut(BaseModel):
     volatility: Optional[float] = None
     trend_score: Optional[float] = None
     explanation: str
+    rsi: Optional[float] = None
+    bollinger_upper: Optional[float] = None
+    bollinger_middle: Optional[float] = None
+    bollinger_lower: Optional[float] = None
+    macd: Optional[float] = None
+    macd_signal: Optional[float] = None
+    support: Optional[float] = None
+    resistance: Optional[float] = None
+    factors: List[str] = []
 
     class Config:
         from_attributes = True

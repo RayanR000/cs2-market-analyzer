@@ -44,7 +44,7 @@ class EventAnalyzer:
         end_dt = datetime.combine(end_date, datetime.max.time())
 
         # Try Parquet archive for historical range
-        archive_dir = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+        archive_dir = Path(__file__).parent.parent.parent / "price-archive"
         parquet_ok = archive_dir.exists() and (end_date - start_date).days > 60
 
         if parquet_ok:

@@ -6,7 +6,7 @@ Reads year-split Parquet files, resolves item_slug → item_id via Supabase,
 and upserts one daily close per item into chart_points.
 
 Usage:
-    python scripts/build_chart_points.py [--parquet-dir ../archive/price-archive]
+    python scripts/build_chart_points.py [--parquet-dir ../price-archive]
 """
 
 import argparse
@@ -26,7 +26,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--parquet-dir",
-        default="../archive/price-archive",
+        default="../price-archive",
         help="Directory containing prices-YYYY.parquet files",
     )
     parser.add_argument("--date", help="Only process this date (YYYY-MM-DD)")

@@ -45,6 +45,7 @@ jobs:
           DEBUG: false
         run: |
           echo "📊 Starting long-term trend analysis..."
+          set -o pipefail
           python scripts/run_task.py long_term_trends 2>&1 | tee analysis.log
 
       - name: Notify on failure

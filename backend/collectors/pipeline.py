@@ -709,7 +709,7 @@ class DataPipeline:
         try:
             rows = con.sql("""
                 SELECT item_slug, day, mean_price AS price
-                FROM read_parquet('../archive/price-archive/prices-*.parquet')
+                FROM read_parquet('../price-archive/prices-*.parquet')
                 WHERE item_slug IN ?
                   AND day >= DATE ?
                 ORDER BY item_slug, day

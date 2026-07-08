@@ -87,6 +87,8 @@ const SOURCE_CHART_META: Record<string, { label: string; color: string }> = {
   market_csgo: { label: 'Market.CSGO', color: 'oklch(65% 0.14 250)' },
   steam_historical: { label: 'Steam (weekly)', color: 'oklch(70% 0 0)' },
   steam_batch: { label: 'Steam', color: 'oklch(70% 0 0)' },
+  steam: { label: 'Steam', color: 'oklch(70% 0 0)' },
+  csfloat: { label: 'CSFloat', color: 'var(--brand)' },
 };
 
 const TIME_RANGES = ['24h', '7d', '30d', 'all'] as const;

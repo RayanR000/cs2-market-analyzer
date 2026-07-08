@@ -53,7 +53,7 @@ class LongTermTrendAnalyzer:
         self.max_lookback_days = 365 * 3
 
     def get_first_seen_bulk(self):
-        archive_dir = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+        archive_dir = Path(__file__).parent.parent.parent / "price-archive"
         if archive_dir.exists():
             import duckdb
             con = duckdb.connect()
@@ -88,7 +88,7 @@ class LongTermTrendAnalyzer:
         if not item_ids:
             return {}
 
-        archive_dir = Path(__file__).parent.parent.parent / "archive" / "price-archive"
+        archive_dir = Path(__file__).parent.parent.parent / "price-archive"
         if archive_dir.exists():
             import duckdb
             slug_rows = self.db.query(Item.id, Item.item_id).filter(
