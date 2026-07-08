@@ -183,8 +183,8 @@ export async function getItemEvents(itemId: string, limit = 20) {
 
 export async function getMultiSourcePrices(
   itemId: string,
-  sources: string[] = ['steam', 'csfloat'],
-  days: number = 30
+  sources: string[] = ['all'],
+  days: number = 365
 ): Promise<MultiSourcePrices> {
   const sourceParam = sources.join(',');
   const url = new URL(`${API_URL}/items/${encodeURIComponent(itemId)}/prices`);

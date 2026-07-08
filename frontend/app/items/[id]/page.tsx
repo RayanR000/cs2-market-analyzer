@@ -82,6 +82,13 @@ interface PriceSeriesRow {
   [source: string]: number | string;
 }
 
+const SOURCE_CHART_META: Record<string, { label: string; color: string }> = {
+  aggregator_sync: { label: 'Live', color: 'var(--brand)' },
+  market_csgo: { label: 'Market.CSGO', color: 'oklch(65% 0.14 250)' },
+  steam_historical: { label: 'Steam (weekly)', color: 'oklch(70% 0 0)' },
+  steam_batch: { label: 'Steam', color: 'oklch(70% 0 0)' },
+};
+
 const TIME_RANGES = ['24h', '7d', '30d', 'all'] as const;
 type TimeRange = (typeof TIME_RANGES)[number];
 
@@ -163,7 +170,10 @@ function formatVolume(value: number | null | undefined) {
 
 export default function ItemDetailPage() {
   const params = useParams();
-  const itemId = params.id as string;
+  // useParams returns the still-encoded URL segment; without decoding here,
+  // api.ts encodes it a second time and every request 404s for ids
+  // containing spaces or pipes.
+  const itemId = decodeURIComponent(params.id as string);
   const [item, setItem] = useState<CatalogItem | null>(null);
   const [variants, setVariants] = useState<QualityVariant[]>([]);
   const [activeQuality, setActiveQuality] = useState<string>('');
@@ -190,7 +200,7 @@ export default function ItemDetailPage() {
           getPriceHistory(itemId, 90, 0, 500),
           getItemTrends(itemId),
           getItemPrediction(itemId, '30_days'),
-          getMultiSourcePrices(itemId, ['steam', 'csfloat'], 30),
+          getMultiSourcePrices(itemId, ['all'], 365),
         ]);
 
         if (cancelled) return;
@@ -264,8 +274,15 @@ export default function ItemDetailPage() {
       <div className="min-h-screen bg-background-primary">
         <Header />
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="widget-block p-6 text-sm text-secondary">
-            Loading item data from the backend...
+          <div className="flex items-center gap-4 mb-8">
+            <div className="w-20 h-20 rounded-sm bg-background-secondary animate-pulse" />
+            <div className="flex-1">
+              <div className="h-8 w-64 bg-background-secondary rounded-sm animate-pulse mb-2" />
+              <div className="h-4 w-40 bg-background-tertiary rounded-sm animate-pulse" />
+            </div>
+          </div>
+          <div className="widget-block p-6">
+            <div className="h-[360px] bg-background-tertiary/30 rounded-sm animate-pulse" />
           </div>
         </div>
       </div>
@@ -277,38 +294,55 @@ export default function ItemDetailPage() {
       <div className="min-h-screen bg-background-primary">
         <Header />
         <div className="max-w-7xl mx-auto px-6 py-8">
-          <Link href="/market" className="text-brand hover:underline text-xs font-medium mb-6 inline-block">
+          <Link href="/market" className="text-accent-primary hover:text-brand-hover text-xs font-bold uppercase tracking-[0.2em] mb-6 inline-block transition-colors">
             &larr; MARKET
           </Link>
-          <div className="widget-block p-6">
+          <div className="widget-block p-8 text-center">
             <h1 className="text-2xl font-semibold text-primary mb-2">Item unavailable</h1>
-            <p className="text-sm text-secondary">{error || 'No backend item data was returned for this id.'}</p>
+            <p className="text-sm text-secondary mb-4">{error || 'No backend item data was returned for this id.'}</p>
+            <Link href="/market" className="text-xs font-bold uppercase tracking-widest text-accent-primary hover:text-brand-hover transition-colors">
+              Back to Market
+            </Link>
           </div>
         </div>
       </div>
     );
   }
 
+  const trendColor = trendDirection === 'bullish' ? 'var(--data-up)' : trendDirection === 'bearish' ? 'var(--data-down)' : 'var(--text-secondary)';
+
   return (
     <div className="min-h-screen bg-background-primary">
       <Header />
 
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <Link href="/market" className="text-brand hover:text-brand-hover text-xs font-bold uppercase tracking-[0.2em] mb-6 inline-block transition-colors">
-          &larr; MARKET
-        </Link>
+        <motion.div
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3, ease: EASE }}
+        >
+          <Link href="/market" className="text-accent-primary hover:text-brand-hover text-xs font-bold uppercase tracking-[0.2em] mb-6 inline-block transition-colors">
+            &larr; MARKET
+          </Link>
+        </motion.div>
 
+        {/* Quality Selector */}
         {variants.length > 1 && (
-          <div className="mb-6">
-            <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Quality</div>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05, duration: 0.35, ease: EASE }}
+            className="mb-6"
+          >
+            <div className="text-[10px] uppercase tracking-[0.15em] text-muted mb-2 font-semibold">Quality</div>
             <div className="flex flex-wrap gap-1.5">
               {variants.map((v) => (
                 <Link
                   key={v.item_id}
                   href={`/items/${encodeURIComponent(v.item_id)}`}
-                  className={`px-3 py-2 text-xs font-bold uppercase tracking-widest rounded-sm border transition-all ${
+                  className={`px-3 py-2 text-xs font-bold uppercase tracking-widest rounded-sm border transition-all duration-200 ${
                     v.quality === activeQuality
-                      ? 'bg-brand text-white border-brand'
+                      ? 'bg-accent text-background-primary border-accent shadow-[0_0_16px_oklch(52%_0.12_355_/_0.15)]'
                       : 'bg-surface text-secondary border-border hover:bg-surface-hover hover:border-accent-primary'
                   }`}
                 >
@@ -321,13 +355,19 @@ export default function ItemDetailPage() {
                 </Link>
               ))}
             </div>
-          </div>
+          </motion.div>
         )}
 
-        <div className="widget-block p-6 mb-8">
+        {/* Item Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.45, ease: EASE }}
+          className="widget-block p-6 mb-8"
+        >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-primary mb-2">{item.name}</h1>
+              <h1 className="text-3xl font-bold text-primary mb-2 tracking-tight">{item.name}</h1>
               <div className="flex flex-wrap items-center gap-3 text-xs font-data text-tertiary">
                 <span className="uppercase tracking-wide">{item.type}</span>
                 {item.release_date && <span>{new Date(item.release_date).toLocaleDateString()}</span>}
@@ -358,26 +398,40 @@ export default function ItemDetailPage() {
             </div>
           )}
 
+          {/* Metric Cards */}
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Trend" value={trendDirection.replace('_', ' ')} sub={`Confidence ${confidence}`} />
+            <MetricCard
+              label="Trend"
+              value={trendDirection.replace('_', ' ')}
+              sub={`Confidence ${confidence}`}
+              accentColor={trendColor}
+            />
             <MetricCard label="7d SMA" value={hasPriceData ? formatCurrency(trends?.indicators?.sma_7 ?? null) : '\u2014'} mono />
             <MetricCard label="30d SMA" value={hasPriceData ? formatCurrency(trends?.indicators?.sma_30 ?? null) : '\u2014'} mono />
             <MetricCard label="Volume 24h" value={hasPriceData ? formatVolume(summary.volume24h) : '\u2014'} mono />
           </div>
-        </div>
+        </motion.div>
 
+        {/* Chart + Sidebar */}
         <div className="grid grid-cols-1 gap-8 xl:grid-cols-4">
-          <div className="xl:col-span-3">
+          {/* Chart */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.45, ease: EASE }}
+            className="xl:col-span-3"
+          >
+            {/* Time Range Tabs */}
             <div className="flex items-center justify-between gap-4 mb-4">
-              <div className="flex gap-1 flex-wrap">
+              <div className="flex gap-0.5">
                 {TIME_RANGES.map((range) => (
                   <button
                     key={range}
                     onClick={() => setTimeRange(range)}
-                    className={`px-3 py-2 text-xs font-bold uppercase tracking-widest transition-colors ${
+                    className={`px-3 py-2 text-xs font-bold uppercase tracking-widest transition-all duration-200 rounded-sm ${
                       timeRange === range
-                        ? 'text-primary border-b-2 border-brand'
-                        : 'text-tertiary hover:text-primary'
+                        ? 'text-accent-primary bg-accent-primary/10'
+                        : 'text-tertiary hover:text-primary hover:bg-surface'
                     }`}
                   >
                     {range}
@@ -387,6 +441,7 @@ export default function ItemDetailPage() {
               <span className="tag-tech">price history</span>
             </div>
 
+            {/* Source Filter */}
             <div className="mb-4">
               <PriceSourceFilter
                 selectedSources={visibleSources}
@@ -395,12 +450,8 @@ export default function ItemDetailPage() {
               />
             </div>
 
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.3 }}
-              className="widget-block p-4"
-            >
+            {/* Chart */}
+            <div className="widget-block p-4">
               {sourceChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={360}>
                   <LineChart data={sourceChartData}>
@@ -420,12 +471,19 @@ export default function ItemDetailPage() {
                       }}
                       formatter={(value) => formatCurrency(Number(value))}
                     />
-                    {visibleSources.includes('steam') && (
-                      <Line type="monotone" dataKey="steam" stroke="var(--text-secondary)" strokeWidth={2} dot={false} isAnimationActive={false} name="Steam" />
-                    )}
-                    {visibleSources.includes('csfloat') && (
-                      <Line type="monotone" dataKey="csfloat" stroke="var(--brand)" strokeWidth={2} dot={false} isAnimationActive={false} name="CSFloat" />
-                    )}
+                    {visibleSources.map((source) => (
+                      <Line
+                        key={source}
+                        type="monotone"
+                        dataKey={source}
+                        stroke={SOURCE_CHART_META[source]?.color ?? 'var(--text-secondary)'}
+                        strokeWidth={2}
+                        dot={false}
+                        isAnimationActive={false}
+                        connectNulls
+                        name={SOURCE_CHART_META[source]?.label ?? source}
+                      />
+                    ))}
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
@@ -433,17 +491,19 @@ export default function ItemDetailPage() {
                   {hasPriceData ? 'No price data available for the selected range' : 'No price history recorded for this item'}
                 </div>
               )}
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
 
+          {/* Sidebar */}
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.1, ease: EASE }}
+            transition={{ delay: 0.3, duration: 0.45, ease: EASE }}
             className="space-y-4"
           >
+            {/* Prediction */}
             <div className="widget-block p-4">
-              <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Prediction</div>
+              <div className="text-[10px] uppercase tracking-[0.15em] text-muted mb-3 font-semibold">Prediction</div>
               <div className="text-2xl font-bold text-primary font-data">
                 {hasPriceData && forecast ? (
                   <CountUpNumber from={forecast.mid} to={forecast.mid} decimals={2} formatFn={formatCurrency} />
@@ -454,27 +514,38 @@ export default function ItemDetailPage() {
               </div>
             </div>
 
+            {/* Forecast Band */}
             <div className="widget-block p-4">
-              <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Forecast band</div>
+              <div className="text-[10px] uppercase tracking-[0.15em] text-muted mb-3 font-semibold">Forecast band</div>
               {hasPriceData ? (
-                <div className="space-y-1 font-data text-sm text-primary">
-                  <div>Low {formatCurrency(forecast?.low ?? null)}</div>
-                  <div>Mid {formatCurrency(forecast?.mid ?? null)}</div>
-                  <div>High {formatCurrency(forecast?.high ?? null)}</div>
+                <div className="space-y-1.5 font-data text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-tertiary">Low</span>
+                    <span className="text-primary">{formatCurrency(forecast?.low ?? null)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-tertiary">Mid</span>
+                    <span className="text-primary font-medium">{formatCurrency(forecast?.mid ?? null)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-tertiary">High</span>
+                    <span className="text-primary">{formatCurrency(forecast?.high ?? null)}</span>
+                  </div>
                 </div>
               ) : (
                 <div className="text-sm text-tertiary">No price data to forecast from</div>
               )}
             </div>
 
+            {/* Data Sources */}
             <div className="widget-block p-4">
-              <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Data sources</div>
+              <div className="text-[10px] uppercase tracking-[0.15em] text-muted mb-3 font-semibold">Data sources</div>
               <div className="space-y-2">
                 {availableSources.map((source) => (
                   <div key={source} className="flex items-center justify-between text-sm">
                     <span className="capitalize text-primary">{source}</span>
-                    <span className="text-tertiary">
-                      {(multiSourceData?.data[source]?.length ?? 0).toString()} points
+                    <span className="text-tertiary font-data text-xs">
+                      {(multiSourceData?.data[source]?.length ?? 0).toString()} pts
                     </span>
                   </div>
                 ))}
@@ -484,8 +555,9 @@ export default function ItemDetailPage() {
               )}
             </div>
 
+            {/* Signals */}
             <div className="widget-block p-4">
-              <div className="text-xs uppercase tracking-wide text-tertiary mb-2">Signals</div>
+              <div className="text-[10px] uppercase tracking-[0.15em] text-muted mb-3 font-semibold">Signals</div>
               <div className="space-y-2 text-sm text-primary">
                 {hasPriceData && trendFactors.length ? (
                   trendFactors.map((factor) => (
@@ -503,11 +575,16 @@ export default function ItemDetailPage() {
   );
 }
 
-function MetricCard({ label, value, sub, mono }: { label: string; value: string; sub?: string; mono?: boolean }) {
+function MetricCard({ label, value, sub, mono, accentColor }: { label: string; value: string; sub?: string; mono?: boolean; accentColor?: string }) {
   return (
-    <div className="rounded-sm border border-border bg-background-tertiary p-4">
-      <div className="text-xs uppercase tracking-wide text-tertiary mb-2">{label}</div>
-      <div className={`text-lg font-semibold text-primary ${mono ? 'font-data' : ''} capitalize`}>{value}</div>
+    <div className="rounded-sm border border-border bg-background-tertiary p-4 group hover:border-border-accent transition-colors duration-200">
+      <div className="text-[10px] uppercase tracking-[0.15em] text-muted mb-2 font-semibold">{label}</div>
+      <div
+        className={`text-lg font-semibold ${mono ? 'font-data' : ''} capitalize`}
+        style={{ color: accentColor || 'var(--text-primary)' }}
+      >
+        {value}
+      </div>
       {sub && <div className="text-xs text-tertiary mt-1">{sub}</div>}
     </div>
   );

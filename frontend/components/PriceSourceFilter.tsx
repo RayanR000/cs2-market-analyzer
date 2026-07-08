@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import styles from './PriceSourceFilter.module.css';
 
 interface PriceSourceFilterProps {
   selectedSources: string[];
@@ -10,14 +9,15 @@ interface PriceSourceFilterProps {
 }
 
 const SOURCE_META: Record<string, { label: string; color: string }> = {
-  steam: { label: 'Steam', color: '#1b2838' },
-  csfloat: { label: 'CSFloat', color: '#ff6b35' },
+  aggregator_sync: { label: 'Live', color: 'var(--brand)' },
+  market_csgo: { label: 'Market.CSGO', color: 'oklch(65% 0.14 250)' },
+  steam_historical: { label: 'Steam (weekly)', color: 'oklch(70% 0 0)' },
+  steam_batch: { label: 'Steam', color: 'oklch(70% 0 0)' },
+  steam: { label: 'Steam', color: 'oklch(70% 0 0)' },
+  csfloat: { label: 'CSFloat', color: 'var(--brand)' },
 };
 
-const DEFAULT_SOURCES = [
-  'steam',
-  'csfloat',
-];
+const DEFAULT_SOURCES = ['aggregator_sync'];
 
 export default function PriceSourceFilter({
   selectedSources,
@@ -33,25 +33,23 @@ export default function PriceSourceFilter({
   };
 
   return (
-    <div className={styles.filterContainer}>
-      <label className={styles.label}>Price Sources</label>
-      <div className={styles.toggleGroup}>
+    <div className="flex flex-col gap-2">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">Price Sources</span>
+      <div className="flex gap-1.5 flex-wrap">
         {availableSources.map(sourceId => {
-          const source = SOURCE_META[sourceId] ?? { label: sourceId, color: '#6b7280' };
+          const source = SOURCE_META[sourceId] ?? { label: sourceId, color: 'oklch(50% 0 0)' };
+          const isActive = selectedSources.includes(sourceId);
 
           return (
             <button
               key={sourceId}
-              className={`${styles.toggle} ${
-                selectedSources.includes(sourceId) ? styles.active : ''
-              }`}
               onClick={() => handleToggle(sourceId)}
-              style={{
-                borderColor: selectedSources.includes(sourceId) ? source.color : undefined,
-                backgroundColor: selectedSources.includes(sourceId)
-                  ? `${source.color}15`
-                  : undefined,
-              }}
+              className={`px-3 py-1.5 text-xs font-bold uppercase tracking-widest rounded-sm border transition-all duration-200 ${
+                isActive
+                  ? 'text-primary border-current'
+                  : 'text-secondary border-border hover:bg-surface-hover hover:border-accent-primary'
+              }`}
+              style={isActive ? { borderColor: source.color, color: source.color, backgroundColor: `color-mix(in oklch, ${source.color} 8%, transparent)` } : undefined}
             >
               {source.label}
             </button>

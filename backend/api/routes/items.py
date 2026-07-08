@@ -395,41 +395,43 @@ def get_item_events(
 @router.get("/{item_id}/prices", response_model=MultiSourcePricesOut)
 def get_multi_source_prices(
     item_id: str,
-    source: str = Query("steam", description="Comma-separated sources"),
+    source: str = Query("all", description="Comma-separated sources, or 'all' for every real source"),
     days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
     item = _resolve_item(item_id, db)
-    sources = [s.strip() for s in source.split(",")]
+    requested = [s.strip() for s in source.split(",") if s.strip()]
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-    # Single query for all requested sources instead of one per source
-    records = (
+    # Single query for all requested sources instead of one per source.
+    # Synthetic and fallback rows are copies/placeholders, never charted.
+    query = (
         db.query(PriceHistory)
         .filter(
             PriceHistory.item_id == item.id,
-            PriceHistory.source.in_(sources),
             PriceHistory.timestamp >= cutoff,
+            ~PriceHistory.source.like('synthetic_demo'),
+            ~PriceHistory.source.like('historical_fallback:%'),
         )
-        .order_by(PriceHistory.source, PriceHistory.timestamp)
-        .all()
     )
+    if requested and "all" not in requested:
+        query = query.filter(PriceHistory.source.in_(requested))
+    records = query.order_by(PriceHistory.source, PriceHistory.timestamp).all()
 
-    data: dict[str, list[SourcePriceOut]] = {src: [] for src in sources}
+    data: dict[str, list[SourcePriceOut]] = {src: [] for src in requested if src != "all"}
     for r in records:
-        if r.source in data:
-            data[r.source].append(
-                SourcePriceOut(
-                    timestamp=r.timestamp,
-                    price=r.price,
-                    volume=r.volume,
-                    median_price=r.median_price,
-                )
+        data.setdefault(r.source, []).append(
+            SourcePriceOut(
+                timestamp=r.timestamp,
+                price=r.price,
+                volume=r.volume,
+                median_price=r.median_price,
             )
+        )
 
     return MultiSourcePricesOut(
         item_id=item.item_id,
         name=item.name,
-        sources=sources,
+        sources=[src for src, points in data.items() if points],
         data=data,
     )
