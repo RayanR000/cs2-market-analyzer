@@ -64,18 +64,6 @@ def run_task(task_name):
             result = pipeline.run_priority_collection()
             print(f"RESULT: {result}")
 
-        elif task_name == "prune":
-            logger.info("="*60)
-            logger.info("TASK: Database Pruning & Downsampling")
-            logger.info("="*60)
-            result = pipeline.run_database_pruning()
-
-            if isinstance(result, dict):
-                logger.info(f"✅ SUCCESS - Records pruned: {result.get('records_pruned', 'N/A')}")
-                logger.info(f"  Duration: {result.get('duration_seconds', 'N/A')}s")
-
-            print(f"RESULT: {result}")
-
         elif task_name == "trends":
             logger.info("="*60)
             logger.info("TASK: Trend Analysis & Opportunity Detection (90-day)")
@@ -134,7 +122,7 @@ def run_task(task_name):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python run_task.py <task_name>")
-        print("Tasks: aggregate, priority, prune, trends, long_term_trends, migrate")
+        print("Tasks: aggregate, priority, trends, long_term_trends, migrate")
         sys.exit(1)
         
     run_task(sys.argv[1])
