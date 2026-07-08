@@ -50,7 +50,9 @@ class EventAnalyzer:
         ).filter(
             PriceHistory.item_id.in_(item_ids),
             PriceHistory.timestamp >= start_dt,
-            PriceHistory.timestamp <= end_dt
+            PriceHistory.timestamp <= end_dt,
+            ~PriceHistory.source.like('synthetic_demo'),
+            ~PriceHistory.source.like('historical_fallback:%'),
         ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
 
         # Organize by item_id for fast lookup
@@ -341,6 +343,9 @@ class EventAnalyzer:
         # limit keeps the most informative items instead of an arbitrary set.
         top_items = self.db.query(
             PriceHistory.item_id
+        ).filter(
+            ~PriceHistory.source.like('synthetic_demo'),
+            ~PriceHistory.source.like('historical_fallback:%'),
         ).group_by(
             PriceHistory.item_id
         ).order_by(

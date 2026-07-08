@@ -44,6 +44,9 @@ class LongTermTrendAnalyzer:
         rows = self.db.query(
             PriceHistory.item_id,
             func.min(PriceHistory.timestamp)
+        ).filter(
+            ~PriceHistory.source.like('synthetic_demo'),
+            ~PriceHistory.source.like('historical_fallback:%'),
         ).group_by(PriceHistory.item_id).all()
 
         return {item_id: first_seen for item_id, first_seen in rows}
@@ -67,7 +70,9 @@ class LongTermTrendAnalyzer:
             PriceHistory.price
         ).filter(
             PriceHistory.item_id.in_(item_ids),
-            PriceHistory.timestamp >= lookback_date
+            PriceHistory.timestamp >= lookback_date,
+            ~PriceHistory.source.like('synthetic_demo'),
+            ~PriceHistory.source.like('historical_fallback:%'),
         ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
 
         daily = defaultdict(lambda: defaultdict(list))

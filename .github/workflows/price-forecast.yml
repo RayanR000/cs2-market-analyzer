@@ -1,9 +1,12 @@
 name: Price Forecast
 
 on:
-  schedule:
-    # Daily at 4:00 AM UTC (after trend analysis completes at 3:00)
-    - cron: '0 4 * * *'
+  # Chain off trend analysis instead of a separate cron: forecast features
+  # come from daily_analysis, and GitHub cron delays (often 1-3h) could
+  # otherwise run the forecast before the day's analysis has been written.
+  workflow_run:
+    workflows: ["Daily Trend Analysis"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       mode:
@@ -26,6 +29,9 @@ permissions:
 
 jobs:
   forecast:
+    # Skip when the upstream trend analysis failed — its daily_analysis
+    # output is this job's feature input.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:
@@ -89,7 +95,7 @@ jobs:
           git push
 
       - name: Notify on failure
-        if: failure() && github.event_name == 'schedule'
+        if: failure() && github.event_name == 'workflow_run'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

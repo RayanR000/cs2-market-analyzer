@@ -22,7 +22,14 @@ class ItemForecaster:
     HORIZONS = [7, 30]
     QUANTILES = [0.1, 0.5, 0.9]
     MIN_HISTORY_DAYS = 30
-    TRAIN_SPLIT_DATE = "2026-06-15"
+    # Walk-forward validation split: most recent N days are held out.
+    # A relative split stays valid as data accumulates (a fixed date would
+    # eventually leave the validation set covering all new data).
+    VALIDATION_WINDOW_DAYS = 21
+
+    @property
+    def TRAIN_SPLIT_DATE(self) -> str:
+        return (self._now() - timedelta(days=self.VALIDATION_WINDOW_DAYS)).strftime("%Y-%m-%d")
 
     def __init__(self, db_session, model_dir: str = None):
         self.db = db_session
@@ -40,13 +47,17 @@ class ItemForecaster:
     def fetch_price_history(self, days_back: int = 365) -> pd.DataFrame:
         logger.info(f"Fetching price history (last {days_back}d)...")
         cutoff = self._now() - timedelta(days=days_back)
+        # Collapse to one row per item per day in SQL: lag/rolling features
+        # assume a daily series, so intraday or multi-source duplicates would
+        # silently shrink every "N-day" window.
         rows = self.db.execute(text("""
-            SELECT item_id, timestamp, price, volume
+            SELECT item_id, date(timestamp) AS day, AVG(price) AS price, SUM(volume) AS volume
             FROM price_history
             WHERE timestamp >= :cutoff
               AND source NOT LIKE 'synthetic_demo'
               AND source NOT LIKE 'historical_fallback:%'
-            ORDER BY item_id, timestamp
+            GROUP BY item_id, date(timestamp)
+            ORDER BY item_id, day
         """), {"cutoff": cutoff}).fetchall()
         df = pd.DataFrame(rows, columns=["item_id", "timestamp", "price", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"])
