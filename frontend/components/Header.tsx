@@ -10,12 +10,11 @@ export default function Header() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="sticky top-0 z-50 bg-background-primary/90 backdrop-blur-md">
-      <div className="progress-line" />
+    <header className="sticky top-0 z-50 bg-background-primary/90 backdrop-blur-md border-b border-border">
       <div className="max-w-7xl mx-auto px-6 py-4">
         <div className="flex justify-between items-center">
           <Link href="/" className="flex items-center gap-4 group">
-            <div className="w-8 h-8 rounded-sm border border-border flex items-center justify-center bg-background-secondary transition-all duration-300 group-hover:border-accent-primary group-hover:shadow-[0_0_12px_oklch(52%_0.12_355_/_0.15)]">
+            <div className="w-8 h-8 rounded-sm border border-border flex items-center justify-center bg-background-secondary transition-all duration-300 group-hover:border-accent-primary">
               <span className="font-data font-bold text-[10px] text-primary tracking-tighter">CS</span>
             </div>
             <div className="flex flex-col">
@@ -74,7 +73,7 @@ export default function Header() {
             ) : (
               <a
                 href={getLoginUrl()}
-                className="flex items-center gap-3 px-5 py-2 rounded-sm text-[11px] font-bold uppercase tracking-widest transition-all duration-200 bg-accent text-background-primary hover:bg-brand-hover hover:shadow-[0_0_20px_oklch(52%_0.12_355_/_0.2)]"
+                className="flex items-center gap-3 px-5 py-2 rounded-sm text-[11px] font-bold uppercase tracking-widest transition-all duration-200 bg-accent text-background-primary hover:bg-brand-hover"
               >
                 AUTHENTICATE
               </a>
@@ -82,7 +81,6 @@ export default function Header() {
           </div>
         </div>
       </div>
-      <div className="h-px bg-gradient-to-r from-transparent via-accent-primary/30 to-transparent" />
     </header>
   );
 }

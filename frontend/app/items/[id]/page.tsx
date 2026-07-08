@@ -342,7 +342,7 @@ export default function ItemDetailPage() {
                   href={`/items/${encodeURIComponent(v.item_id)}`}
                   className={`px-3 py-2 text-xs font-bold uppercase tracking-widest rounded-sm border transition-all duration-200 ${
                     v.quality === activeQuality
-                      ? 'bg-accent text-background-primary border-accent shadow-[0_0_16px_oklch(52%_0.12_355_/_0.15)]'
+                      ? 'bg-accent text-background-primary border-accent'
                       : 'bg-surface text-secondary border-border hover:bg-surface-hover hover:border-accent-primary'
                   }`}
                 >

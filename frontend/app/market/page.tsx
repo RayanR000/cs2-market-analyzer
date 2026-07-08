@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Header } from '@/components';
@@ -19,6 +19,8 @@ interface TrendingRow {
 const PAGE_SIZE = 100;
 const TYPES = ['all', 'skin', 'case', 'sticker'] as const;
 const TYPE_LABELS: Record<string, string> = { all: 'All', skin: 'Skins', case: 'Cases', sticker: 'Stickers' };
+
+const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 function formatCurrency(value: number | null | undefined) {
   if (value == null || Number.isNaN(value)) return '\u2014';
@@ -39,7 +41,7 @@ function formatVolume(value: number | null | undefined) {
 
 function SortArrow({ direction }: { direction: 'asc' | 'desc' }) {
   return (
-    <span className="text-brand text-[10px] leading-none">
+    <span className="text-accent-primary text-[10px] leading-none">
       {direction === 'desc' ? '\u25BC' : '\u25B2'}
     </span>
   );
@@ -82,14 +84,14 @@ function readUrlParams() {
 }
 
 function MarketPageInner() {
-  const urlParams = useRef(readUrlParams());
+  const [urlParams] = useState(readUrlParams);
 
-  const initialType = TYPES.includes(urlParams.current.type as typeof TYPES[number])
-    ? (urlParams.current.type as typeof TYPES[number]) : 'all';
-  const initialQ = urlParams.current.q ?? '';
-  const initialPage = parseInt(urlParams.current.page ?? '0', 10) || 0;
-  const initialSortBy = (urlParams.current.sortBy as SortKey) ?? 'priceAvg';
-  const initialSortOrder = urlParams.current.sortOrder === 'asc' ? ('asc' as const) : ('desc' as const);
+  const initialType = TYPES.includes(urlParams.type as typeof TYPES[number])
+    ? (urlParams.type as typeof TYPES[number]) : 'all';
+  const initialQ = urlParams.q ?? '';
+  const initialPage = parseInt(urlParams.page ?? '0', 10) || 0;
+  const initialSortBy = (urlParams.sortBy as SortKey) ?? 'priceAvg';
+  const initialSortOrder = urlParams.sortOrder === 'asc' ? ('asc' as const) : ('desc' as const);
 
   const [items, setItems] = useState<GroupedMarketItem[]>([]);
   const [trending, setTrending] = useState<TrendingRow[]>([]);
@@ -101,7 +103,7 @@ function MarketPageInner() {
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(initialPage);
+  const [pageOffset, setPageOffset] = useState(initialPage);
   const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
@@ -109,9 +111,14 @@ function MarketPageInner() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  useEffect(() => {
-    setPage(0);
-  }, [debouncedQuery, activeType]);
+  const filterKey = `${debouncedQuery}|${activeType}`;
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  const page = prevFilterKey === filterKey ? pageOffset : 0;
+
+  if (prevFilterKey !== filterKey) {
+    setPrevFilterKey(filterKey);
+    setPageOffset(0);
+  }
 
   const fetchKey = `${debouncedQuery}|${activeType}|${page}`;
 
@@ -228,33 +235,55 @@ function MarketPageInner() {
 
       <div className="max-w-7xl mx-auto px-6 py-10">
         {/* Header */}
-        <div className="mb-8">
-          <span className="font-data text-[10px] font-bold uppercase tracking-[0.3em] text-brand mb-3 block">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: EASE }}
+          className="mb-8"
+        >
+          <span className="font-data text-[10px] font-bold uppercase tracking-[0.3em] text-accent-primary mb-3 block">
             MARKET_OVERVIEW
           </span>
-          <h1 className="text-4xl font-bold mb-2 text-primary">Market Overview</h1>
+          <h1 className="text-4xl font-bold mb-2 text-primary tracking-tight">Market Overview</h1>
           <p className="text-base text-secondary">
-            Live market snapshots and recent movers from the backend API
+            Live market snapshots and recent movers
           </p>
-        </div>
+        </motion.div>
 
         {/* Search + Filters */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-10">
-          <input
-            type="text"
-            placeholder="SEARCH ITEMS..."
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); }}
-            className="flex-1 max-w-[500px] px-4 py-3 bg-surface border border-border rounded-sm text-sm text-primary placeholder:text-muted focus:bg-surface-hover focus:border-accent-primary transition-all outline-none uppercase tracking-widest font-bold"
-          />
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.45, ease: EASE }}
+          className="flex flex-col sm:flex-row gap-4 mb-10"
+        >
+          <div className="relative flex-1 max-w-[500px]">
+            <div className="relative flex items-center bg-surface border border-border rounded-sm focus-within:border-accent transition-colors duration-200">
+              <svg
+                className="w-4 h-4 ml-4 text-muted transition-colors shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="SEARCH ITEMS..."
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); }}
+                className="flex-1 px-4 py-3 bg-transparent text-sm text-primary placeholder:text-muted focus:outline-none uppercase tracking-widest font-bold"
+              />
+            </div>
+          </div>
           <div className="flex gap-1.5 items-center">
             {TYPES.map((t) => (
               <button
                 key={t}
                 onClick={() => setAndSearch(t)}
-                className={`px-4 py-3 text-xs font-bold uppercase tracking-widest rounded-sm border transition-all ${
+                className={`px-4 py-3 text-xs font-bold uppercase tracking-widest rounded-sm border transition-all duration-200 ${
                   activeType === t
-                    ? 'bg-brand text-white border-brand'
+                    ? 'bg-accent text-background-primary border-accent'
                     : 'bg-surface text-secondary border-border hover:bg-surface-hover hover:border-accent-primary'
                 }`}
               >
@@ -262,35 +291,40 @@ function MarketPageInner() {
               </button>
             ))}
           </div>
-        </div>
+        </motion.div>
 
         {/* Trending */}
-        <div className="mb-10">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.45, ease: EASE }}
+          className="mb-10"
+        >
           <div className="flex items-baseline justify-between gap-4 mb-4">
             <h2 className="text-lg font-semibold text-primary">Trending now</h2>
             <span className="tag-tech">/items/trending</span>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {trending.length > 0 ? trending.map((item) => (
+            {trending.length > 0 ? trending.map((item, i) => (
               <Link key={item.item_id} href={`/items/${item.item_id}`}>
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="widget-block flex items-center justify-between px-4 py-3 cursor-pointer"
+                  transition={{ delay: 0.25 + i * 0.04, duration: 0.4, ease: EASE }}
+                  className="widget-block flex items-center justify-between px-4 py-3 cursor-pointer group"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    {item.icon_url && (
-                      <img
-                        src={item.icon_url}
-                        alt=""
-                        className="w-8 h-8 rounded-sm object-cover shrink-0"
-                        loading="lazy"
-                      />
+                    {item.icon_url ? (
+                      <div className="w-8 h-8 rounded-sm overflow-hidden shrink-0 bg-background-tertiary">
+                          <img src={item.icon_url} alt={item.name} className="w-8 h-8 rounded-sm object-cover shrink-0" loading="lazy" />
+                      </div>
+                    ) : (
+                      <div className="w-8 h-8 rounded-sm bg-background-tertiary shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <div className="font-medium text-primary text-sm truncate">{item.name}</div>
-                      <div className="text-xs uppercase tracking-wide text-secondary">{item.type}</div>
+                      <div className="font-medium text-primary text-sm truncate group-hover:text-accent-primary transition-colors">{item.name}</div>
+                      <div className="text-[10px] uppercase tracking-wide text-secondary">{item.type}</div>
                     </div>
                   </div>
                   <div className="text-right font-data text-sm text-primary shrink-0 ml-4">
@@ -304,7 +338,7 @@ function MarketPageInner() {
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
 
         {/* Error */}
         {error && (
@@ -315,7 +349,7 @@ function MarketPageInner() {
                 setError(null);
                 setIsLoading(true);
               }}
-              className="text-xs font-bold uppercase tracking-widest text-brand hover:text-brand-hover"
+              className="text-xs font-bold uppercase tracking-widest text-accent-primary hover:text-brand-hover"
             >
               Retry
             </button>
@@ -323,13 +357,18 @@ function MarketPageInner() {
         )}
 
         {/* Table */}
-        {isLoading && items.length > 0 && <div className="progress-line mb-1" />}
-        <div className="overflow-x-auto rounded-sm border border-border bg-surface shadow-sm">
+        {isLoading && items.length > 0 && <div className="h-0.5 w-full bg-accent/40 mb-1 rounded-full overflow-hidden"><div className="h-full bg-accent animate-pulse" /></div>}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.45, ease: EASE }}
+          className="overflow-x-auto rounded-sm border border-border bg-surface shadow-sm"
+        >
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-background-tertiary border-b border-border">
                 <th className="px-6 py-5 text-left text-xs font-semibold uppercase tracking-wide text-secondary w-[40%]">
-                  <button onClick={() => handleSort('name')} className="hover:text-primary transition flex items-center gap-2">
+                  <button onClick={() => handleSort('name')} className="hover:text-primary transition-colors flex items-center gap-2">
                     Item {sortBy === 'name' && <SortArrow direction={sortOrder} />}
                   </button>
                 </th>
@@ -337,7 +376,7 @@ function MarketPageInner() {
                   <span>Type</span>
                 </th>
                 <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary w-[15%]">
-                  <button onClick={() => handleSort('priceAvg')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                  <button onClick={() => handleSort('priceAvg')} className="w-full flex justify-end hover:text-primary transition-colors items-center gap-2">
                     Avg Price {sortBy === 'priceAvg' && <SortArrow direction={sortOrder} />}
                   </button>
                 </th>
@@ -345,12 +384,12 @@ function MarketPageInner() {
                   <span className="text-tertiary">Range</span>
                 </th>
                 <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary w-[10%]">
-                  <button onClick={() => handleSort('priceChange24h')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                  <button onClick={() => handleSort('priceChange24h')} className="w-full flex justify-end hover:text-primary transition-colors items-center gap-2">
                     24h {sortBy === 'priceChange24h' && <SortArrow direction={sortOrder} />}
                   </button>
                 </th>
                 <th className="px-6 py-5 text-right text-xs font-semibold uppercase tracking-wide text-secondary w-[8%]">
-                  <button onClick={() => handleSort('volume24h')} className="w-full flex justify-end hover:text-primary transition items-center gap-2">
+                  <button onClick={() => handleSort('volume24h')} className="w-full flex justify-end hover:text-primary transition-colors items-center gap-2">
                     Vol {sortBy === 'volume24h' && <SortArrow direction={sortOrder} />}
                   </button>
                 </th>
@@ -372,7 +411,7 @@ function MarketPageInner() {
                       initial={{ opacity: 0, y: -4 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: idx * 0.01 }}
-                      className="stripe-row cursor-pointer"
+                      className="stripe-row cursor-pointer group"
                       style={{ backgroundColor: hoveredRow === item.base_name ? 'var(--background-tertiary)' : 'transparent' }}
                       onMouseEnter={() => setHoveredRow(item.base_name)}
                       onMouseLeave={() => setHoveredRow(null)}
@@ -380,19 +419,14 @@ function MarketPageInner() {
                       <td className="px-6 py-4">
                         <Link
                           href={`/items/${encodeURIComponent(linkId)}`}
-                          className="flex items-center gap-3 font-medium transition-colors text-primary hover:text-brand group"
+                          className="flex items-center gap-3 font-medium transition-colors text-primary group-hover:text-accent-primary"
                         >
                           {item.icon_url ? (
-                            <img
-                              src={item.icon_url}
-                              alt=""
-                              className="w-8 h-8 rounded-sm object-cover shrink-0"
-                              loading="lazy"
-                            />
+                          <img src={item.icon_url} alt={item.base_name} className="w-8 h-8 rounded-sm object-cover shrink-0" loading="lazy" />
                           ) : (
                             <div className="w-8 h-8 rounded-sm bg-background-tertiary shrink-0" />
                           )}
-                          <span className="truncate group-hover:text-brand transition-colors">{item.base_name}</span>
+                          <span className="truncate">{item.base_name}</span>
                         </Link>
                       </td>
                       <td className="px-6 py-4 text-left uppercase tracking-wide text-xs text-secondary">
@@ -442,8 +476,8 @@ function MarketPageInner() {
                             Try broadening your search terms, or clear the filter to browse all items.
                           </p>
                           <button
-                            onClick={() => { setSearchQuery(''); setDebouncedQuery(''); setActiveType('all'); setPage(0); }}
-                            className="text-xs font-bold uppercase tracking-widest text-brand hover:text-brand-hover transition-colors mt-2"
+                            onClick={() => { setSearchQuery(''); setDebouncedQuery(''); setActiveType('all'); setPageOffset(0); }}
+                            className="text-xs font-bold uppercase tracking-widest text-accent-primary hover:text-brand-hover transition-colors mt-2"
                           >
                             Clear all filters
                           </button>
@@ -458,7 +492,7 @@ function MarketPageInner() {
 
           <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-surface">
             <button
-              onClick={() => setPage(p => Math.max(0, p - 1))}
+              onClick={() => setPageOffset(p => Math.max(0, p - 1))}
               disabled={page === 0}
               className="text-xs font-bold uppercase tracking-widest text-secondary hover:text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
@@ -466,14 +500,14 @@ function MarketPageInner() {
             </button>
             <span className="text-xs font-data text-tertiary">Page {page + 1}</span>
             <button
-              onClick={() => setPage(p => p + 1)}
+              onClick={() => setPageOffset(p => p + 1)}
               disabled={!hasMore}
               className="text-xs font-bold uppercase tracking-widest text-secondary hover:text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Next {'\u2192'}
             </button>
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );
@@ -483,7 +517,7 @@ export default function MarketPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-background-primary flex items-center justify-center">
-        <div className="progress-line w-48" />
+        <div className="h-0.5 w-48 bg-accent/40 rounded-full overflow-hidden"><div className="h-full bg-accent animate-pulse" /></div>
       </div>
     }>
       <MarketPageInner />

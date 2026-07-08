@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from '@/components';
-import ItemCard from '@/components/ItemCard';
 import { getTrendingItems, getItems, searchItems, type TrendingItem } from '@/lib/api';
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -58,36 +57,6 @@ const FALLBACK_ITEMS: TrendingItem[] = [
   },
 ];
 
-function MiniSparkline({ data, color }: { data: number[]; color: string }) {
-  if (data.length < 2) return null;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const width = 120;
-  const height = 32;
-
-  const points = data
-    .map((val, i) => {
-      const x = (i / (data.length - 1)) * width;
-      const y = height - ((val - min) / range) * height;
-      return `${x},${y}`;
-    })
-    .join(' ');
-
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export default function Home() {
   const [trending, setTrending] = useState<TrendingItem[]>(FALLBACK_ITEMS);
   const [stats, setStats] = useState<MarketStats>({ totalItems: 14282, volume24h: 2481290, avgVolatility: 12.4 });
@@ -130,6 +99,12 @@ export default function Home() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -167,255 +142,253 @@ export default function Home() {
   }, []);
 
   const featuredItems = useMemo(() => trending.slice(0, 4), [trending]);
+  const heroItem = featuredItems[0];
+  const sideItems = featuredItems.slice(1);
 
   return (
     <div className="min-h-screen bg-background-primary">
       <Header />
 
       <main className="max-w-6xl mx-auto px-6">
-        {/* --- HERO: SEARCH-FIRST --- */}
-        <section className="pt-20 pb-24 lg:pt-32 lg:pb-36">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: EASE }}
-            className="text-center mb-12"
-          >
-            <h1 className="text-4xl lg:text-5xl font-bold tracking-[-0.03em] text-primary mb-4" style={{ textWrap: 'balance' }}>
-              CS2 market intelligence, distilled.
-            </h1>
-            <p className="text-base text-secondary max-w-lg mx-auto leading-relaxed">
-              Price signals, volatility windows, and liquidity data across 14,000+ items.
-            </p>
-          </motion.div>
+        {/* --- HERO --- */}
+        <section className="pt-16 pb-20 lg:pt-24 lg:pb-28">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            {/* Left: Copy + Search */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: EASE }}
+            >
+              <h1 className="text-4xl lg:text-[2.75rem] font-bold tracking-[-0.03em] text-primary mb-5" style={{ textWrap: 'balance', lineHeight: '1.15' }}>
+                Track every skin.<br />
+                <span className="text-accent">Read every signal.</span>
+              </h1>
+              <p className="text-base text-secondary max-w-md leading-relaxed mb-10">
+                Price intelligence, trend analysis, and portfolio tracking across 14,000+ CS2 items. Multi-source data from Steam, CSFloat, and aggregated markets.
+              </p>
 
-          {/* Search Bar */}
-          <motion.div
-            ref={searchRef}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15, duration: 0.5, ease: EASE }}
-            className="relative max-w-2xl mx-auto mb-16"
-          >
-            <div className="relative group">
-              <div className="absolute -inset-px rounded-md bg-gradient-to-b from-border-accent/50 to-border/30 opacity-0 group-focus-within:opacity-100 transition-opacity duration-300" />
-              <div className="relative flex items-center bg-background-secondary border border-border rounded-md overflow-hidden focus-within:border-border-accent transition-colors duration-200">
-                <svg
-                  className="w-5 h-5 ml-5 text-muted group-focus-within:text-accent-primary transition-colors shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <input
-                  type="text"
-                  placeholder="SEARCH ITEMS..."
-                  value={searchQuery}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  onFocus={() => searchResults.length > 0 && setShowResults(true)}
-                  className="flex-1 px-4 py-4 bg-transparent text-sm text-primary placeholder:text-muted focus:outline-none uppercase tracking-widest font-bold"
-                />
-                <div className="pr-5 flex items-center gap-2">
-                  <span className="tag-tech">Terminal</span>
+              {/* Search */}
+              <div ref={searchRef} className="relative">
+                <div className="relative group">
+                  <div className="relative flex items-center bg-background-secondary border border-border rounded-md overflow-hidden focus-within:border-accent transition-colors duration-200">
+                    <svg className="w-5 h-5 ml-5 text-muted group-focus-within:text-accent transition-colors shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                      type="text"
+                      placeholder="Search skins, knives, cases..."
+                      value={searchQuery}
+                      onChange={(e) => handleSearch(e.target.value)}
+                      onFocus={() => searchResults.length > 0 && setShowResults(true)}
+                      className="flex-1 px-4 py-4 bg-transparent text-sm text-primary placeholder:text-muted focus:outline-none"
+                    />
+                    <div className="pr-5">
+                      <span className="tag-tech">Terminal</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Search Results Dropdown */}
-            <AnimatePresence>
-              {showResults && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                  transition={{ duration: 0.15, ease: EASE }}
-                  className="absolute top-full left-0 right-0 mt-2 bg-background-secondary border border-border rounded-md overflow-hidden shadow-lg z-50"
-                >
-                  {isSearching ? (
-                    <div className="px-5 py-8 text-center">
-                      <div className="w-5 h-5 border-2 border-accent-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                    </div>
-                  ) : searchResults.length > 0 ? (
-                    <div className="py-1">
-                      {searchResults.map((item) => (
-                        <Link
-                          key={item.item_id}
-                          href={`/items/${item.item_id}`}
-                          className="flex items-center gap-4 px-5 py-3 hover:bg-surface transition-colors"
-                          onClick={() => setShowResults(false)}
-                        >
-                          {item.icon_url ? (
-                            <img src={item.icon_url} alt="" className="w-8 h-8 rounded-sm object-cover shrink-0" loading="lazy" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-sm bg-background-tertiary shrink-0" />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium text-primary truncate">{item.name}</div>
-                            <div className="text-[10px] font-data uppercase tracking-wider text-secondary">{item.type}</div>
-                          </div>
-                          {item.latest_price != null && (
-                            <span className="font-data text-sm text-primary shrink-0">${item.latest_price.toFixed(2)}</span>
-                          )}
-                        </Link>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="px-5 py-8 text-center">
-                      <p className="text-sm text-secondary">No items match &ldquo;{searchQuery}&rdquo;</p>
-                    </div>
+                <AnimatePresence>
+                  {showResults && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                      transition={{ duration: 0.15, ease: EASE }}
+                      className="absolute top-full left-0 right-0 mt-2 bg-background-secondary border border-border rounded-md overflow-hidden shadow-lg z-50"
+                    >
+                      {isSearching ? (
+                        <div className="px-5 py-8 text-center">
+                          <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
+                        </div>
+                      ) : searchResults.length > 0 ? (
+                        <div className="py-1">
+                          {searchResults.map((item) => (
+                            <Link
+                              key={item.item_id}
+                              href={`/items/${item.item_id}`}
+                              className="flex items-center gap-4 px-5 py-3 hover:bg-surface transition-colors"
+                              onClick={() => setShowResults(false)}
+                            >
+                              {item.icon_url ? (
+                                <img src={item.icon_url} alt={item.name} className="w-8 h-8 rounded-sm object-cover shrink-0" loading="lazy" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-sm bg-background-tertiary shrink-0" />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-medium text-primary truncate">{item.name}</div>
+                                <div className="text-[10px] font-data uppercase tracking-wider text-secondary">{item.type}</div>
+                              </div>
+                              {item.latest_price != null && (
+                                <span className="font-data text-sm text-primary shrink-0">${item.latest_price.toFixed(2)}</span>
+                              )}
+                            </Link>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="px-5 py-8 text-center">
+                          <p className="text-sm text-secondary">No items match &ldquo;{searchQuery}&rdquo;</p>
+                        </div>
+                      )}
+                    </motion.div>
                   )}
-                </motion.div>
+                </AnimatePresence>
+              </div>
+
+              {/* Inline stats */}
+              <div className="flex items-center gap-8 mt-8">
+                {[
+                  { label: 'Items', value: stats.totalItems.toLocaleString() },
+                  { label: '24h Vol', value: `$${(stats.volume24h / 1_000_000).toFixed(1)}M` },
+                  { label: 'Volatility', value: `${stats.avgVolatility.toFixed(1)}%` },
+                ].map((stat) => (
+                  <div key={stat.label} className="flex items-baseline gap-2">
+                    <span className="font-data text-lg font-medium text-primary tabular-nums">{stat.value}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">{stat.label}</span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* Right: Featured item */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.2, duration: 0.7, ease: EASE }}
+              className="hidden lg:block"
+            >
+              {heroItem && (
+                <Link href={`/items/${heroItem.item_id}`} className="group block">
+                  <div className="relative aspect-square rounded-md border border-border bg-background-secondary overflow-hidden">
+                    {heroItem.icon_url && (
+                      <img
+                        src={heroItem.icon_url}
+                        alt={heroItem.name}
+                        className="w-full h-full object-contain p-10 group-hover:scale-105 transition-transform duration-700 ease-out"
+                      />
+                    )}
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background-primary/90 via-background-primary/40 to-transparent p-6 pt-16">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted mb-1">Featured</div>
+                      <div className="font-medium text-primary text-sm mb-1">{heroItem.name}</div>
+                      <div className="font-data text-2xl font-medium text-primary tabular-nums">
+                        ${heroItem.latest_price?.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
               )}
-            </AnimatePresence>
-          </motion.div>
-
-          {/* Trending Items */}
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.5, ease: EASE }}
-          >
-            <div className="flex items-end justify-between mb-6">
-              <h2 className="text-lg font-semibold tracking-tight text-primary">Trending now</h2>
-              <Link
-                href="/market"
-                className="text-xs font-semibold uppercase tracking-[0.1em] text-accent hover:text-brand-hover transition-colors hidden sm:block"
-              >
-                View all
-              </Link>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {featuredItems.map((item, i) => (
-                <motion.div
-                  key={item.item_id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.35 + i * 0.06, duration: 0.45, ease: EASE }}
-                >
-                  <ItemCard
-                    itemId={item.item_id}
-                    name={item.name}
-                    type={item.type === 'knife' ? 'KNIFE' : 'WEAPON SKIN'}
-                    imageUrl={item.icon_url || undefined}
-                    currentPrice={item.latest_price || undefined}
-                  />
-                </motion.div>
-              ))}
-            </div>
-
-            <div className="mt-6 sm:hidden">
-              <Link
-                href="/market"
-                className="text-xs font-semibold uppercase tracking-[0.1em] text-accent hover:text-brand-hover transition-colors"
-              >
-                View all items
-              </Link>
-            </div>
-          </motion.div>
+            </motion.div>
+          </div>
         </section>
 
-        {/* --- STATS: AMBIENT --- */}
-        <section className="pb-24 lg:pb-32">
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true, margin: '-40px' }}
-            transition={{ duration: 0.6, ease: EASE }}
-            className="grid grid-cols-3 gap-px bg-border/30 rounded-md overflow-hidden"
-          >
-            {[
-              { label: '24H VOLUME', value: `$${stats.volume24h.toLocaleString()}` },
-              { label: 'ITEMS TRACKED', value: stats.totalItems.toLocaleString() },
-              { label: 'AVG VOLATILITY', value: `${stats.avgVolatility.toFixed(1)}%` },
-            ].map((stat, i) => (
+        {/* --- TRENDING --- */}
+        <section className="pb-20 lg:pb-28">
+          <div className="flex items-end justify-between mb-6">
+            <h2 className="text-lg font-semibold tracking-tight text-primary">Trending now</h2>
+            <Link href="/market" className="text-xs font-semibold uppercase tracking-[0.1em] text-accent hover:text-brand-hover transition-colors hidden sm:block">
+              View all
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            {sideItems.map((item, i) => (
               <motion.div
-                key={stat.label}
-                initial={{ opacity: 0, y: 8 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.08, duration: 0.4, ease: EASE }}
-                className="bg-background-secondary/60 px-6 py-6 text-center"
+                key={item.item_id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 + i * 0.06, duration: 0.45, ease: EASE }}
               >
-                <span className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted block mb-2">
-                  {stat.label}
-                </span>
-                <div className="font-data text-xl lg:text-2xl font-medium text-primary tracking-tight tabular-nums">
-                  {stat.value}
-                </div>
+                <Link href={`/items/${item.item_id}`} className="widget-block block overflow-hidden group">
+                  <div className="aspect-square bg-background-tertiary/50 flex items-center justify-center p-6 border-b border-border">
+                    {item.icon_url && (
+                      <img
+                        src={item.icon_url}
+                        alt={item.name}
+                        className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-500 ease-out"
+                        loading="lazy"
+                      />
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <div className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted mb-1">
+                      {item.type === 'knife' ? 'Knife' : 'Skin'}
+                    </div>
+                    <div className="text-sm font-medium text-primary truncate mb-2">{item.name}</div>
+                    <div className="font-data text-lg font-medium text-primary tabular-nums">
+                      ${item.latest_price?.toFixed(2)}
+                    </div>
+                  </div>
+                </Link>
               </motion.div>
             ))}
-          </motion.div>
+
+            {/* CTA card */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.28, duration: 0.45, ease: EASE }}
+            >
+              <Link href="/market" className="widget-block flex flex-col items-center justify-center p-8 h-full text-center group min-h-[260px]">
+                <div className="w-12 h-12 rounded-sm border border-border bg-background-tertiary flex items-center justify-center mb-4 group-hover:border-accent transition-colors">
+                  <svg className="w-5 h-5 text-muted group-hover:text-accent transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 6h16M4 12h16m-7 6h7" />
+                  </svg>
+                </div>
+                <span className="text-sm font-medium text-secondary group-hover:text-primary transition-colors">Browse all items</span>
+                <span className="text-[10px] font-data text-muted mt-1">{stats.totalItems.toLocaleString()} tracked</span>
+              </Link>
+            </motion.div>
+          </div>
+
+          <div className="mt-6 sm:hidden">
+            <Link href="/market" className="text-xs font-semibold uppercase tracking-[0.1em] text-accent hover:text-brand-hover transition-colors">
+              View all items
+            </Link>
+          </div>
         </section>
 
         {/* --- CAPABILITIES --- */}
-        <section className="pb-32 lg:pb-44">
+        <section className="pb-28 lg:pb-36 border-t border-border pt-16">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-60px' }}
             transition={{ duration: 0.5, ease: EASE }}
-            className="mb-16"
+            className="mb-12"
           >
             <h2 className="text-2xl font-semibold tracking-tight text-primary" style={{ textWrap: 'balance' }}>
-              What this does
+              Built for traders who need clarity
             </h2>
+            <p className="text-sm text-secondary mt-2 max-w-lg">
+              Every feature is designed to cut through market noise and surface what matters.
+            </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-16">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
               {
-                title: 'Price Intelligence',
-                description: 'Multi-source price tracking across Steam and CSFloat. Real-time spreads, historical context, and anomaly detection.',
-                children: (
-                  <MiniSparkline
-                    data={[42, 45, 43, 48, 52, 50, 55, 58, 56, 62, 60, 65]}
-                    color="var(--data-up)"
-                  />
-                ),
+                title: 'Multi-Source Pricing',
+                description: 'Steam, CSFloat, and aggregated market data in one view. Spot spreads, detect anomalies, and find the best execution price.',
               },
               {
-                title: 'Trend Analysis',
-                description: 'Technical indicators distilled into clear signals. SMA crossovers, volatility bands, and momentum scoring.',
-                children: (
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-data-up-subtle">
-                      <div className="w-1.5 h-1.5 rounded-full bg-data-up" />
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-data-up">Bullish</span>
-                    </div>
-                    <span className="text-[10px] font-data text-tertiary">78% confidence</span>
-                  </div>
-                ),
+                title: 'Technical Signals',
+                description: 'SMA crossovers, volatility bands, momentum scoring, and trend direction — distilled into clear buy/hold/sell signals.',
               },
               {
-                title: 'Portfolio Tracking',
-                description: 'Connect your Steam inventory. Real-time valuation, cost-basis analysis, and risk distribution across your collection.',
-                children: (
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="font-data text-lg font-medium text-primary">$12,840</span>
-                    <span className="text-[10px] font-data font-semibold text-data-up">+3.2%</span>
-                  </div>
-                ),
+                title: 'Portfolio Intelligence',
+                description: 'Connect your Steam inventory for real-time valuation, cost-basis tracking, and risk distribution across your collection.',
               },
             ].map((cap, i) => (
               <motion.div
                 key={cap.title}
-                initial={{ opacity: 0, y: 16 }}
+                initial={{ opacity: 0, y: 12 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: '-40px' }}
-                transition={{ delay: i * 0.1, duration: 0.5, ease: EASE }}
-                className="flex flex-col gap-4"
+                transition={{ delay: i * 0.08, duration: 0.45, ease: EASE }}
+                className="widget-block p-6"
               >
-                <div className="h-10 flex items-center">{cap.children}</div>
-                <div>
-                  <h3 className="text-base font-semibold text-primary tracking-tight mb-1.5">
-                    {cap.title}
-                  </h3>
-                  <p className="text-sm text-secondary leading-relaxed max-w-xs">
-                    {cap.description}
-                  </p>
-                </div>
+                <h3 className="text-base font-semibold text-primary tracking-tight mb-2">{cap.title}</h3>
+                <p className="text-sm text-secondary leading-relaxed">{cap.description}</p>
               </motion.div>
             ))}
           </div>
@@ -423,43 +396,22 @@ export default function Home() {
       </main>
 
       {/* --- FOOTER --- */}
-      <footer className="border-t border-border/70">
-        <div className="max-w-6xl mx-auto px-6 py-16">
-          <div className="flex flex-col md:flex-row justify-between items-start gap-12">
-            <div className="max-w-xs">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-7 h-7 rounded-sm border border-border flex items-center justify-center bg-background-secondary">
-                  <span className="font-data font-bold text-[7px] text-primary tracking-tighter">CS</span>
-                </div>
-                <span className="font-semibold text-xs tracking-[0.15em] uppercase text-primary">Data Terminal</span>
+      <footer className="border-t border-border">
+        <div className="max-w-6xl mx-auto px-6 py-12">
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-8">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-sm border border-border flex items-center justify-center bg-background-secondary">
+                <span className="font-data font-bold text-[7px] text-primary tracking-tighter">CS</span>
               </div>
-              <p className="text-xs text-muted leading-relaxed">
-                Market intelligence for Counter-Strike 2. Data-driven decisions, asset-grounded analysis.
-              </p>
+              <span className="font-semibold text-xs tracking-[0.15em] uppercase text-primary">Data Terminal</span>
             </div>
-
-            <div className="grid grid-cols-2 gap-12">
-              <div className="flex flex-col gap-4">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">Platform</span>
-                <ul className="flex flex-col gap-2.5">
-                  <li><Link href="/market" className="text-xs text-tertiary hover:text-primary transition-colors">Market</Link></li>
-                  <li><Link href="/portfolio" className="text-xs text-tertiary hover:text-primary transition-colors">Portfolio</Link></li>
-                </ul>
-              </div>
-              <div className="flex flex-col gap-4">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">Legal</span>
-                <ul className="flex flex-col gap-2.5">
-                  <li><Link href="#" className="text-xs text-tertiary hover:text-primary transition-colors">Terms</Link></li>
-                  <li><Link href="#" className="text-xs text-tertiary hover:text-primary transition-colors">Privacy</Link></li>
-                </ul>
-              </div>
+            <div className="flex gap-8">
+              <Link href="/market" className="text-xs text-tertiary hover:text-primary transition-colors">Market</Link>
+              <Link href="/portfolio" className="text-xs text-tertiary hover:text-primary transition-colors">Portfolio</Link>
             </div>
           </div>
-
-          <div className="mt-16 pt-8 border-t border-border/50">
-            <p className="text-[10px] font-data text-muted uppercase tracking-[0.15em]">
-              &copy; 2026 Data Terminal
-            </p>
+          <div className="mt-8 pt-6 border-t border-border/50">
+            <p className="text-[10px] font-data text-muted uppercase tracking-[0.15em]">&copy; 2026 Data Terminal</p>
           </div>
         </div>
       </footer>

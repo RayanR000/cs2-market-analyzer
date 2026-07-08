@@ -1,54 +1,61 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useSyncExternalStore } from 'react';
 import { motion, useSpring, useMotionValue } from 'framer-motion';
+
+function useReducedMotion() {
+  return useSyncExternalStore(
+    (callback) => {
+      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      mq.addEventListener('change', callback);
+      return () => mq.removeEventListener('change', callback);
+    },
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    () => true,
+  );
+}
 
 export default function CursorGlow() {
   const [visible, setVisible] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const reducedMotion = useReducedMotion();
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
   const springConfig = { damping: 25, stiffness: 120, mass: 0.5 };
   const glowX = useSpring(mouseX, springConfig);
   const glowY = useSpring(mouseY, springConfig);
   const rafRef = useRef<number>(0);
+  const visibleRef = useRef(false);
 
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setReducedMotion(mq.matches);
-    const handleChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
-    mq.addEventListener('change', handleChange);
-
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
-    if (isTouchDevice) {
-      mq.removeEventListener('change', handleChange);
-      return;
-    }
+    if (isTouchDevice) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
         mouseX.set(e.clientX);
         mouseY.set(e.clientY);
-        if (!visible) setVisible(true);
+        if (!visibleRef.current) {
+          visibleRef.current = true;
+          setVisible(true);
+        }
       });
     };
 
-    const handleMouseLeave = () => setVisible(false);
-    const handleMouseEnter = () => setVisible(true);
+    const handleMouseLeave = () => { visibleRef.current = false; setVisible(false); };
+    const handleMouseEnter = () => { visibleRef.current = true; setVisible(true); };
 
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
     document.addEventListener('mouseleave', handleMouseLeave);
     document.addEventListener('mouseenter', handleMouseEnter);
 
     return () => {
-      mq.removeEventListener('change', handleChange);
       window.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseleave', handleMouseLeave);
       document.removeEventListener('mouseenter', handleMouseEnter);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [mouseX, mouseY, visible]);
+  }, [mouseX, mouseY]);
 
   if (reducedMotion) return null;
 
@@ -68,7 +75,7 @@ export default function CursorGlow() {
       <div
         className="h-full w-full rounded-full"
         style={{
-          background: 'radial-gradient(circle, oklch(52% 0.12 355 / 0.07) 0%, oklch(52% 0.12 355 / 0.02) 40%, transparent 70%)',
+          background: `radial-gradient(circle, oklch(52% 0.12 var(--brand-hue) / 0.07) 0%, oklch(52% 0.12 var(--brand-hue) / 0.02) 40%, transparent 70%)`,
         }}
       />
     </motion.div>

@@ -41,7 +41,7 @@ export default function ItemCard({
       <div
         className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
         style={{
-          background: 'radial-gradient(ellipse at 50% 50%, oklch(52% 0.12 355 / 0.04) 0%, transparent 70%)',
+          background: `radial-gradient(ellipse at 50% 50%, oklch(52% 0.12 var(--brand-hue) / 0.04) 0%, transparent 70%)`,
         }}
       />
 
@@ -64,7 +64,7 @@ export default function ItemCard({
               )}
               <div
                 className="w-1.5 h-1.5 rounded-full"
-                style={{ backgroundColor: rarityColor, boxShadow: `0 0 10px ${rarityColor}` }}
+                style={{ backgroundColor: rarityColor }}
               />
             </div>
           </div>
