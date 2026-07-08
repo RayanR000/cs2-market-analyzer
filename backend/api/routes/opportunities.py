@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database import get_db, DailyAnalysis, Item
+from api.cache import get_or_build
 from api.schemas import OpportunityOut
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
@@ -63,6 +64,14 @@ def get_opportunities(
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
+    return get_or_build(
+        f"opportunities:{type or ''}:{limit}",
+        300,
+        lambda: _build_opportunities(db, type, limit),
+    )
+
+
+def _build_opportunities(db: Session, type: Optional[str], limit: int):
     analyses = _latest_analyses(db)
     item_ids = [a.item_id for a in analyses if a.opportunity_score is not None]
     items_map = _load_items(item_ids, db)

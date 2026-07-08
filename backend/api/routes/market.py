@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from database import get_db, Item, DailyAnalysis, PriceHistory
+from api.cache import get_or_build
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -77,6 +78,18 @@ def market_summary(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
+    # Building the grouped summary scans every item plus its recent prices
+    # (~3.5s); the result only changes when the daily pipelines run, so it
+    # is cached whole and paginated from memory.
+    groups = get_or_build(
+        f"market_summary:{type or ''}:{q or ''}",
+        ttl_seconds=120 if q else 600,
+        builder=lambda: _build_market_summary(db, type, q),
+    )
+    return groups[skip:skip + limit]
+
+
+def _build_market_summary(db: Session, type: Optional[str], q: Optional[str]):
     query = db.query(Item)
     if type:
         query = query.filter(Item.type == type)
@@ -117,28 +130,27 @@ def market_summary(
         .order_by(DailyAnalysis.item_id, desc(DailyAnalysis.analysis_date))
         .subquery()
     )
-    daily_rows = (
+    daily_query = (
         db.query(DailyAnalysis)
         .join(
             latest_sub,
             (DailyAnalysis.item_id == latest_sub.c.item_id)
             & (DailyAnalysis.analysis_date == latest_sub.c.analysis_date),
         )
-        .filter(DailyAnalysis.item_id.in_(item_ids))
-        .all()
     )
+    if q or type:
+        daily_query = daily_query.filter(DailyAnalysis.item_id.in_(item_ids))
+    daily_rows = daily_query.all()
     daily_map = {d.item_id: d for d in daily_rows}
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=2)
-    price_rows = (
-        db.query(PriceHistory)
-        .filter(
-            PriceHistory.item_id.in_(item_ids),
-            PriceHistory.timestamp >= cutoff,
-        )
-        .order_by(PriceHistory.item_id, PriceHistory.timestamp)
-        .all()
-    )
+    price_query = db.query(PriceHistory).filter(PriceHistory.timestamp >= cutoff)
+    if q or type:
+        # Only constrain by id for filtered queries; the unfiltered build
+        # covers every item, and a 19K-parameter IN clause costs more than
+        # fetching all recent rows.
+        price_query = price_query.filter(PriceHistory.item_id.in_(item_ids))
+    price_rows = price_query.order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
     prices_by_item: dict[int, list] = {}
     for pr in price_rows:
         prices_by_item.setdefault(pr.item_id, []).append(pr)

@@ -8,6 +8,7 @@ import re
 import math
 
 from database import get_db, Item, PriceHistory, TrendIndicator, DailyAnalysis, ItemForecast, Event, EventImpact
+from api.cache import get_or_build
 from api.schemas import (
     ItemOut, PricePointOut, TrendAnalysisOut, PredictionOut,
     SourcePriceOut, MultiSourcePricesOut, EventOut, TrendingItemOut
@@ -30,10 +31,13 @@ def list_items(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    q = db.query(Item)
-    if type:
-        q = q.filter(Item.type == type)
-    return q.order_by(Item.name).offset(skip).limit(limit).all()
+    def build():
+        q = db.query(Item)
+        if type:
+            q = q.filter(Item.type == type)
+        return q.order_by(Item.name).offset(skip).limit(limit).all()
+
+    return get_or_build(f"items_list:{type or ''}:{skip}:{limit}", 300, build)
 
 
 @router.get("/search", response_model=list[ItemOut])
@@ -55,6 +59,12 @@ def trending_items(
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
+    return get_or_build(
+        f"items_trending:{limit}", 600, lambda: _build_trending(db, limit)
+    )
+
+
+def _build_trending(db: Session, limit: int):
     items = (
         db.query(Item)
         .filter(Item.icon_url.isnot(None))
