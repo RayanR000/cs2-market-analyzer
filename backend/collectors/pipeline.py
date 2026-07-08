@@ -1010,7 +1010,7 @@ class DataPipeline:
         """Execute weekly database pruning and downsampling with run tracking"""
         from scripts.prune_database import (
             prune_trend_indicators, prune_daily_analysis, prune_event_analyses,
-            downsample_price_history,
+            prune_item_forecasts, downsample_price_history,
         )
         from database import CollectionRun
 
@@ -1040,8 +1040,13 @@ class DataPipeline:
             # Tables are bounded by (event_id, item_id) unique constraint, so this is a safety net
             pruned_events = prune_event_analyses(self.db_session, days_to_keep=365, dry_run=False)
 
+            # Delete old forecasts (keep 45 days — enough to evaluate the
+            # 30-day horizon against actuals); otherwise unbounded daily growth
+            pruned_forecasts = prune_item_forecasts(self.db_session, days_to_keep=45, dry_run=False)
+
             pruned_history = 0  # Price history is preserved (just downsampled), not deleted
-            total_pruned = pruned_history + pruned_trends + pruned_daily + pruned_events + downsampled
+            total_pruned = (pruned_history + pruned_trends + pruned_daily
+                            + pruned_events + pruned_forecasts + downsampled)
 
             # Record the run
             end_time = datetime.utcnow()

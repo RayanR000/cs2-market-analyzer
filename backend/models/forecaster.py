@@ -22,6 +22,10 @@ class ItemForecaster:
     HORIZONS = [7, 30]
     QUANTILES = [0.1, 0.5, 0.9]
     MIN_HISTORY_DAYS = 30
+    # Prediction eligibility is looser than training: the live aggregator
+    # series is still young, and 14 daily points is enough for the lag/rolling
+    # features to be non-degenerate.
+    PREDICT_MIN_HISTORY_DAYS = 14
     # Walk-forward validation split: most recent N days are held out.
     # A relative split stays valid as data accumulates (a fixed date would
     # eventually leave the validation set covering all new data).
@@ -374,6 +378,19 @@ class ItemForecaster:
         logger.info("Generating forecasts...")
 
         price_df = self.fetch_price_history(days_back=90)
+
+        # Skip items without a real recent series: snapshot-tier items keep
+        # only a single latest row, and a "forecast" from one data point is
+        # a meaningless constant that would still be written to the DB.
+        day_counts = price_df.groupby("item_id")["date"].nunique()
+        eligible = day_counts[day_counts >= self.PREDICT_MIN_HISTORY_DAYS].index
+        skipped = price_df["item_id"].nunique() - len(eligible)
+        price_df = price_df[price_df["item_id"].isin(eligible)]
+        logger.info(
+            f"  {len(eligible):,} items with >= {self.PREDICT_MIN_HISTORY_DAYS} days of history "
+            f"({skipped:,} skipped)"
+        )
+
         events_df = self.fetch_events()
 
         df = self.engineer_features(price_df, events_df)

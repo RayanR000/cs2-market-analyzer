@@ -87,6 +87,31 @@ def prune_event_analyses(db_session, days_to_keep=365, dry_run=False):
     return total
 
 
+def prune_item_forecasts(db_session, days_to_keep=45, dry_run=False):
+    """Delete forecasts older than days_to_keep.
+
+    45 days keeps every forecast long enough to compare the 30-day horizon
+    against actual prices before it is dropped. Without this pruning the
+    table grows by one row per item per horizon per day, unbounded.
+    """
+    cutoff_date = (datetime.utcnow() - timedelta(days=days_to_keep)).date()
+
+    count = db_session.execute(
+        text("SELECT COUNT(*) FROM item_forecasts WHERE forecast_date < :cutoff"),
+        {"cutoff": cutoff_date}
+    ).scalar() or 0
+
+    if count > 0 and not dry_run:
+        db_session.execute(
+            text("DELETE FROM item_forecasts WHERE forecast_date < :cutoff"),
+            {"cutoff": cutoff_date}
+        )
+        db_session.commit()
+        logger.info(f"Deleted {count} item forecasts older than {days_to_keep} days")
+
+    return count
+
+
 def prune_price_history(db_session, days_to_keep_granular=7, dry_run=False):
     """Backward-compatible alias for the current downsampling routine."""
     return downsample_price_history(
@@ -297,8 +322,9 @@ if __name__ == "__main__":
         pruned_trends = prune_trend_indicators(db, dry_run=False)
         pruned_daily = prune_daily_analysis(db, days_to_keep=90, dry_run=False)
         pruned_events = prune_event_analyses(db, days_to_keep=365, dry_run=False)
+        pruned_forecasts = prune_item_forecasts(db, days_to_keep=45, dry_run=False)
 
-        total = downsampled + pruned_trends + pruned_daily + pruned_events
+        total = downsampled + pruned_trends + pruned_daily + pruned_events + pruned_forecasts
         print(f"\n✅ Maintenance complete:")
         print(f"  Downsampled price records: {downsampled:,}")
         print(f"  Deleted old trend indicators: {pruned_trends:,}")
