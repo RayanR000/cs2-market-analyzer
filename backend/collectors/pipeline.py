@@ -217,14 +217,16 @@ class DataPipeline:
                 backfilled_dicts = [d for d in rows_as_dicts if d["item_id"] in hist_item_ids]
                 snapshot_dicts = [d for d in rows_as_dicts if d["item_id"] not in hist_item_ids]
 
-                # Delete old snapshot rows for snapshot-tier items
+                # Delete old snapshot rows for snapshot-tier items.
+                # aggregator_sync is excluded so every daily run's data
+                # accumulates in price_history for the multi-source chart.
                 snapshot_ids = list({d["item_id"] for d in snapshot_dicts})
                 for i in range(0, len(snapshot_ids), 1000):
                     self.db_session.execute(
                         text(
                             "DELETE FROM price_history "
                             "WHERE item_id IN :ids "
-                            "AND source NOT IN ('market_csgo', 'steam_historical')"
+                            "AND source NOT IN ('market_csgo', 'steam_historical', 'aggregator_sync')"
                         ).bindparams(bindparam("ids", expanding=True)),
                         {"ids": snapshot_ids[i:i + 1000]},
                     )
