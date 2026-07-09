@@ -1,4 +1,6 @@
-# Backend Code Review — 2026-07-02
+# Backend Code Review — 2026-07-02 (RESOLVED)
+
+> **Status: Historical reference.** This review was written on 2026-07-02. All Critical and High issues were fixed in the July 7-8 system overhaul. The analysis below is preserved for context but does not reflect the current codebase. See `docs/2026-07-08-database-optimization.md` and `backend/data/SESSION_NOTES_2026-07-07_08_OVERHAUL.md` for what was done and why.
 
 Read-only review of the database, collectors, analytics, scripts, and GitHub Actions workflows. Nothing has been changed. Findings are ranked by severity; the last section covers what your Steam Web API key can (and can't) be used for.
 
@@ -88,13 +90,38 @@ Matching only the first two name tokens can resolve "AK-47 | Redline (Field-Test
 - `price_history.id` is `Integer`; at ~68k rows/day, `BigInteger` is the safer choice.
 - Volatility annualized with 252 trading days; CS2 markets trade 365. Magic numbers throughout (0.85/1.20, 999 sentinels, top-2000, 20 s delay) belong in config.
 
-## Top 5 to fix first
+## Top 5 to fix first (all resolved)
 
 1. `pipefail` in all workflows (#1) — everything else is invisible until this is fixed.
 2. Concurrency groups + timeouts (#6) and the `price_history` unique constraint (#8) — these explain how bad data enters silently.
 3. Stop fabricating data points (#5) or at least tag and filter by `source` in analytics/training.
 4. Forecaster item-filter bug (#2) and row-vs-day features (#4) — the ML output is currently unreliable.
 5. Persist the Monday retrain (#10).
+
+---
+
+## Resolution summary (2026-07-09)
+
+| # | Issue | Fixed in |
+|---|-------|----------|
+| 1 | `pipefail` in workflows | All `.github/workflows/*.yml` — `set -o pipefail` added, `shell: bash` |
+| 2 | Forecaster ignores item_ids | `forecaster.py:446` filters `latest_rows` by `item_ids` before prediction |
+| 3 | Shared Session across jobs | `pipeline.py:50` uses `scoped_session`; all workflows have `concurrency` groups |
+| 4 | Row-vs-day features | `forecaster.py:232` and `analyze_trends.py:146` resample to 1 row per day |
+| 5 | Fabricated data in analytics | Every price_history query filters `NOT LIKE 'synthetic_demo'` and `NOT LIKE 'historical_fallback:%'` across all scripts |
+| 6 | Concurrency groups + timeouts | Added to all 6 workflows |
+| 7 | Momentum threshold 100× | `trend_analyzer.py:341` = `5.0` (percent units) |
+| 8 | `price_history` unique constraint | Migration 0003 + composite PK migration 0006 |
+| 9 | `item_forecasts` not in Alembic | Migration 0003 creates the table |
+| 10 | Monday retrain not persisted | `price-forecast.yml:89-96` commits saved models on full retrain |
+| 11 | Prune script errors | `prune_database.py` deleted — no longer needed |
+| 12 | Validation layer dead code | `data_validation.py` still exists but issues remain (*not addressed*) |
+
+### Still open (deferred)
+
+- **Validation layer never called** — `data_validation.py` is never invoked by the pipeline
+- **Apr–May 2026 price gap** — CSMarketAPI keys exhausted; will fill on next monthly cycle
+- **Source as smallint** — deferred; would be a large refactor with minimal gain
 
 ---
 
