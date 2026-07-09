@@ -197,7 +197,7 @@ class DataPipeline:
 
                 # Get backfilled items: slug map and id set in one query
                 backfilled_items = self.db_session.query(Item.id, Item.item_id).filter(
-                    Item.is_backfilled == True
+                    Item.is_backfilled == 1
                 ).all()
                 id_to_slug = {row.id: row.item_id for row in backfilled_items}
                 hist_item_ids = set(id_to_slug.keys())
@@ -229,17 +229,24 @@ class DataPipeline:
                         {"ids": snapshot_ids[i:i + 1000]},
                     )
 
-                # Insert only snapshot items into price_history
+                # Insert all items into price_history so the trend analysis (which
+                # runs on main branch and reads price_history) has recent data.
+                all_inserts = []
                 if snapshot_dicts:
+                    all_inserts.extend(snapshot_dicts)
+                if backfilled_dicts:
+                    all_inserts.extend(backfilled_dicts)
+                if all_inserts:
                     self.db_session.execute(
                         text("""
                             INSERT INTO price_history (item_id, timestamp, price, volume, source)
                             VALUES (:item_id, :timestamp, :price, :volume, :source)
                             ON CONFLICT (item_id, timestamp, source) DO NOTHING
                         """),
-                        snapshot_dicts,
+                        all_inserts,
                     )
-                    logger.info("Saved %s snapshot records to Supabase", len(snapshot_dicts))
+                    logger.info("Saved %s records to price_history (%s snapshot, %s backfilled)",
+                                len(all_inserts), len(snapshot_dicts), len(backfilled_dicts))
 
                 # Write backfilled items to temp CSV for the Parquet pipeline
                 if backfilled_dicts:

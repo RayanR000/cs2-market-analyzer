@@ -83,6 +83,7 @@ interface PriceSeriesRow {
 }
 
 const SOURCE_CHART_META: Record<string, { label: string; color: string }> = {
+  historical: { label: 'Historical', color: 'oklch(70% 0 0)' },
   aggregator_sync: { label: 'Live', color: 'var(--brand)' },
   market_csgo: { label: 'Market.CSGO', color: 'oklch(65% 0.14 250)' },
   steam_historical: { label: 'Steam (weekly)', color: 'oklch(70% 0 0)' },
@@ -195,14 +196,20 @@ export default function ItemDetailPage() {
       setIsLoading(true);
       setError(null);
 
+      const days =
+        timeRange === '24h' ? 1
+          : timeRange === '7d' ? 7
+          : timeRange === '30d' ? 30
+          : 5000;
+
       try {
         const [itemResponse, variantsResponse, historyResponse, trendsResponse, predictionResponse, sourceResponse] = await Promise.all([
           getItem(itemId),
           getItemVariants(itemId).catch(() => []),
-          getPriceHistory(itemId, 90, 0, 500),
+          getPriceHistory(itemId, 5000, 0, 500),
           getItemTrends(itemId),
           getItemPrediction(itemId, '30_days'),
-          getMultiSourcePrices(itemId, ['all'], 5000),
+          getMultiSourcePrices(itemId, ['all'], days),
         ]);
 
         if (cancelled) return;
@@ -254,7 +261,7 @@ export default function ItemDetailPage() {
 
     loadItemData();
     return () => { cancelled = true; };
-  }, [itemId]);
+  }, [itemId, timeRange]);
 
   const sourceChartData = useMemo(
     () => buildSourceChartData(multiSourceData, selectedSources, timeRange),
