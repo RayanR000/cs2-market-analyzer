@@ -39,11 +39,10 @@ def main():
 
     db = SessionLocal()
 
-    # Build name → item_id mapping (parquet item_slug = display name)
     slug_map_rows = db.execute(text(
-        "SELECT id, name FROM items WHERE is_backfilled = 1"
+        "SELECT id, item_id FROM items WHERE is_backfilled = 1"
     )).fetchall()
-    slug_to_id = {row.name: row.id for row in slug_map_rows}
+    slug_to_id = {row.item_id: row.id for row in slug_map_rows}
 
     if not slug_to_id:
         print("No backfilled items found. Run the backfill migration first.")

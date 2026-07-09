@@ -106,6 +106,12 @@ export interface MultiSourcePrices {
 }
 
 // Items API
+export async function getItemsCount(): Promise<number> {
+  const response = await fetch(`${API_URL}/items/count`);
+  if (!response.ok) throw new Error('Failed to fetch items count');
+  return response.json();
+}
+
 export async function getItems(type?: string, skip = 0, limit = 50) {
   const url = new URL(`${API_URL}/items/`);
   if (type) url.searchParams.append('type', type);

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from '@/components';
-import { getTrendingItems, getItems, searchItems, type TrendingItem } from '@/lib/api';
+import { getTrendingItems, getItemsCount, searchItems, type TrendingItem } from '@/lib/api';
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
@@ -59,7 +59,7 @@ const FALLBACK_ITEMS: TrendingItem[] = [
 
 export default function Home() {
   const [trending, setTrending] = useState<TrendingItem[]>(FALLBACK_ITEMS);
-  const [stats, setStats] = useState<MarketStats>({ totalItems: 14282, volume24h: 2481290, avgVolatility: 12.4 });
+  const [stats, setStats] = useState<MarketStats>({ totalItems: 5525, volume24h: 2481290, avgVolatility: 12.4 });
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -70,28 +70,25 @@ export default function Home() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [trendingRes, itemsRes] = await Promise.allSettled([
+        const [trendingRes, countRes] = await Promise.allSettled([
           getTrendingItems(4),
-          getItems(undefined, 0, 1),
+          getItemsCount(),
         ]);
 
         if (trendingRes.status === 'fulfilled' && Array.isArray(trendingRes.value) && trendingRes.value.length > 0) {
           setTrending(trendingRes.value.slice(0, 4));
         }
 
-        if (itemsRes.status === 'fulfilled') {
-          const items = itemsRes.value;
-          const totalCount = Array.isArray(items) ? items.length : (items?.total ?? 14282);
-          const avgPrice = trendingRes.status === 'fulfilled' && Array.isArray(trendingRes.value)
-            ? trendingRes.value.reduce((sum: number, item: TrendingItem) => sum + (item.latest_price || 0), 0) / Math.max(trendingRes.value.length, 1)
-            : 0;
+        const totalCount = countRes.status === 'fulfilled' ? countRes.value : 5525;
+        const avgPrice = trendingRes.status === 'fulfilled' && Array.isArray(trendingRes.value)
+          ? trendingRes.value.reduce((sum: number, item: TrendingItem) => sum + (item.latest_price || 0), 0) / Math.max(trendingRes.value.length, 1)
+          : 0;
 
-          setStats({
-            totalItems: totalCount,
-            volume24h: Math.round(avgPrice * 2800),
-            avgVolatility: 12.4,
-          });
-        }
+        setStats({
+          totalItems: totalCount,
+          volume24h: Math.round(avgPrice * 2800),
+          avgVolatility: 12.4,
+        });
       } catch {
         // Use fallback data
       }
@@ -164,7 +161,7 @@ export default function Home() {
                 <span className="text-accent">Read every signal.</span>
               </h1>
               <p className="text-base text-secondary max-w-md leading-relaxed mb-10">
-                Price intelligence, trend analysis, and portfolio tracking across 14,000+ CS2 items. Multi-source data from Steam, CSFloat, and aggregated markets.
+                Price intelligence, trend analysis, and portfolio tracking across thousands of CS2 items. Multi-source data from Steam, CSFloat, and aggregated markets.
               </p>
 
               {/* Search */}

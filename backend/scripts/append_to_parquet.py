@@ -106,7 +106,7 @@ def main():
         volume=("volume", "sum"),
     ).reset_index()
 
-    daily["day"] = pd.to_datetime(daily["day"]).dt.date
+    daily["day"] = pd.to_datetime(daily["day"])
 
     year = day_start.year
     out_dir = Path(args.out_dir) / "price-archive"

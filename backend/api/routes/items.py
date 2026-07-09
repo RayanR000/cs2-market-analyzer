@@ -27,6 +27,11 @@ def _resolve_item(item_id: str, db: Session) -> Item:
     return item
 
 
+@router.get("/count")
+def items_count(db: Session = Depends(get_db)):
+    return db.query(Item).filter(backfilled_item_clause()).count()
+
+
 @router.get("/", response_model=list[ItemOut])
 def list_items(
     type: Optional[str] = Query(None),
@@ -595,7 +600,7 @@ def get_multi_source_prices(
         ]}
 
         # Merge recent price_history data (last 90 days) so live aggregator
-        # sources appear alongside the historical series
+        # sources appear alongside the historical series.
         recent_cutoff = datetime.now(timezone.utc) - timedelta(days=90)
         recent = (
             db.query(PriceHistory)
@@ -631,6 +636,30 @@ def get_multi_source_prices(
         )
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_date = cutoff.date()
+
+    # Include chart_points filtered to the requested window so each timeline
+    # (24h, 7d, 30d) shows the correct range instead of the full history.
+    cp_records = (
+        db.query(ChartPoint)
+        .filter(
+            ChartPoint.item_id == item.id,
+            ChartPoint.day >= cutoff_date,
+        )
+        .order_by(ChartPoint.day)
+        .all()
+    )
+    data: dict[str, list[SourcePriceOut]] = {}
+    if cp_records:
+        data["historical"] = [
+            SourcePriceOut(
+                timestamp=datetime.combine(r.day, datetime.min.time()),
+                price=r.close,
+                volume=None,
+                median_price=None,
+            )
+            for r in cp_records
+        ]
 
     # Single query for all requested sources instead of one per source.
     # Synthetic and fallback rows are copies/placeholders, never charted.
@@ -647,7 +676,6 @@ def get_multi_source_prices(
         query = query.filter(PriceHistory.source.in_(requested))
     records = query.order_by(PriceHistory.source, PriceHistory.timestamp).all()
 
-    data = {src: [] for src in requested if src != "all"}
     for r in records:
         data.setdefault(r.source, []).append(
             SourcePriceOut(
@@ -658,9 +686,14 @@ def get_multi_source_prices(
             )
         )
 
+    sources = [s for s in data if data[s]]
+    if "historical" in sources:
+        sources.remove("historical")
+        sources.insert(0, "historical")
+
     return MultiSourcePricesOut(
         item_id=item.item_id,
         name=item.name,
-        sources=[src for src, points in data.items() if points],
+        sources=sources,
         data=data,
     )
