@@ -118,6 +118,7 @@ class CSGOTraderAggregator:
         self._raw_sources = {}
         self._price_cache = {}
 
+        failed = 0
         for source_name, url in endpoints.items():
             try:
                 response = self.session.get(url, timeout=30)
@@ -127,17 +128,23 @@ class CSGOTraderAggregator:
                     data = data["data"]
                 if isinstance(data, dict):
                     self._raw_sources[source_name] = data
-                    # Also populate price_cache with the primary price for
-                    # the diagnostic helper and backward compat
                     for item_name, info in data.items():
                         price = self._extract_primary_price(source_name, info)
                         if price is not None:
                             self._price_cache[item_name] = price
                     logger.info("Fetched %s: %s items", url, len(data))
+                else:
+                    failed += 1
+                    logger.warning("Unexpected response format from %s", url)
             except Exception as e:
+                failed += 1
                 logger.warning("Failed to fetch %s: %s", url, e)
 
-        if not self._raw_sources:
+        ok = len(endpoints) - failed
+        logger.info("Market data fetch complete: %s/%s endpoints succeeded", ok, len(endpoints))
+        if failed == len(endpoints):
+            logger.critical("ALL %s market data endpoints failed — no data available for this run", len(endpoints))
+        elif not self._raw_sources:
             logger.warning("All market data sources failed — no data available")
 
         return self._raw_sources
@@ -207,9 +214,14 @@ class CSGOTraderAggregator:
         if not self._raw_sources:
             self.fetch_all_market_data()
 
+        if not self._raw_sources:
+            logger.error("No market data available — returning empty results")
+            return {}
+
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         results: Dict[str, Optional[SourceData]] = {}
 
+        matched_count = 0
         for name in item_names:
             sources: SourceData = {}
 
@@ -268,5 +280,14 @@ class CSGOTraderAggregator:
 
             if sources:
                 results[name] = sources
+                matched_count += 1
+
+        logger.info("Aggregator match results: %s/%s items matched across sources",
+                     matched_count, len(item_names))
+        if matched_count == 0:
+            logger.warning("No items matched any source — check upstream data format")
+        elif matched_count < len(item_names) * 0.5:
+            logger.warning("Low match rate: %s/%s (%.0f%%) — sources may have changed format",
+                           matched_count, len(item_names), 100 * matched_count / len(item_names))
 
         return results

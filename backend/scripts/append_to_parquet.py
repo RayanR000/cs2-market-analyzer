@@ -83,8 +83,13 @@ def main():
         csv_path = Path(args.snapshot_csv)
         if csv_path.exists():
             snapshots_df = pd.read_csv(csv_path)
-            snapshots_df["day"] = pd.to_datetime(snapshots_df["day"])
-            print(f"Read {len(snapshots_df)} snapshot rows from {csv_path.name}")
+            if snapshots_df.empty:
+                print(f"Warning: snapshot CSV {csv_path.name} is empty — no snapshots to write")
+            else:
+                snapshots_df["day"] = pd.to_datetime(snapshots_df["day"])
+                print(f"Read {len(snapshots_df)} snapshot rows from {csv_path.name}")
+        else:
+            print(f"Warning: --snapshot-csv path does not exist: {csv_path} — skipping snapshot Parquet")
     else:
         # Legacy path: read from Supabase + backfilled CSV
         with engine.connect() as conn:
@@ -103,10 +108,15 @@ def main():
             csv_path = Path(args.backfilled_csv)
             if csv_path.exists():
                 backfilled_df = pd.read_csv(csv_path)
-                backfilled_df["median_price"] = None
-                backfilled_df["source"] = "aggregator_sync"
-                legacy_frames.append(backfilled_df)
-                print(f"Read {len(backfilled_df)} backfilled rows from {csv_path.name}")
+                if not backfilled_df.empty:
+                    backfilled_df["median_price"] = None
+                    backfilled_df["source"] = "aggregator_sync"
+                    legacy_frames.append(backfilled_df)
+                    print(f"Read {len(backfilled_df)} backfilled rows from {csv_path.name}")
+                else:
+                    print(f"Warning: backfilled CSV {csv_path.name} is empty")
+            else:
+                print(f"Warning: --backfilled-csv path does not exist: {csv_path} — skipping OHLCV Parquet")
 
     # ── Write prices-YYYY.parquet (Steam OHLCV) ────────────────────────
     if snapshots_df is not None:

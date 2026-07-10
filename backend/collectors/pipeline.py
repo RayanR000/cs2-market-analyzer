@@ -384,6 +384,12 @@ class DataPipeline:
             self.db_session.add(collection_run)
             self.db_session.commit()
 
+            if total_collected == 0:
+                logger.error(
+                    "ZERO items collected in this run — all endpoints may be down "
+                    "or upstream data format has changed"
+                )
+
             logger.info(
                 f"✅ Collection complete: {total_collected}/{len(items)} items in {duration_seconds:.1f}s"
             )

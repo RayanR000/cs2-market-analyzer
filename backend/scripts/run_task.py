@@ -108,6 +108,19 @@ def run_task(task_name):
             logger.error(f"❌ TASK '{task_name}' reported failure: {failures[0].get('error', failures[0])}")
             sys.exit(1)
 
+        # Treat zero-item results as failures (all endpoints likely down)
+        zero_items = [
+            r for r in (result, result2, result3)
+            if isinstance(r, dict) and r.get("items_collected") == 0
+            and r.get("status") == "success"
+        ]
+        if zero_items:
+            logger.error(
+                f"❌ TASK '{task_name}' completed with ZERO items collected — "
+                "all upstream endpoints may be down"
+            )
+            sys.exit(1)
+
         elapsed = (datetime.now() - start_time).total_seconds()
         logger.info(f"Total task time: {elapsed:.1f} seconds")
 
