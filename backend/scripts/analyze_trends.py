@@ -74,13 +74,15 @@ def _load_from_parquet(item_ids, days=90):
 
     con = duckdb.connect()
     try:
-        rows = con.sql("""
+        slug_list = list(slug_set)
+        placeholders = ','.join('?' for _ in slug_list)
+        rows = con.sql(f"""
             SELECT item_slug, day, mean_price AS price
-            FROM read_parquet('{}/*.parquet')
-            WHERE item_slug IN ?
+            FROM read_parquet('{ARCHIVE_DIR}/*.parquet')
+            WHERE item_slug IN ({placeholders})
               AND day >= DATE ?
             ORDER BY item_slug, day
-        """.format(ARCHIVE_DIR), [list(slug_set), cutoff.isoformat()]).fetchall()
+        """, [*slug_list, cutoff.isoformat()]).fetchall()
 
         raw = defaultdict(list)
         for slug, day, price in rows:

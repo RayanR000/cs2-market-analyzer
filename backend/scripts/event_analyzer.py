@@ -57,18 +57,15 @@ class EventAnalyzer:
 
             con = duckdb.connect()
             try:
-                rows = con.sql("""
+                placeholders = ','.join('?' for _ in slug_set)
+                rows = con.sql(f"""
                     SELECT item_slug, day, mean_price AS price
-                    FROM read_parquet('{}/*.parquet')
-                    WHERE item_slug IN ?
+                    FROM read_parquet('{archive_dir}/*.parquet')
+                    WHERE item_slug IN ({placeholders})
                       AND day >= DATE ?
                       AND day <= DATE ?
                     ORDER BY item_slug, day
-                """.format(archive_dir), [
-                    slug_set,
-                    start_date.strftime("%Y-%m-%d"),
-                    end_date.strftime("%Y-%m-%d"),
-                ]).fetchall()
+                """, [*slug_set, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")]).fetchall()
 
                 for slug, day, price in rows:
                     item_id = slug_to_int.get(slug)

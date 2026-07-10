@@ -767,13 +767,15 @@ class DataPipeline:
 
         con = duckdb.connect()
         try:
-            rows = con.sql("""
+            slug_list = list(slug_to_int.keys())
+            placeholders = ','.join('?' for _ in slug_list)
+            rows = con.sql(f"""
                 SELECT item_slug, day, mean_price AS price
                 FROM read_parquet('../price-archive/prices-*.parquet')
-                WHERE item_slug IN ?
+                WHERE item_slug IN ({placeholders})
                   AND day >= DATE ?
                 ORDER BY item_slug, day
-            """, [list(slug_to_int.keys()), cutoff.isoformat()]).fetchall()
+            """, [*slug_list, cutoff.isoformat()]).fetchall()
 
             histories = defaultdict(list)
             for slug, day, price in rows:

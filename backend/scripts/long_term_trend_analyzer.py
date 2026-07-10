@@ -100,13 +100,14 @@ class LongTermTrendAnalyzer:
 
             con = duckdb.connect()
             try:
-                rows = con.sql("""
+                placeholders = ','.join('?' for _ in slug_set)
+                rows = con.sql(f"""
                     SELECT item_slug, day, mean_price AS price
-                    FROM read_parquet('{}/*.parquet')
-                    WHERE item_slug IN ?
+                    FROM read_parquet('{archive_dir}/*.parquet')
+                    WHERE item_slug IN ({placeholders})
                       AND day >= DATE ?
                     ORDER BY item_slug, day
-                """.format(archive_dir), [slug_set, lookback_date.strftime("%Y-%m-%d")]).fetchall()
+                """, [*slug_set, lookback_date.strftime("%Y-%m-%d")]).fetchall()
 
                 daily = defaultdict(list)
                 for slug, day, price in rows:
