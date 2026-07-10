@@ -20,10 +20,11 @@ class FakeAggregator:
 
     def collect_batch_items(self, item_names):
         results = {}
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         for name in item_names:
             if name in self._price_data:
-                price = self._price_data[name]
-                results[name] = (float(price), 42, datetime.now(timezone.utc).replace(tzinfo=None))
+                price = float(self._price_data[name])
+                results[name] = {"steam": (price, 42, now)}
         return results
 
     def find_source_key_candidates(self, name, limit=5):
@@ -236,15 +237,23 @@ class TestHappyPath:
         finally:
             db.close()
 
-    def test_collect_batch_items_returns_tuple_with_price_volume_and_timestamp(self):
-        """Verify the raw aggregator returns the expected (price, volume, timestamp) shape."""
+    def test_collect_batch_items_returns_sources_dict(self):
+        """Verify the raw aggregator returns the expected sources dict."""
         aggregator = aggregator_module.CSGOTraderAggregator()
-        aggregator._price_cache = {"Sticker | test (Holo)": 5.50}
+        aggregator._raw_sources = {"steam": {"Sticker | test (Holo)": {"last_24h": 5.50, "last_7d": 4.50, "last_30d": 4.00, "last_90d": 3.50}}}
 
         results = aggregator.collect_batch_items(["Sticker | test (Holo)"])
         assert "Sticker | test (Holo)" in results
-        result = results["Sticker | test (Holo)"]
-        assert len(result) == 3
-        assert result[0] == 5.50
-        assert isinstance(result[1], int)
-        assert isinstance(result[2], datetime)
+        sources = results["Sticker | test (Holo)"]
+        assert sources is not None
+        assert "steam" in sources
+        price, vol, ts = sources["steam"]
+        assert price == 5.50
+        assert vol == 0
+        assert isinstance(ts, datetime)
+        assert "steam_7d" in sources
+        assert sources["steam_7d"][0] == 4.50
+        assert "steam_30d" in sources
+        assert sources["steam_30d"][0] == 4.00
+        assert "steam_90d" in sources
+        assert sources["steam_90d"][0] == 3.50

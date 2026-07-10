@@ -72,6 +72,7 @@ jobs:
           python scripts/append_to_parquet.py
           --date $(date -u +%F)
           --out-dir ../archive
+          --snapshot-csv /tmp/aggregator-snapshots-$(date -u +%F).csv
           --backfilled-csv /tmp/aggregator-backfilled-$(date -u +%F).csv
 
       - name: Commit snapshot to data-archive

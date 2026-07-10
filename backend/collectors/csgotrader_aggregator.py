@@ -12,21 +12,34 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+SourceData = Dict[str, Tuple[float, Optional[int], datetime]]
+
+
+def _get_safe(value, default=None):
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class CSGOTraderAggregator:
     """Aggregator that fetches prices from public CSGOTrader endpoints."""
-    
-    # Standard public endpoints
+
     STEAM_URL = "https://prices.csgotrader.app/latest/steam.json"
     SKINPORT_URL = "https://prices.csgotrader.app/latest/skinport.json"
+    BUFF163_URL = "https://prices.csgotrader.app/latest/buff163.json"
+    CSFLOAT_URL = "https://prices.csgotrader.app/latest/csfloat.json"
 
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; CS2Analyzer/1.0)"})
-        self._price_cache = {}
+        self._raw_sources: Dict[str, Dict[str, dict]] = {}
+        self._price_cache: Dict[str, float] = {}
 
     @staticmethod
     def _normalize_name(name: str) -> str:
-        """Normalize item names for resilient matching."""
         normalized = (name or "").replace("™", "").replace("®", "")
         normalized = unicodedata.normalize("NFKD", normalized)
         normalized = normalized.casefold()
@@ -39,33 +52,12 @@ class CSGOTraderAggregator:
 
     @staticmethod
     def _diagnostic_terms(name: str) -> List[str]:
-        """
-        Extract informative tokens for approximate source-key diagnostics.
-        """
         normalized = CSGOTraderAggregator._normalize_name(name)
         stop_terms = {
-            "sticker",
-            "holo",
-            "foil",
-            "glitter",
-            "gold",
-            "paper",
-            "team",
-            "capsule",
-            "legends",
-            "challengers",
-            "contenders",
-            "2021",
-            "2022",
-            "2023",
-            "2024",
-            "2025",
-            "rio",
-            "stockholm",
-            "antwerp",
-            "paris",
-            "copenhagen",
-            "shanghai",
+            "sticker", "holo", "foil", "glitter", "gold", "paper",
+            "team", "capsule", "legends", "challengers", "contenders",
+            "2021", "2022", "2023", "2024", "2025",
+            "rio", "stockholm", "antwerp", "paris", "copenhagen", "shanghai",
         }
         tokens = []
         for token in re.split(r"[^a-z0-9]+", normalized):
@@ -75,19 +67,11 @@ class CSGOTraderAggregator:
         return tokens
 
     def find_source_key_candidates(self, name: str, limit: int = 10) -> List[str]:
-        """
-        Find probable source keys that may correspond to a missing item name.
-
-        This is a diagnostic helper used to understand whether a miss is due to
-        naming drift or a true source-coverage gap.
-        """
         if not self._price_cache:
-            self._price_cache = self.fetch_all_prices()
-
+            self.fetch_all_market_data()
         terms = self._diagnostic_terms(name)
         if not terms:
             return []
-
         candidates: List[str] = []
         for source_key in self._price_cache.keys():
             normalized_key = self._normalize_name(source_key)
@@ -99,122 +83,190 @@ class CSGOTraderAggregator:
 
     @staticmethod
     def _sticker_match_candidates(name: str) -> List[str]:
-        """Generate conservative sticker aliases that preserve the event suffix."""
         if not CSGOTraderAggregator._is_sticker_name(name):
             return [name]
-
         candidates = [name]
-
-        # Many source keys omit the finish variant but keep the sticker name and event suffix.
         stripped_variant = re.sub(
             r"\s*\((Holo|Glitter|Gold|Foil|Paper)\)(?=\s*\|)",
-            "",
-            name,
-            flags=re.IGNORECASE,
+            "", name, flags=re.IGNORECASE,
         )
         if stripped_variant != name:
             candidates.append(stripped_variant)
-
-        # Keep ordering stable while removing duplicates.
         return list(dict.fromkeys(candidate.strip() for candidate in candidates if candidate.strip()))
 
     @staticmethod
     def _general_match_candidates(name: str) -> List[str]:
-        """Generate conservative non-sticker aliases for known source formatting drift."""
         candidates = [name]
-
         if name.startswith("★ "):
             candidates.append(name[2:].strip())
         if name.lower().startswith("souvenir charm | "):
             candidates.append("Souvenir | " + name.split("| ", 1)[1])
-
         return list(dict.fromkeys(candidate.strip() for candidate in candidates if candidate.strip()))
 
-    def fetch_all_prices(self) -> Dict[str, float]:
-        """Fetch latest prices from public endpoints and merge them."""
-        prices = {}
-        for url in [self.STEAM_URL, self.SKINPORT_URL]:
+    def fetch_all_market_data(self) -> Dict[str, Dict[str, dict]]:
+        """Fetch raw data from all configured endpoints.
+
+        Returns:
+            {source_name: {item_name: raw_dict, ...}, ...}
+        """
+        endpoints = {
+            "steam": self.STEAM_URL,
+            "skinport": self.SKINPORT_URL,
+            "buff163": self.BUFF163_URL,
+            "csfloat": self.CSFLOAT_URL,
+        }
+        self._raw_sources = {}
+        self._price_cache = {}
+
+        for source_name, url in endpoints.items():
             try:
                 response = self.session.get(url, timeout=30)
                 response.raise_for_status()
                 data = response.json()
-                
-                # CSGOTrader price data is nested under a "data" key in some versions
                 if "data" in data:
                     data = data["data"]
-                    
-                # Iterate and extract
-                for item_name, info in data.items():
-                    if isinstance(info, dict):
-                        # CSGOTrader price data is often under 'last_24h'
-                        price = info.get('last_24h') or info.get('price')
+                if isinstance(data, dict):
+                    self._raw_sources[source_name] = data
+                    # Also populate price_cache with the primary price for
+                    # the diagnostic helper and backward compat
+                    for item_name, info in data.items():
+                        price = self._extract_primary_price(source_name, info)
                         if price is not None:
-                            prices[item_name] = float(price)
-                    elif isinstance(info, (int, float)):
-                        prices[item_name] = float(info)
+                            self._price_cache[item_name] = price
+                    logger.info("Fetched %s: %s items", url, len(data))
             except Exception as e:
-                logger.error(f"Failed to fetch {url}: {e}")
-        return prices
+                logger.warning("Failed to fetch %s: %s", url, e)
 
-    def collect_batch_items(self, item_names: List[str]) -> Dict[str, Optional[Tuple[float, int, datetime]]]:
-        """Fetch prices for a list of items using fuzzy matching."""
-        if not self._price_cache:
-            self._price_cache = self.fetch_all_prices()
-            
-        results = {}
-        # Pre-process cache keys to lower-case
-        cache_keys = {k.lower(): k for k in self._price_cache.keys()}
-        normalized_cache_keys = {self._normalize_name(k): k for k in self._price_cache.keys()}
-        
-        qualities = ["(Factory New)", "(Minimal Wear)", "(Field-Tested)", "(Well-Worn)", "(Battle-Scarred)"]
-            
+        if not self._raw_sources:
+            logger.warning("All market data sources failed — no data available")
+
+        return self._raw_sources
+
+    @staticmethod
+    def _extract_primary_price(source: str, info) -> Optional[float]:
+        """Extract the primary/representative price from a source data dict."""
+        if not isinstance(info, dict):
+            return _get_safe(info)
+        if source == "steam":
+            return _get_safe(info.get("last_24h"))
+        if source == "skinport":
+            return _get_safe(info.get("starting_at"))
+        if source == "buff163":
+            starting = info.get("starting_at")
+            if isinstance(starting, dict):
+                return _get_safe(starting.get("price"))
+            return _get_safe(starting)
+        if source == "csfloat":
+            return _get_safe(info.get("price"))
+        return None
+
+    def _match_item(self, name: str, source_data: Dict[str, dict]) -> Optional[str]:
+        """Fuzzy-match an item name against source_data keys. Returns the matched key or None."""
+        cache_keys = {k.lower(): k for k in source_data.keys()}
+        normalized_cache_keys = {self._normalize_name(k): k for k in source_data.keys()}
+        name_lower = name.lower()
+        normalized_name = self._normalize_name(name)
+
+        if name_lower in cache_keys:
+            return cache_keys[name_lower]
+        if normalized_name in normalized_cache_keys:
+            return normalized_cache_keys[normalized_name]
+
+        if not self._is_sticker_name(name):
+            qualities = ["(Factory New)", "(Minimal Wear)", "(Field-Tested)", "(Well-Worn)", "(Battle-Scarred)"]
+            for candidate_name in self._general_match_candidates(name):
+                candidate_lower = candidate_name.lower()
+                if candidate_lower in cache_keys:
+                    return cache_keys[candidate_lower]
+                normalized_candidate = self._normalize_name(candidate_name)
+                if normalized_candidate in normalized_cache_keys:
+                    return normalized_cache_keys[normalized_candidate]
+                for q in qualities:
+                    candidate = f"{candidate_lower} {q.lower()}".replace("  ", " ")
+                    if candidate in cache_keys:
+                        return cache_keys[candidate]
+                    normalized_q = self._normalize_name(f"{candidate_name} {q}")
+                    if normalized_q in normalized_cache_keys:
+                        return normalized_cache_keys[normalized_q]
+        else:
+            for candidate_name in self._sticker_match_candidates(name):
+                candidate_lower = candidate_name.lower()
+                if candidate_lower in cache_keys:
+                    return cache_keys[candidate_lower]
+                normalized_candidate = self._normalize_name(candidate_name)
+                if normalized_candidate in normalized_cache_keys:
+                    return normalized_cache_keys[normalized_candidate]
+        return None
+
+    def collect_batch_items(self, item_names: List[str]) -> Dict[str, Optional[SourceData]]:
+        """Fetch prices for a list of items from all available sources.
+
+        Returns:
+            {item_name: {"steam": (price, 0, ts), "steam_7d": ..., "skinport": ..., ...} | None}
+        """
+        if not self._raw_sources:
+            self.fetch_all_market_data()
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        results: Dict[str, Optional[SourceData]] = {}
+
         for name in item_names:
-            name_lower = name.lower()
-            normalized_name = self._normalize_name(name)
-            found_key = None
-            
-            # 1. Direct/Exact match
-            if name_lower in cache_keys:
-                found_key = cache_keys[name_lower]
-            elif normalized_name in normalized_cache_keys:
-                found_key = normalized_cache_keys[normalized_name]
-            elif not self._is_sticker_name(name):
-                # 2. Try conservative aliases and quality suffixes.
-                for candidate_name in self._general_match_candidates(name):
-                    candidate_lower = candidate_name.lower()
-                    if candidate_lower in cache_keys:
-                        found_key = cache_keys[candidate_lower]
-                        break
-                    normalized_candidate = self._normalize_name(candidate_name)
-                    if normalized_candidate in normalized_cache_keys:
-                        found_key = normalized_cache_keys[normalized_candidate]
-                        break
+            sources: SourceData = {}
 
-                    for q in qualities:
-                        candidate = f"{candidate_lower} {q.lower()}".replace("  ", " ")
-                        if candidate in cache_keys:
-                            found_key = cache_keys[candidate]
-                            break
-                        normalized_candidate = self._normalize_name(f"{candidate_name} {q}")
-                        if normalized_candidate in normalized_cache_keys:
-                            found_key = normalized_cache_keys[normalized_candidate]
-                            break
-                    if found_key:
-                        break
-            else:
-                # 2. Sticker-specific fallback: strip finish variants while keeping event suffix.
-                for candidate_name in self._sticker_match_candidates(name):
-                    candidate_lower = candidate_name.lower()
-                    if candidate_lower in cache_keys:
-                        found_key = cache_keys[candidate_lower]
-                        break
-                    normalized_candidate = self._normalize_name(candidate_name)
-                    if normalized_candidate in normalized_cache_keys:
-                        found_key = normalized_cache_keys[normalized_candidate]
-                        break
+            for src_name, src_data in self._raw_sources.items():
+                matched_key = self._match_item(name, src_data)
+                if matched_key is None:
+                    continue
 
-            if found_key:
-                price = self._price_cache[found_key]
-                results[name] = (float(price), 0, datetime.now(timezone.utc).replace(tzinfo=None))
-        
+                info = src_data[matched_key]
+                if not isinstance(info, dict):
+                    price = _get_safe(info)
+                    if price is not None:
+                        sources[src_name] = (price, None, now)
+                    continue
+
+                if src_name == "steam":
+                    p24 = _get_safe(info.get("last_24h"))
+                    if p24 is not None:
+                        sources["steam"] = (p24, 0, now)
+                    p7 = _get_safe(info.get("last_7d"))
+                    if p7 is not None:
+                        sources["steam_7d"] = (p7, None, now)
+                    p30 = _get_safe(info.get("last_30d"))
+                    if p30 is not None:
+                        sources["steam_30d"] = (p30, None, now)
+                    p90 = _get_safe(info.get("last_90d"))
+                    if p90 is not None:
+                        sources["steam_90d"] = (p90, None, now)
+
+                elif src_name == "skinport":
+                    p = _get_safe(info.get("starting_at"))
+                    if p is not None:
+                        sources["skinport"] = (p, None, now)
+
+                elif src_name == "buff163":
+                    starting = info.get("starting_at")
+                    if isinstance(starting, dict):
+                        p = _get_safe(starting.get("price"))
+                        if p is not None:
+                            sources["buff163"] = (p, None, now)
+                    else:
+                        p = _get_safe(starting)
+                        if p is not None:
+                            sources["buff163"] = (p, None, now)
+
+                    highest = info.get("highest_order")
+                    if isinstance(highest, dict):
+                        p = _get_safe(highest.get("price"))
+                        if p is not None:
+                            sources["buff163_buy"] = (p, None, now)
+
+                elif src_name == "csfloat":
+                    p = _get_safe(info.get("price"))
+                    if p is not None:
+                        sources["csfloat"] = (p, None, now)
+
+            if sources:
+                results[name] = sources
+
         return results

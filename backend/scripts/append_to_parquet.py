@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Daily: append today's aggregator rows to the current year's Parquet file.
+Daily: append today's aggregator rows to the current year's Parquet files.
 
-Reads today's snapshot-tier prices from Supabase and backfilled prices from
-a CSV (written by the aggregator), merges them, appends to Parquet, then
-runs build_chart_points.py to upsert today's close.
+Writes two Parquet files:
+  prices-YYYY.parquet     — Steam daily OHLCV (from aggregator_sync rows)
+  snapshots-YYYY.parquet  — All source snapshots (flat: item_slug, day, source, price, volume)
+
+Input: a snapshot CSV written by the aggregator (or Supabase + backfilled CSV for backward compat).
 
 Usage:
-    python scripts/append_to_parquet.py --date 2026-07-08 --out-dir ../archive
-    python scripts/append_to_parquet.py --date 2026-07-08 --out-dir ../archive --backfilled-csv /tmp/aggregator-backfilled-2026-07-08.csv
+    python scripts/append_to_parquet.py --date 2026-07-08 --out-dir ../archive \\
+        --snapshot-csv /tmp/aggregator-snapshots-2026-07-08.csv
 """
 
 import argparse
@@ -53,8 +55,12 @@ def main():
         help="Archive root; price-archive lives under this",
     )
     parser.add_argument(
+        "--snapshot-csv",
+        help="CSV of all-source snapshot prices (item_slug, day, source, price, volume)",
+    )
+    parser.add_argument(
         "--backfilled-csv",
-        help="CSV of backfilled item prices (item_slug, day, price, volume)",
+        help="Backward compat: CSV of backfilled item Steam 24h prices (item_slug, day, price, volume)",
     )
     parser.add_argument(
         "--skip-chart-points",
@@ -65,74 +71,87 @@ def main():
 
     day_start = datetime.strptime(args.date, "%Y-%m-%d")
     day_end = day_start + timedelta(days=1)
-
-    frames = []
-
-    # 1. Fetch snapshot-tier rows from Supabase (backfilled items no longer go here)
-    with engine.connect() as conn:
-        snapshot_rows = conn.execute(
-            text(FETCH_TODAY_SQL),
-            {"day_start": day_start, "day_end": day_end},
-        ).fetchall()
-
-    if snapshot_rows:
-        frames.append(pd.DataFrame(
-            snapshot_rows,
-            columns=["item_slug", "day", "price", "volume", "median_price", "source"],
-        ))
-
-    # 2. Read backfilled items from CSV (written by the aggregator)
-    if args.backfilled_csv:
-        csv_path = Path(args.backfilled_csv)
-        if csv_path.exists():
-            backfilled_df = pd.read_csv(csv_path)
-            backfilled_df["median_price"] = None
-            backfilled_df["source"] = "aggregator_sync"
-            frames.append(backfilled_df)
-            print(f"Read {len(backfilled_df)} backfilled rows from {csv_path.name}")
-
-    if not frames:
-        print(f"No data found for {args.date}")
-        sys.exit(0)
-
-    df = pd.concat(frames, ignore_index=True)
-
-    # 3. Collapse to daily OHLCV per item slug
-    daily = df.groupby(["item_slug", "day"]).agg(
-        mean_price=("price", "mean"),
-        min_price=("price", "min"),
-        max_price=("price", "max"),
-        median_price=("median_price", "mean"),
-        volume=("volume", "sum"),
-    ).reset_index()
-
-    daily["day"] = pd.to_datetime(daily["day"])
-
     year = day_start.year
     out_dir = Path(args.out_dir) / "price-archive"
     out_dir.mkdir(parents=True, exist_ok=True)
-    parquet_path = out_dir / f"prices-{year}.parquet"
 
-    # 4. Append to the year's Parquet file
-    con = duckdb.connect()
-    if parquet_path.exists():
-        existing = con.sql(f"SELECT * FROM read_parquet('{parquet_path}')").fetchdf()
-        combined = pd.concat([existing, daily], ignore_index=True)
-        combined = combined.drop_duplicates(subset=["item_slug", "day"], keep="last")
-        combined.to_parquet(parquet_path, index=False)
-        appended = len(daily)
-        total = len(combined)
+    # ── Load data ──────────────────────────────────────────────────────
+    snapshots_df = None
+    legacy_frames = []
+
+    if args.snapshot_csv:
+        csv_path = Path(args.snapshot_csv)
+        if csv_path.exists():
+            snapshots_df = pd.read_csv(csv_path)
+            snapshots_df["day"] = pd.to_datetime(snapshots_df["day"])
+            print(f"Read {len(snapshots_df)} snapshot rows from {csv_path.name}")
     else:
-        daily.to_parquet(parquet_path, index=False)
-        appended = len(daily)
-        total = appended
+        # Legacy path: read from Supabase + backfilled CSV
+        with engine.connect() as conn:
+            snapshot_rows = conn.execute(
+                text(FETCH_TODAY_SQL),
+                {"day_start": day_start, "day_end": day_end},
+            ).fetchall()
 
-    con.close()
+        if snapshot_rows:
+            legacy_frames.append(pd.DataFrame(
+                snapshot_rows,
+                columns=["item_slug", "day", "price", "volume", "median_price", "source"],
+            ))
 
-    size_mb = parquet_path.stat().st_size / (1024 * 1024)
-    print(f"Appended {appended} rows to {parquet_path.name} ({total} total, {size_mb:.1f} MB)")
+        if args.backfilled_csv:
+            csv_path = Path(args.backfilled_csv)
+            if csv_path.exists():
+                backfilled_df = pd.read_csv(csv_path)
+                backfilled_df["median_price"] = None
+                backfilled_df["source"] = "aggregator_sync"
+                legacy_frames.append(backfilled_df)
+                print(f"Read {len(backfilled_df)} backfilled rows from {csv_path.name}")
 
-    # 5. Sync to chart_points
+    # ── Write prices-YYYY.parquet (Steam OHLCV) ────────────────────────
+    if snapshots_df is not None:
+        steam_24h = snapshots_df[snapshots_df["source"] == "aggregator_sync"].copy()
+    else:
+        steam_24h = None
+
+    if legacy_frames:
+        df = pd.concat(legacy_frames, ignore_index=True)
+        daily = df.groupby(["item_slug", "day"]).agg(
+            mean_price=("price", "mean"),
+            min_price=("price", "min"),
+            max_price=("price", "max"),
+            median_price=("median_price", "mean"),
+            volume=("volume", "sum"),
+        ).reset_index()
+        daily["day"] = pd.to_datetime(daily["day"])
+        _append_parquet(out_dir / f"prices-{year}.parquet", daily, ["item_slug", "day"])
+        print(f"Appended {len(daily)} OHLCV rows to prices-{year}.parquet (legacy path)")
+
+    if steam_24h is not None and not steam_24h.empty:
+        daily = steam_24h.groupby(["item_slug", "day"]).agg(
+            mean_price=("price", "mean"),
+            min_price=("price", "min"),
+            max_price=("price", "max"),
+            median_price=("median_price", "mean") if "median_price" in steam_24h.columns else ("price", "mean"),
+            volume=("volume", "sum"),
+        ).reset_index()
+        daily["day"] = pd.to_datetime(daily["day"])
+        _append_parquet(out_dir / f"prices-{year}.parquet", daily, ["item_slug", "day"])
+        print(f"Appended {len(daily)} OHLCV rows to prices-{year}.parquet")
+
+    # ── Write snapshots-YYYY.parquet (all sources) ─────────────────────
+    if snapshots_df is not None and not snapshots_df.empty:
+        snap_path = out_dir / f"snapshots-{year}.parquet"
+        out_cols = ["item_slug", "day", "source", "price", "volume"]
+        snap_data = snapshots_df[out_cols].copy()
+        _append_parquet(snap_path, snap_data, ["item_slug", "day", "source"])
+        print(f"Appended {len(snap_data)} snapshot rows to snapshots-{year}.parquet")
+
+    if not legacy_frames and snapshots_df is None:
+        print(f"No data found for {args.date}")
+        sys.exit(0)
+
+    # ── Sync to chart_points ──────────────────────────────────────────
     if not args.skip_chart_points:
         import subprocess
         script_path = Path(__file__).parent / "build_chart_points.py"
@@ -144,6 +163,23 @@ def main():
             print(f"Warning: chart_points sync exited with code {result.returncode}")
 
     print(f"Done: {args.date}")
+
+
+def _append_parquet(path: Path, new_data: pd.DataFrame, dedup_keys: list):
+    """Append new_data to an existing Parquet file, deduplicating on dedup_keys."""
+    con = duckdb.connect()
+    try:
+        if path.exists():
+            existing = con.sql(f"SELECT * FROM read_parquet('{path}')").fetchdf()
+            combined = pd.concat([existing, new_data], ignore_index=True)
+            combined = combined.drop_duplicates(subset=dedup_keys, keep="last")
+            combined.to_parquet(path, index=False)
+            print(f"  {path.name}: {len(new_data)} appended, {len(combined)} total")
+        else:
+            new_data.to_parquet(path, index=False)
+            print(f"  {path.name}: {len(new_data)} written (new file)")
+    finally:
+        con.close()
 
 
 if __name__ == "__main__":

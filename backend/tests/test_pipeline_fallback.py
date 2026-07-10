@@ -91,6 +91,13 @@ def test_full_aggregator_collection_recovers_exact_item_from_history(monkeypatch
         assert run.source_breakdown == {
             "aggregator": 0,
             "historical_fallback": 1,
+            "aggregator_steam_7d": 0,
+            "aggregator_steam_30d": 0,
+            "aggregator_steam_90d": 0,
+            "aggregator_skinport": 0,
+            "aggregator_buff163": 0,
+            "aggregator_buff163_buy": 0,
+            "aggregator_csfloat": 0,
         }
     finally:
         db.close()

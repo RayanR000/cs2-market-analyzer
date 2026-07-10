@@ -114,24 +114,45 @@ class DataPipeline:
 
             results = aggregator.collect_batch_items(list(item_map.keys()))
 
+            # Source label mapping for storage
+            SOURCE_LABELS = {
+                "steam": "aggregator_sync",
+                "steam_7d": "aggregator_steam_7d",
+                "steam_30d": "aggregator_steam_30d",
+                "steam_90d": "aggregator_steam_90d",
+                "skinport": "aggregator_skinport",
+                "buff163": "aggregator_buff163",
+                "buff163_buy": "aggregator_buff163_buy",
+                "csfloat": "aggregator_csfloat",
+            }
+
             # 3. Store results
             price_records = []
             now = datetime.utcnow()
 
             for name, matched_items in item_map.items():
-                res = results.get(name)
-                if res and len(res) >= 2 and res[0] > 0:
-                    # Aggregator returns (price, volume, timestamp)
-                    price, volume = res[0], res[1]
-                    for item in matched_items:
-                        price_records.append(PriceHistory(
-                            item_id=item.id,
-                            timestamp=now,
-                            price=price,
-                            volume=volume,
-                            source='aggregator_sync'
-                        ))
-                        primary_items_collected += 1
+                sources = results.get(name)
+                if sources:
+                    has_primary = False
+                    for src_key, (price, volume, _ts) in sources.items():
+                        if price is not None and price > 0:
+                            db_source = SOURCE_LABELS.get(src_key, f"aggregator_{src_key}")
+                            for item in matched_items:
+                                price_records.append(PriceHistory(
+                                    item_id=item.id,
+                                    timestamp=now,
+                                    price=price,
+                                    volume=volume if volume is not None else 0,
+                                    source=db_source,
+                                ))
+                            if src_key == "steam":
+                                has_primary = True
+                    if has_primary:
+                        primary_items_collected += len(matched_items)
+                    else:
+                        # Item matched but has no primary Steam price
+                        errors_count += len(matched_items)
+                        missing_names.append(name)
                 else:
                     errors_count += len(matched_items)
                     missing_names.append(name)
@@ -192,15 +213,14 @@ class DataPipeline:
 
             # 4. Save prices
             backfilled_csv_path = None
+            snapshot_csv_path = None
             if price_records:
                 from database import Item
 
-                # Get backfilled items: slug map and id set in one query
-                backfilled_items = self.db_session.query(Item.id, Item.item_id).filter(
-                    Item.is_backfilled == 1
-                ).all()
-                id_to_slug = {row.id: row.item_id for row in backfilled_items}
-                hist_item_ids = set(id_to_slug.keys())
+                # Get all items: slug map for CSV export
+                all_items = self.db_session.query(Item.id, Item.item_id, Item.is_backfilled).all()
+                id_to_slug = {row.id: row.item_id for row in all_items}
+                hist_item_ids = {row.id for row in all_items if row.is_backfilled == 1}
 
                 rows_as_dicts = [
                     {
@@ -213,56 +233,73 @@ class DataPipeline:
                     for r in price_records
                 ]
 
-                # Split: backfilled items go to Parquet, snapshot to Supabase
+                agg_date = now.strftime("%Y-%m-%d")
+
+                # ── Write ALL sources to snapshot CSV for Parquet archive ──
+                snapshot_csv_path = f"/tmp/aggregator-snapshots-{agg_date}.csv"
+                with open(snapshot_csv_path, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["item_slug", "day", "source", "price", "volume"])
+                    for d in rows_as_dicts:
+                        slug = id_to_slug.get(d["item_id"])
+                        if slug:
+                            writer.writerow([slug, agg_date, d["source"], d["price"], d.get("volume", 0)])
+                logger.info("Wrote %s snapshot rows to %s (all sources)", len(rows_as_dicts), snapshot_csv_path)
+
+                # ── Write only aggregator_sync rows to backfilled CSV (for OHLCV Parquet) ──
                 backfilled_dicts = [d for d in rows_as_dicts if d["item_id"] in hist_item_ids]
-                snapshot_dicts = [d for d in rows_as_dicts if d["item_id"] not in hist_item_ids]
-
-                # Delete old snapshot rows for snapshot-tier items.
-                # aggregator_sync is excluded so every daily run's data
-                # accumulates in price_history for the multi-source chart.
-                snapshot_ids = list({d["item_id"] for d in snapshot_dicts})
-                for i in range(0, len(snapshot_ids), 1000):
-                    self.db_session.execute(
-                        text(
-                            "DELETE FROM price_history "
-                            "WHERE item_id IN :ids "
-                            "AND source NOT IN ('market_csgo', 'steam_historical', 'aggregator_sync')"
-                        ).bindparams(bindparam("ids", expanding=True)),
-                        {"ids": snapshot_ids[i:i + 1000]},
-                    )
-
-                # Insert all items into price_history so the trend analysis (which
-                # runs on main branch and reads price_history) has recent data.
-                all_inserts = []
-                if snapshot_dicts:
-                    all_inserts.extend(snapshot_dicts)
-                if backfilled_dicts:
-                    all_inserts.extend(backfilled_dicts)
-                if all_inserts:
-                    self.db_session.execute(
-                        text("""
-                            INSERT INTO price_history (item_id, timestamp, price, volume, source)
-                            VALUES (:item_id, :timestamp, :price, :volume, :source)
-                            ON CONFLICT (item_id, timestamp, source) DO NOTHING
-                        """),
-                        all_inserts,
-                    )
-                    logger.info("Saved %s records to price_history (%s snapshot, %s backfilled)",
-                                len(all_inserts), len(snapshot_dicts), len(backfilled_dicts))
-
-                # Write backfilled items to temp CSV for the Parquet pipeline
-                if backfilled_dicts:
-                    agg_date = now.strftime("%Y-%m-%d")
+                parquet_rows = [d for d in backfilled_dicts if d["source"] == "aggregator_sync"]
+                if parquet_rows:
                     csv_path = f"/tmp/aggregator-backfilled-{agg_date}.csv"
                     with open(csv_path, "w", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow(["item_slug", "day", "price", "volume"])
-                        for d in backfilled_dicts:
+                        for d in parquet_rows:
                             slug = id_to_slug.get(d["item_id"])
                             if slug:
                                 writer.writerow([slug, agg_date, d["price"], d.get("volume", 0)])
                     backfilled_csv_path = csv_path
-                    logger.info("Wrote %s backfilled records to %s", len(backfilled_dicts), csv_path)
+                    logger.info("Wrote %s backfilled rows to %s (Steam 24h for OHLCV)", len(parquet_rows), csv_path)
+
+                # ── Write aggregator_sync + historical_fallback to Supabase ──
+                supabase_rows = [d for d in rows_as_dicts
+                                 if d["source"] == "aggregator_sync"
+                                 or d["source"].startswith("historical_fallback:")]
+                if supabase_rows:
+                    snapshot_supabase = [d for d in supabase_rows if d["item_id"] not in hist_item_ids]
+                    backfilled_supabase = [d for d in supabase_rows if d["item_id"] in hist_item_ids]
+
+                    # Delete old snapshot-tier aggregator_sync rows
+                    snapshot_ids = list({d["item_id"] for d in snapshot_supabase if d["source"] == "aggregator_sync"})
+                    for i in range(0, len(snapshot_ids), 1000):
+                        self.db_session.execute(
+                            text(
+                                "DELETE FROM price_history "
+                                "WHERE item_id IN :ids "
+                                "AND source = 'aggregator_sync'"
+                            ).bindparams(bindparam("ids", expanding=True)),
+                            {"ids": snapshot_ids[i:i + 1000]},
+                        )
+
+                    # Insert rows (aggregator_sync + historical_fallback)
+                    all_supabase = []
+                    if snapshot_supabase:
+                        all_supabase.extend(snapshot_supabase)
+                    if backfilled_supabase:
+                        all_supabase.extend(backfilled_supabase)
+                    if all_supabase:
+                        self.db_session.execute(
+                            text("""
+                                INSERT INTO price_history (item_id, timestamp, price, volume, source)
+                                VALUES (:item_id, :timestamp, :price, :volume, :source)
+                                ON CONFLICT (item_id, timestamp, source) DO NOTHING
+                            """),
+                            all_supabase,
+                        )
+                        logger.info("Saved %s rows to price_history (Supabase): %s aggregator_sync, %s fallback",
+                                    len(all_supabase),
+                                    sum(1 for d in all_supabase if d["source"] == "aggregator_sync"),
+                                    sum(1 for d in all_supabase if d["source"].startswith("historical_fallback:")))
 
             if missing_names:
                 sample_missing = missing_names[:20]
@@ -335,6 +372,13 @@ class DataPipeline:
                 source_breakdown={
                     'aggregator': primary_items_collected,
                     'historical_fallback': fallback_items_collected,
+                    'aggregator_steam_7d': sum(1 for r in price_records if r.source == 'aggregator_steam_7d'),
+                    'aggregator_steam_30d': sum(1 for r in price_records if r.source == 'aggregator_steam_30d'),
+                    'aggregator_steam_90d': sum(1 for r in price_records if r.source == 'aggregator_steam_90d'),
+                    'aggregator_skinport': sum(1 for r in price_records if r.source == 'aggregator_skinport'),
+                    'aggregator_buff163': sum(1 for r in price_records if r.source == 'aggregator_buff163'),
+                    'aggregator_buff163_buy': sum(1 for r in price_records if r.source == 'aggregator_buff163_buy'),
+                    'aggregator_csfloat': sum(1 for r in price_records if r.source == 'aggregator_csfloat'),
                 }
             )
             self.db_session.add(collection_run)
@@ -358,6 +402,7 @@ class DataPipeline:
                 } if missing_names else {},
                 "duration_seconds": duration_seconds,
                 "backfilled_csv_path": backfilled_csv_path,
+                "snapshot_csv_path": snapshot_csv_path,
             }
 
         except Exception as e:
