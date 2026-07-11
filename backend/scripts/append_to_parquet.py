@@ -2,9 +2,10 @@
 """
 Daily: append today's aggregator rows to the current year's Parquet files.
 
-Writes two Parquet files:
-  prices-YYYY.parquet     — Steam daily OHLCV (from aggregator_sync rows)
-  snapshots-YYYY.parquet  — All source snapshots (flat: item_slug, day, source, price, volume)
+Writes three Parquet files:
+  prices-YYYY.parquet          — OHLCV per (item_slug, day, source) from all sources
+  snapshots-YYYY.parquet       — All source snapshots (flat: item_slug, day, source, price, volume)
+  exchange-rates-YYYY.parquet  — Currency exchange rates (flat: currency, rate, day)
 
 Input: a snapshot CSV written by the aggregator (or Supabase + backfilled CSV for backward compat).
 
@@ -61,6 +62,10 @@ def main():
     parser.add_argument(
         "--backfilled-csv",
         help="Backward compat: CSV of backfilled item Steam 24h prices (item_slug, day, price, volume)",
+    )
+    parser.add_argument(
+        "--exchange-rates-csv",
+        help="CSV of currency exchange rates (currency, rate, day)",
     )
     args = parser.parse_args()
 
@@ -147,6 +152,20 @@ def main():
         snap_data = snapshots_df[out_cols].copy()
         _append_parquet(snap_path, snap_data, ["item_slug", "day", "source"])
         print(f"Appended {len(snap_data)} snapshot rows to snapshots-{year}.parquet")
+
+    # ── Write exchange-rates-YYYY.parquet ────────────────────────────
+    if args.exchange_rates_csv:
+        csv_path = Path(args.exchange_rates_csv)
+        if csv_path.exists():
+            rates_df = pd.read_csv(csv_path)
+            if not rates_df.empty:
+                rates_df["day"] = pd.to_datetime(rates_df["day"])
+                _append_parquet(out_dir / f"exchange-rates-{year}.parquet", rates_df, ["currency", "day"])
+                print(f"Appended {len(rates_df)} exchange rate rows to exchange-rates-{year}.parquet")
+            else:
+                print(f"Warning: exchange_rates CSV {csv_path.name} is empty")
+        else:
+            print(f"Warning: --exchange-rates-csv path does not exist: {csv_path} — skipping exchange-rates Parquet")
 
     if not legacy_frames and snapshots_df is None:
         print(f"No data found for {args.date}")

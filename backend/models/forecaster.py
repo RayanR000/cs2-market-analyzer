@@ -36,6 +36,7 @@ class ItemForecaster:
         self.model_dir = model_dir or str(Path(__file__).parent / "saved_models")
         self.models: Dict[Tuple[int, float], lgb.Booster] = {}
         self.feature_cols: List[str] = []
+        self.confidence_thresholds: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Data fetching
@@ -514,6 +515,9 @@ class ItemForecaster:
                 fi = self._get_feature_importance(model)
                 logger.info(f"  Top features: {fi['feature'].head(5).tolist()}")
 
+            # Calibrate confidence thresholds from validation set
+            self._calibrate_confidence(X_val, y_val, val_set, horizon)
+
         self.save_models()
         logger.info("Training complete.")
 
@@ -589,15 +593,26 @@ class ItemForecaster:
 
             # Models predict percentage returns. Convert back to price levels.
             # preds are return percentages (e.g., 5.0 means +5%).
-            return_preds = np.vstack([preds[0.1], preds[0.5], preds[0.9]])
+            p10_ret = preds[0.1]
+            p50_ret = preds[0.5]
+            p90_ret = preds[0.9]
 
-            # Sort to prevent quantile crossing
-            sorted_returns = np.sort(return_preds, axis=0)
+            # Ensure quantile monotonicity without scrambling model identities.
+            # The median model (0.5) is kept as-is; low/high are clamped to
+            # guarantee p10 <= p50 <= p90.
+            low_ret_arr = np.minimum(p10_ret, p50_ret)
+            high_ret_arr = np.maximum(p50_ret, p90_ret)
+            mid_ret_arr = p50_ret
+
+            # Diagnostic: log crossing rate
+            crossing_rate = np.mean((p10_ret > p50_ret) | (p50_ret > p90_ret))
+            if crossing_rate > 0.01:
+                logger.warning(f"  Quantile crossing rate: {crossing_rate:.3f}")
 
             for i, iid in enumerate(item_id_arr):
-                low_ret, mid_ret, high_ret = (float(sorted_returns[0, i]),
-                                              float(sorted_returns[1, i]),
-                                              float(sorted_returns[2, i]))
+                low_ret, mid_ret, high_ret = (float(low_ret_arr[i]),
+                                               float(mid_ret_arr[i]),
+                                               float(high_ret_arr[i]))
                 current_price = float(current_price_arr[i])
 
                 # Convert return predictions to price levels
@@ -623,15 +638,137 @@ class ItemForecaster:
             return {}
         return results.iloc[0].to_dict()
 
-    @staticmethod
-    def _compute_confidence(mid: float, low: float, high: float, current: float) -> str:
+    def _calibrate_confidence(self, X_val, y_val, val_set, horizon):
+        """Calibrate confidence thresholds from validation set predictions.
+
+        Finds data-driven range_pct thresholds so that:
+        - "high" confidence achieves >= 75% directional accuracy
+        - "medium" confidence achieves >= 55% directional accuracy
+        """
+        p50_model = self.models.get((horizon, 0.5))
+        p10_model = self.models.get((horizon, 0.1))
+        p90_model = self.models.get((horizon, 0.9))
+        if not all([p50_model, p10_model, p90_model]):
+            return
+
+        p50_pred = p50_model.predict(X_val.values)
+        p10_pred = p10_model.predict(X_val.values)
+        p90_pred = p90_model.predict(X_val.values)
+
+        current_prices = val_set["price"].values
+        actual_returns = y_val.values
+
+        records = []
+        for i in range(len(val_set)):
+            mid_ret = float(p50_pred[i])
+            low_ret = float(min(p10_pred[i], p50_pred[i]))
+            high_ret = float(max(p50_pred[i], p90_pred[i]))
+            curr = float(current_prices[i])
+            actual_ret = float(actual_returns[i])
+
+            mid_price = curr * (1 + mid_ret / 100)
+            low_price = curr * (1 + low_ret / 100)
+            high_price = curr * (1 + high_ret / 100)
+
+            if mid_price == 0 or curr == 0:
+                continue
+
+            range_pct = (high_price - low_price) / mid_price
+            change_pct = abs(mid_price - curr) / curr
+            actual_dir = "up" if actual_ret > 0 else "down" if actual_ret < 0 else "flat"
+            pred_dir = "up" if mid_ret > 0 else "down" if mid_ret < 0 else "flat"
+            hit = 1.0 if pred_dir == actual_dir else 0.0
+
+            records.append({
+                "range_pct": range_pct,
+                "change_pct": change_pct,
+                "hit": hit,
+            })
+
+        if len(records) < 50:
+            return
+
+        df = pd.DataFrame(records)
+
+        # Find optimal range_pct thresholds by scanning percentiles
+        thresholds = sorted(df["range_pct"].quantile([i / 20 for i in range(1, 20)]).unique())
+
+        best_high_threshold = 0.15
+        best_medium_threshold = 0.30
+        best_high_acc = 0.0
+        best_medium_acc = 0.0
+
+        for t in thresholds:
+            # "High" candidates: narrow range
+            subset = df[df["range_pct"] < t]
+            if len(subset) >= max(50, len(df) * 0.05):
+                acc = subset["hit"].mean()
+                if acc >= 0.75 and acc > best_high_acc:
+                    best_high_threshold = t
+                    best_high_acc = acc
+
+            # "Medium" candidates: moderate range
+            subset2 = df[(df["range_pct"] >= best_high_threshold) & (df["range_pct"] < t)]
+            if len(subset2) >= max(50, len(df) * 0.05):
+                acc = subset2["hit"].mean()
+                if acc >= 0.55 and acc > best_medium_acc:
+                    best_medium_threshold = t
+                    best_medium_acc = acc
+
+        # Also check the change_pct condition for high confidence
+        if best_high_threshold > 0:
+            high_set = df[df["range_pct"] < best_high_threshold]
+            if len(high_set) > 0:
+                # Find change_pct threshold that improves accuracy
+                change_thresholds = sorted(high_set["change_pct"].quantile(
+                    [i / 10 for i in range(1, 10)]).unique())
+                best_change_threshold = 0.0
+                best_change_acc = high_set["hit"].mean()
+                for ct in change_thresholds:
+                    subset = high_set[high_set["change_pct"] > ct]
+                    if len(subset) >= max(20, len(high_set) * 0.3):
+                        acc = subset["hit"].mean()
+                        if acc > best_change_acc:
+                            best_change_threshold = ct
+                            best_change_acc = acc
+
+                self.confidence_thresholds = {
+                    "high_range": best_high_threshold,
+                    "medium_range": best_medium_threshold,
+                    "high_change": best_change_threshold,
+                    "high_accuracy": round(best_change_acc * 100, 1),
+                    "medium_accuracy": round(best_medium_acc * 100, 1),
+                }
+        else:
+            self.confidence_thresholds = {
+                "high_range": 0.15,
+                "medium_range": 0.30,
+                "high_change": 0.0,
+                "high_accuracy": 0.0,
+                "medium_accuracy": 0.0,
+            }
+
+        logger.info(
+            f"  Calibrated confidence: high_range={self.confidence_thresholds['high_range']:.3f} "
+            f"(acc={self.confidence_thresholds['high_accuracy']:.1f}%), "
+            f"medium_range={self.confidence_thresholds['medium_range']:.3f} "
+            f"(acc={self.confidence_thresholds['medium_accuracy']:.1f}%)"
+        )
+
+    def _compute_confidence(self, mid: float, low: float, high: float, current: float) -> str:
         if mid == 0 or current == 0:
             return "low"
         range_pct = (high - low) / mid
         change_pct = abs(mid - current) / current
-        if range_pct < 0.1 and change_pct > 0.03:
+
+        # Use calibrated thresholds if available, fall back to sensible defaults
+        high_range = self.confidence_thresholds.get("high_range", 0.15)
+        medium_range = self.confidence_thresholds.get("medium_range", 0.30)
+        high_change = self.confidence_thresholds.get("high_change", 0.0)
+
+        if range_pct < high_range and change_pct > high_change:
             return "high"
-        elif range_pct < 0.2:
+        elif range_pct < medium_range:
             return "medium"
         return "low"
 
@@ -645,8 +782,14 @@ class ItemForecaster:
             path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
             model.save_model(path)
 
-        # Save feature columns
-        meta = {"feature_cols": self.feature_cols, "trained_at": str(self._now())}
+        # Save feature columns and calibration thresholds
+        thresholds = {k: float(v) if isinstance(v, (np.floating, np.integer)) else v
+                      for k, v in self.confidence_thresholds.items()}
+        meta = {
+            "feature_cols": self.feature_cols,
+            "trained_at": str(self._now()),
+            "confidence_thresholds": thresholds,
+        }
         with open(os.path.join(self.model_dir, "meta.json"), "w") as f:
             json.dump(meta, f)
 
@@ -661,6 +804,7 @@ class ItemForecaster:
         with open(meta_path) as f:
             meta = json.load(f)
         self.feature_cols = meta["feature_cols"]
+        self.confidence_thresholds = meta.get("confidence_thresholds", {})
 
         for horizon in self.HORIZONS:
             for q in self.QUANTILES:

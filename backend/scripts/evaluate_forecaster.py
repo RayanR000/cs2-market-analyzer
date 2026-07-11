@@ -210,13 +210,20 @@ def run_walkforward_evaluation(max_items=500):
                 for q, model in models.items():
                     preds[q] = model.predict(X_val.values)
 
-                sorted_ret = np.sort(np.vstack([preds[0.1], preds[0.5], preds[0.9]]), axis=0)
+                p10_ret = preds[0.1]
+                p50_ret = preds[0.5]
+                p90_ret = preds[0.9]
+
+                # Ensure quantile monotonicity without scrambling model identities
+                low_ret_arr = np.minimum(p10_ret, p50_ret)
+                high_ret_arr = np.maximum(p50_ret, p90_ret)
+                mid_ret_arr = p50_ret
 
                 actual_prices = val_df["price"].values
                 current_prices = val_df["price"].values
 
                 for i in range(len(val_df)):
-                    low_ret, mid_ret, high_ret = sorted_ret[0, i], sorted_ret[1, i], sorted_ret[2, i]
+                    low_ret, mid_ret, high_ret = low_ret_arr[i], mid_ret_arr[i], high_ret_arr[i]
                     current_price = float(current_prices[i])
 
                     # Direction check

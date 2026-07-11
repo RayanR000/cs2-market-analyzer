@@ -31,6 +31,10 @@ class CSGOTraderAggregator:
     SKINPORT_URL = "https://prices.csgotrader.app/latest/skinport.json"
     BUFF163_URL = "https://prices.csgotrader.app/latest/buff163.json"
     CSFLOAT_URL = "https://prices.csgotrader.app/latest/csfloat.json"
+    CSMONEY_URL = "https://prices.csgotrader.app/latest/csmoney.json"
+    CSGOTRADER_URL = "https://prices.csgotrader.app/latest/csgotrader.json"
+    YOUPIN_URL = "https://prices.csgotrader.app/latest/youpin.json"
+    EXCHANGE_RATES_URL = "https://prices.csgotrader.app/latest/exchange_rates.json"
 
     def __init__(self):
         self.session = requests.Session()
@@ -114,6 +118,9 @@ class CSGOTraderAggregator:
             "skinport": self.SKINPORT_URL,
             "buff163": self.BUFF163_URL,
             "csfloat": self.CSFLOAT_URL,
+            "csmoney": self.CSMONEY_URL,
+            "csgotrader": self.CSGOTRADER_URL,
+            "youpin": self.YOUPIN_URL,
         }
         self._raw_sources = {}
         self._price_cache = {}
@@ -165,6 +172,10 @@ class CSGOTraderAggregator:
             return _get_safe(starting)
         if source == "csfloat":
             return _get_safe(info.get("price"))
+        if source in ("csmoney", "csgotrader"):
+            return _get_safe(info.get("price"))
+        if source == "youpin":
+            return _get_safe(info.get("price")) or _get_safe(info)
         return None
 
     def _match_item(self, name: str, source_data: Dict[str, dict]) -> Optional[str]:
@@ -278,6 +289,21 @@ class CSGOTraderAggregator:
                     if p is not None:
                         sources["csfloat"] = (p, None, now)
 
+                elif src_name == "csmoney":
+                    p = _get_safe(info.get("price"))
+                    if p is not None:
+                        sources["csmoney"] = (p, None, now)
+
+                elif src_name == "csgotrader":
+                    p = _get_safe(info.get("price"))
+                    if p is not None:
+                        sources["csgotrader"] = (p, None, now)
+
+                elif src_name == "youpin":
+                    p = _get_safe(info.get("price")) or _get_safe(info)
+                    if p is not None:
+                        sources["youpin"] = (p, None, now)
+
             if sources:
                 results[name] = sources
                 matched_count += 1
@@ -291,3 +317,17 @@ class CSGOTraderAggregator:
                            matched_count, len(item_names), 100 * matched_count / len(item_names))
 
         return results
+
+    def fetch_exchange_rates(self) -> Optional[Dict[str, float]]:
+        """Fetch currency exchange rates from CSGOTrader."""
+        try:
+            response = self.session.get(self.EXCHANGE_RATES_URL, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, dict):
+                logger.info("Fetched exchange rates: %s currencies", len(data))
+                return data
+            logger.warning("Unexpected exchange_rates format")
+        except Exception as e:
+            logger.warning("Failed to fetch exchange rates: %s", e)
+        return None

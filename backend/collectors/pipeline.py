@@ -124,6 +124,9 @@ class DataPipeline:
                 "buff163": "aggregator_buff163",
                 "buff163_buy": "aggregator_buff163_buy",
                 "csfloat": "aggregator_csfloat",
+                "csmoney": "aggregator_csmoney",
+                "csgotrader": "aggregator_csgotrader",
+                "youpin": "aggregator_youpin",
             }
 
             # 3. Store results
@@ -262,6 +265,19 @@ class DataPipeline:
 
                 # ── No Supabase write — daily data goes only to CSV → Parquet ──
 
+            # ── Fetch exchange_rates ──
+            exchange_rates_csv_path = None
+            rates = aggregator.fetch_exchange_rates()
+            if rates:
+                agg_date = now.strftime("%Y-%m-%d")
+                exchange_rates_csv_path = f"/tmp/exchange-rates-{agg_date}.csv"
+                with open(exchange_rates_csv_path, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["currency", "rate", "day"])
+                    for currency, rate in rates.items():
+                        writer.writerow([currency, rate, agg_date])
+                logger.info("Wrote %s exchange rates to %s", len(rates), exchange_rates_csv_path)
+
             if missing_names:
                 sample_missing = missing_names[:20]
                 missing_name_report = self._build_missing_name_report(missing_names, item_map)
@@ -340,6 +356,9 @@ class DataPipeline:
                     'aggregator_buff163': sum(1 for r in price_records if r.source == 'aggregator_buff163'),
                     'aggregator_buff163_buy': sum(1 for r in price_records if r.source == 'aggregator_buff163_buy'),
                     'aggregator_csfloat': sum(1 for r in price_records if r.source == 'aggregator_csfloat'),
+                    'aggregator_csmoney': sum(1 for r in price_records if r.source == 'aggregator_csmoney'),
+                    'aggregator_csgotrader': sum(1 for r in price_records if r.source == 'aggregator_csgotrader'),
+                    'aggregator_youpin': sum(1 for r in price_records if r.source == 'aggregator_youpin'),
                 }
             )
             self.db_session.add(collection_run)
@@ -370,6 +389,7 @@ class DataPipeline:
                 "duration_seconds": duration_seconds,
                 "backfilled_csv_path": backfilled_csv_path,
                 "snapshot_csv_path": snapshot_csv_path,
+                "exchange_rates_csv_path": exchange_rates_csv_path,
             }
 
         except Exception as e:
