@@ -46,8 +46,15 @@ DAILY_ANALYSIS_WRITE_COLUMNS = (
 
 
 def _filter_daily_analysis_row(row):
-    """Drop non-portable fields before writing daily analysis rows."""
-    return {key: value for key, value in row.items() if key in DAILY_ANALYSIS_WRITE_COLUMNS}
+    """Drop non-portable fields and convert numpy types before writing."""
+    import numpy as np
+    filtered = {}
+    for key, value in row.items():
+        if key in DAILY_ANALYSIS_WRITE_COLUMNS:
+            if isinstance(value, (np.floating, np.integer)):
+                value = float(value)
+            filtered[key] = value
+    return filtered
 
 ARCHIVE_DIR = Path(__file__).parent.parent.parent / "price-archive"
 
@@ -278,7 +285,7 @@ class TrendAnalyzer:
         std_dev = float(np.std(price_list))
         volatility_pct = (std_dev / mean_price) * 100
 
-        return min(volatility_pct, 100.0)  # Cap at 100%
+        return float(min(volatility_pct, 100.0))  # Cap at 100%
 
     def determine_trend(self, ma_7, ma_30):
         """Determine trend direction."""
@@ -373,7 +380,7 @@ class TrendAnalyzer:
             if older_updates > 0:
                 volume_trend = float(((recent_updates - older_updates) / older_updates) * 100)
 
-            price_stability = max(0, 100 - volatility)  # Inverse of volatility
+            price_stability = float(max(0, 100 - volatility))  # Inverse of volatility
 
             return {
                 'item_id': item_id,

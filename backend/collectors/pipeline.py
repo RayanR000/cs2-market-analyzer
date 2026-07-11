@@ -696,17 +696,27 @@ class DataPipeline:
     def _load_recent_price_histories(self, item_ids, days: int = 90):
         """Load recent price history for many items in one query.
 
-        Falls back to the Supabase price_history for small windows (<=14 days).
-        For longer windows reads from the DuckDB Parquet archive for speed.
+        Prefers DuckDB Parquet archive for large windows (>14 days).
+        Falls back to the Supabase price_history table when parquet files are
+        unavailable (e.g. on CI runners where price-archive lives on a separate
+        branch) or when the parquet read fails for any other reason.
         """
         from database import PriceHistory
+        from pathlib import Path
 
         if not item_ids:
             return {}
 
         use_parquet = days > 14
         if use_parquet:
-            return self._load_parquet_histories(item_ids, days)
+            archive_dir = Path(__file__).parent.parent.parent / "price-archive"
+            if archive_dir.exists():
+                try:
+                    return self._load_parquet_histories(item_ids, days)
+                except Exception as e:
+                    logger.warning("Parquet load failed (%s), falling back to DB", e)
+            else:
+                logger.warning("Parquet archive not found at %s, falling back to DB", archive_dir)
 
         cutoff = datetime.utcnow() - timedelta(days=days)
         rows = self.db_session.query(
