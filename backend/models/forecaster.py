@@ -87,29 +87,6 @@ class ItemForecaster:
         logger.info(f"  {len(df):,} rows, {df.item_id.nunique():,} items")
         return df
 
-    def fetch_daily_analysis(self, days_back: int = 30) -> pd.DataFrame:
-        cutoff = (self._now() - timedelta(days=days_back)).date()
-        rows = self.db.execute(text("""
-            SELECT item_id, analysis_date, current_price,
-                   ma_7day, ma_30day, ma_90day,
-                   momentum_7day, momentum_30day, volatility,
-                   trend_direction, momentum_score, opportunity_score,
-                   trading_volume_trend, price_stability
-            FROM daily_analysis
-            WHERE analysis_date >= :cutoff
-            ORDER BY item_id, analysis_date
-        """), {"cutoff": cutoff}).fetchall()
-        df = pd.DataFrame(rows, columns=[
-            "item_id", "analysis_date", "current_price",
-            "ma_7day", "ma_30day", "ma_90day",
-            "momentum_7day", "momentum_30day", "volatility",
-            "trend_direction", "momentum_score", "opportunity_score",
-            "trading_volume_trend", "price_stability"
-        ])
-        df["analysis_date"] = pd.to_datetime(df["analysis_date"])
-        logger.info(f"  daily_analysis: {len(df):,} rows")
-        return df
-
     def fetch_events(self) -> pd.DataFrame:
         rows = self.db.execute(text("""
             SELECT id, type, timestamp, description
@@ -129,8 +106,6 @@ class ItemForecaster:
     def _compute_price_features(self, df: pd.DataFrame) -> pd.DataFrame:
         logger.info("Engineering price features...")
         df = df.sort_values(["item_id", "date"]).copy()
-
-        # Sort within each item group
         grouped = df.groupby("item_id")
 
         # Lag prices
@@ -142,10 +117,9 @@ class ItemForecaster:
             col = f"price_lag_{lag}d"
             df[f"return_{lag}d"] = (df["price"] - df[col]) / df[col].replace(0, np.nan) * 100
 
-        # Rolling statistics (groupby.rolling is vectorized; transform(lambda)
-        # would fall back to a Python loop per group)
-        for window in [7, 14, 30]:
-            roll = grouped["price"].rolling(window, min_periods=3)
+        # Rolling statistics (min_periods=1 so items with short history get partial estimates)
+        for window in [7, 14, 20, 30]:
+            roll = grouped["price"].rolling(window, min_periods=1)
             df[f"price_mean_{window}d"] = roll.mean().reset_index(level=0, drop=True)
             df[f"price_std_{window}d"] = roll.std().reset_index(level=0, drop=True)
             df[f"price_min_{window}d"] = roll.min().reset_index(level=0, drop=True)
@@ -156,19 +130,107 @@ class ItemForecaster:
         std_30 = df["price_std_30d"].replace(0, np.nan)
         df["price_zscore_30d"] = (df["price"] - mean_30) / std_30
 
+        # Price acceleration (2nd derivative)
+        df["price_accel_7d"] = df["return_7d"] - df["return_7d"].groupby(df["item_id"]).shift(7)
+
+        # Log returns (stationary, scale-invariant)
+        df["log_return_1d"] = np.log(df["price"] / df["price_lag_1d"].replace(0, np.nan))
+        df["log_return_7d"] = np.log(df["price"] / df["price_lag_7d"].replace(0, np.nan))
+
+        # Price autocorrelation proxy (direction agreement between lag-1 and lag-7 returns)
+        df["autocorr_1d"] = df["return_1d"] * df["return_1d"].groupby(df["item_id"]).shift(1)
+        df["autocorr_7d"] = df["return_7d"] * df["return_7d"].groupby(df["item_id"]).shift(7)
+
+        # =====================================================================
+        # Bollinger Bands (20-day)
+        # =====================================================================
+        bb_mid = df["price_mean_20d"]
+        bb_std = df["price_std_20d"].replace(0, np.nan)
+        df["bb_upper"] = bb_mid + 2 * bb_std
+        df["bb_lower"] = bb_mid - 2 * bb_std
+        bb_range = (df["bb_upper"] - df["bb_lower"]).replace(0, np.nan)
+        df["bb_pct_b"] = ((df["price"] - df["bb_lower"]) / bb_range).clip(-2, 2)
+        df["bb_width"] = (bb_range / bb_mid.replace(0, np.nan))
+
+        # =====================================================================
+        # RSI (14-day)
+        # =====================================================================
+        price_change = grouped["price"].diff()
+        gain = price_change.clip(lower=0)
+        loss = (-price_change).clip(lower=0)
+        avg_gain = gain.groupby(df["item_id"]).rolling(14, min_periods=1).mean().reset_index(level=0, drop=True)
+        avg_loss = loss.groupby(df["item_id"]).rolling(14, min_periods=1).mean().reset_index(level=0, drop=True)
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        df["rsi_14"] = 100 - (100 / (1 + rs))
+        df["rsi_14"] = df["rsi_14"].clip(0, 100)
+
+        # =====================================================================
+        # MACD
+        # =====================================================================
+        ema_12 = grouped["price"].transform(lambda x: x.ewm(span=12, min_periods=12).mean())
+        ema_26 = grouped["price"].transform(lambda x: x.ewm(span=26, min_periods=26).mean())
+        df["macd_line"] = ema_12 - ema_26
+        df["macd_signal"] = df.groupby("item_id")["macd_line"].transform(
+            lambda x: x.ewm(span=9, min_periods=9).mean()
+        )
+        df["macd_histogram"] = df["macd_line"] - df["macd_signal"]
+
+        # =====================================================================
+        # Support / Resistance distances
+        # =====================================================================
+        df["distance_to_support"] = ((df["price"] - df["price_min_30d"]).replace(0, np.nan) /
+                                      df["price_min_30d"].replace(0, np.nan) * 100)
+        df["distance_to_resistance"] = ((df["price_max_30d"] - df["price"]).replace(0, np.nan) /
+                                         df["price"].replace(0, np.nan) * 100)
+        df["high_low_range_30d"] = ((df["price_max_30d"] - df["price_min_30d"]).replace(0, np.nan) /
+                                     df["price_min_30d"].replace(0, np.nan) * 100)
+
+        # =====================================================================
         # Volume features
-        if "volume" in df.columns and df["volume"].notna().any():
+        # =====================================================================
+        has_volume = "volume" in df.columns and df["volume"].notna().any()
+        df["volume_missing"] = (1 if not has_volume else
+                                df["volume"].isna().astype(int))
+
+        if has_volume:
             df["volume_lag_1d"] = grouped["volume"].shift(1)
             df["volume_lag_7d"] = grouped["volume"].shift(7)
             df["volume_mean_7d"] = grouped["volume"].rolling(
-                7, min_periods=2
+                7, min_periods=1
             ).mean().reset_index(level=0, drop=True)
-            df["volume_change_1d"] = df["volume"] / df["volume_lag_1d"].replace(0, np.nan)
-            df["volume_change_7d"] = df["volume"] / df["volume_lag_7d"].replace(0, np.nan)
+            df["volume_mean_30d"] = grouped["volume"].rolling(
+                30, min_periods=1
+            ).mean().reset_index(level=0, drop=True)
+            df["volume_std_30d"] = grouped["volume"].rolling(
+                30, min_periods=1
+            ).std().reset_index(level=0, drop=True)
+
+            # Log-ratio volume change (avoids division-by-zero issues)
+            vol_lag_1 = df["volume_lag_1d"].replace(0, np.nan)
+            vol_lag_7 = df["volume_lag_7d"].replace(0, np.nan)
+            df["volume_log_change_1d"] = np.log(df["volume"] / vol_lag_1)
+            df["volume_log_change_7d"] = np.log(df["volume"] / vol_lag_7)
+
+            # Volume z-score vs 30d
+            vol_std_30 = df["volume_std_30d"].replace(0, np.nan)
+            df["volume_zscore_30d"] = ((df["volume"] - df["volume_mean_30d"]) / vol_std_30)
+
+            # Volume-price confirmation
+            df["volume_price_conf_7d"] = (df["return_7d"] *
+                                          (df["volume_log_change_7d"] > 0).astype(int))
+            df["volume_price_conf_1d"] = (df["return_1d"] *
+                                          (df["volume_log_change_1d"] > 0).astype(int))
         else:
             for col in ["volume_lag_1d", "volume_lag_7d", "volume_mean_7d",
-                        "volume_change_1d", "volume_change_7d"]:
+                        "volume_mean_30d", "volume_std_30d",
+                        "volume_log_change_1d", "volume_log_change_7d",
+                        "volume_zscore_30d", "volume_price_conf_7d",
+                        "volume_price_conf_1d"]:
                 df[col] = np.nan
+
+        # Boolean indicators for features with frequent missingness
+        df["rsi_missing"] = df["rsi_14"].isna().astype(int)
+        df["macd_missing"] = df["macd_line"].isna().astype(int)
 
         return df
 
@@ -224,6 +286,43 @@ class ItemForecaster:
 
         return df
 
+    def _add_cross_sectional_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add market-level and category-level context features."""
+        logger.info("Adding cross-sectional features...")
+        df = df.copy()
+
+        # Market return: mean return across all items per date
+        for lag in [1, 7, 14, 30]:
+            ret_col = f"return_{lag}d"
+            if ret_col not in df.columns:
+                continue
+            market_col = f"market_return_{lag}d"
+            df[market_col] = df.groupby("date")[ret_col].transform("mean")
+            df[f"item_return_vs_market_{lag}d"] = df[ret_col] - df[market_col]
+
+        # Market volatility: mean of individual item volatilities per date
+        vol_cols = [c for c in df.columns if c.startswith("price_std_")]
+        if "price_std_30d" in df.columns:
+            df["market_volatility_30d"] = df.groupby("date")["price_std_30d"].transform("mean")
+
+        # Market volume: mean volume across all items per date
+        if "volume" in df.columns and df["volume"].notna().any():
+            df["market_volume_mean_30d"] = df.groupby("date")["volume"].transform(
+                lambda x: x.rolling(30, min_periods=1).mean()
+            )
+            df["item_volume_vs_market_30d"] = (
+                df["volume"] / df["market_volume_mean_30d"].replace(0, np.nan)
+            )
+
+        # Market regime: bull/bear/range based on median 30d market return
+        if "market_return_30d" in df.columns:
+            market_ret_median = df.groupby("date")["market_return_30d"].transform("median")
+            df["market_regime_bull"] = (market_ret_median > 5).astype(int)
+            df["market_regime_bear"] = (market_ret_median < -5).astype(int)
+            df["market_regime_range"] = ((market_ret_median >= -5) & (market_ret_median <= 5)).astype(int)
+
+        return df
+
     def engineer_features(self, price_df: pd.DataFrame,
                           events_df: pd.DataFrame) -> pd.DataFrame:
         # Resample to one row per item per day before feature engineering.
@@ -261,35 +360,15 @@ class ItemForecaster:
     def build_training_data(self, days_back: int = 365) -> Tuple[pd.DataFrame, Dict[int, pd.DataFrame]]:
         price_df = self.fetch_price_history(days_back=days_back)
         events_df = self.fetch_events()
-        da_df = self.fetch_daily_analysis(days_back=30)
 
         df = self.engineer_features(price_df, events_df)
 
-        # Merge daily_analysis features
-        if not da_df.empty:
-            da_df["analysis_date"] = pd.to_datetime(da_df["analysis_date"])
-            da_df.rename(columns={"current_price": "da_price"}, inplace=True)
-            df["date"] = pd.to_datetime(df["date"])
-            df = df.merge(da_df, left_on=["item_id", "date"],
-                          right_on=["item_id", "analysis_date"], how="left")
-        else:
-            for col in ["ma_7day", "ma_30day", "ma_90day", "momentum_7day",
-                        "momentum_30day", "volatility", "trend_direction",
-                        "momentum_score", "opportunity_score",
-                        "trading_volume_trend", "price_stability"]:
-                df[col] = np.nan
+        # Add cross-sectional (market-regime) features
+        df = self._add_cross_sectional_features(df)
 
-        # One-hot trend_direction
-        if "trend_direction" in df.columns:
-            dummies = pd.get_dummies(df["trend_direction"], prefix="trend")
-            for col in ["trend_up", "trend_down", "trend_flat"]:
-                if col not in dummies.columns:
-                    dummies[col] = 0
-            df = pd.concat([df.drop(columns=["trend_direction"]), dummies], axis=1)
-
-        # Define feature columns (exclude leakage-prone and target columns)
+        # Define feature columns (exclude metadata and target columns)
         exclude = {"item_id", "date", "timestamp", "price", "volume",
-                   "name", "release_date", "analysis_date", "da_price"}
+                   "name", "release_date"}
         exclude |= {f"target_{h}d" for h in self.HORIZONS}
         exclude |= {f"target_return_{h}d" for h in self.HORIZONS}
 
@@ -317,27 +396,9 @@ class ItemForecaster:
         fi = fi.sort_values("importance", ascending=False).head(20)
         return fi
 
-    def _sample_training_data(self, targets: pd.DataFrame,
-                               horizon: int, max_rows: int = 200_000) -> pd.DataFrame:
-        """Sample training data, prioritizing recent data."""
-        train = targets.dropna(subset=[f"target_{horizon}d"]).copy()
-        before_split = train[pd.to_datetime(train["date"]) < self.TRAIN_SPLIT_DATE]
-        after_split = train[pd.to_datetime(train["date"]) >= self.TRAIN_SPLIT_DATE]
-
-        sampled = []
-        if len(after_split) > 0:
-            sampled.append(after_split)
-        remaining = max_rows - len(after_split)
-        if remaining > 0 and len(before_split) > 0:
-            sampled.append(before_split.sample(min(len(before_split), remaining), random_state=42))
-
-        result = pd.concat(sampled, ignore_index=True) if sampled else train
-        logger.info(f"  Training samples for {horizon}d: {len(result):,}")
-        return result
-
     def train(self, max_rows: int = 200_000):
         logger.info("=" * 60)
-        logger.info("TRAINING LIGHTGBM FORECASTER")
+        logger.info("TRAINING LIGHTGBM FORECASTER (return target, walk-forward)")
         logger.info("=" * 60)
 
         df, targets_by_horizon = self.build_training_data(days_back=365)
@@ -345,19 +406,37 @@ class ItemForecaster:
         for horizon in self.HORIZONS:
             tdf = targets_by_horizon[horizon]
 
-            # Sampling is deterministic (fixed random_state), so build the
-            # train/val split once per horizon and reuse it for all quantiles.
-            train_df = self._sample_training_data(tdf, horizon, max_rows)
-            train_df = train_df.sort_values("date")
-            split_idx = int(len(train_df) * 0.8)
+            # Drop NaN targets (use percentage return as primary target)
+            tdf = tdf.dropna(subset=[f"target_return_{horizon}d"]).copy()
+            tdf = tdf.sort_values("date")
 
-            train_set = train_df.iloc[:split_idx]
-            val_set = train_df.iloc[split_idx:]
+            # Proper temporal walk-forward split:
+            # Train on data up to TRAIN_SPLIT_DATE, validate on everything after
+            split_date = pd.to_datetime(self.TRAIN_SPLIT_DATE)
+            train_set = tdf[pd.to_datetime(tdf["date"]) < split_date]
+            val_set = tdf[pd.to_datetime(tdf["date"]) >= split_date]
 
-            X_train = train_set[self.feature_cols].fillna(0)
-            y_train = train_set[f"target_{horizon}d"]
-            X_val = val_set[self.feature_cols].fillna(0)
-            y_val = val_set[f"target_{horizon}d"]
+            # Cap training size (keep most recent data)
+            if len(train_set) > max_rows:
+                train_set = train_set.tail(max_rows)
+
+            if len(val_set) < 100:
+                logger.warning(f"  Validation set for {horizon}d has only {len(val_set)} rows; "
+                               "using last 20% of training data as fallback.")
+                split_idx = int(len(tdf) * 0.8)
+                train_set = tdf.iloc[:split_idx]
+                val_set = tdf.iloc[split_idx:]
+
+            logger.info(f"  {horizon}d: {len(train_set)} train, {len(val_set)} val")
+
+            # Per-feature median imputation (learned from train, applied to both)
+            train_features = train_set[self.feature_cols]
+            feature_medians = train_features.median()
+            X_train = train_features.fillna(feature_medians)
+            y_train = train_set[f"target_return_{horizon}d"]
+
+            X_val = val_set[self.feature_cols].fillna(feature_medians)
+            y_val = val_set[f"target_return_{horizon}d"]
 
             for q in self.QUANTILES:
                 logger.info(f"Training {horizon}d p{int(q*100)} model...")
@@ -367,11 +446,16 @@ class ItemForecaster:
                     "alpha": q,
                     "metric": "quantile",
                     "boosting_type": "gbdt",
-                    "num_leaves": 63,
-                    "learning_rate": 0.05,
-                    "feature_fraction": 0.8,
-                    "bagging_fraction": 0.8,
+                    "num_leaves": 31,
+                    "max_depth": 5,
+                    "min_data_in_leaf": 15,
+                    "min_gain_to_split": 0.1,
+                    "learning_rate": 0.03,
+                    "feature_fraction": 0.7,
+                    "bagging_fraction": 0.7,
                     "bagging_freq": 5,
+                    "lambda_l1": 0.5,
+                    "lambda_l2": 0.5,
                     "verbosity": -1,
                     "random_state": 42,
                     "n_jobs": -1,
@@ -381,9 +465,9 @@ class ItemForecaster:
                 dval = lgb.Dataset(X_val, y_val, reference=dtrain)
                 model = lgb.train(
                     params, dtrain,
-                    num_boost_round=500,
+                    num_boost_round=1000,
                     valid_sets=[dval],
-                    callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)]
+                    callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)]
                 )
 
                 self.models[(horizon, q)] = model
@@ -418,25 +502,13 @@ class ItemForecaster:
 
         df = self.engineer_features(price_df, events_df)
 
-        # Merge daily_analysis
-        da_df = self.fetch_daily_analysis(days_back=3)
-        if not da_df.empty:
-            da_df["analysis_date"] = pd.to_datetime(da_df["analysis_date"])
-            df["date"] = pd.to_datetime(df["date"])
-            df = df.merge(da_df, left_on=["item_id", "date"],
-                          right_on=["item_id", "analysis_date"], how="left")
-
-        if "trend_direction" in df.columns:
-            dummies = pd.get_dummies(df["trend_direction"], prefix="trend")
-            for col in ["trend_up", "trend_down", "trend_flat"]:
-                if col not in dummies.columns:
-                    dummies[col] = 0
-            df = pd.concat([df.drop(columns=["trend_direction"]), dummies], axis=1)
+        # Add cross-sectional features (same as training)
+        df = self._add_cross_sectional_features(df)
 
         # Align features with training columns (add missing, drop extras)
         for col in self.feature_cols:
             if col not in df.columns:
-                df[col] = 0
+                df[col] = np.nan
         df = df[self.feature_cols + [c for c in df.columns if c not in self.feature_cols]]
 
         # Get latest feature row per item
@@ -446,7 +518,9 @@ class ItemForecaster:
         if item_ids:
             latest_rows = latest_rows[latest_rows["item_id"].isin(item_ids)]
 
-        X_batch = latest_rows[self.feature_cols].fillna(0)
+        # Median imputation (use predefined medians, or compute from this batch)
+        feature_medians = latest_rows[self.feature_cols].median()
+        X_batch = latest_rows[self.feature_cols].fillna(feature_medians)
 
         item_id_arr = latest_rows["item_id"].to_numpy()
         current_price_arr = latest_rows["price"].to_numpy()
@@ -473,23 +547,30 @@ class ItemForecaster:
             if len(preds) != 3:
                 continue
 
-            # Sort the quantile predictions per item so low <= mid <= high
-            # even when quantile crossing occurs.
-            quantile_preds = np.sort(
-                np.round(np.vstack([preds[0.1], preds[0.5], preds[0.9]]), 2), axis=0
-            )
+            # Models predict percentage returns. Convert back to price levels.
+            # preds are return percentages (e.g., 5.0 means +5%).
+            return_preds = np.vstack([preds[0.1], preds[0.5], preds[0.9]])
+
+            # Sort to prevent quantile crossing
+            sorted_returns = np.sort(return_preds, axis=0)
 
             for i, iid in enumerate(item_id_arr):
-                low, mid, high = (float(quantile_preds[0, i]),
-                                  float(quantile_preds[1, i]),
-                                  float(quantile_preds[2, i]))
+                low_ret, mid_ret, high_ret = (float(sorted_returns[0, i]),
+                                              float(sorted_returns[1, i]),
+                                              float(sorted_returns[2, i]))
                 current_price = float(current_price_arr[i])
+
+                # Convert return predictions to price levels
+                price_low = round(current_price * (1 + low_ret / 100), 2)
+                price_mid = round(current_price * (1 + mid_ret / 100), 2)
+                price_high = round(current_price * (1 + high_ret / 100), 2)
+
                 agg[iid]["forecasts"][horizon] = {
-                    "low": low,
-                    "mid": mid,
-                    "high": high,
-                    "direction": "up" if mid > current_price else "down" if mid < current_price else "flat",
-                    "confidence": self._compute_confidence(mid, low, high, current_price),
+                    "low": price_low,
+                    "mid": price_mid,
+                    "high": price_high,
+                    "direction": "up" if mid_ret > 0 else "down" if mid_ret < 0 else "flat",
+                    "confidence": self._compute_confidence(price_mid, price_low, price_high, current_price),
                 }
 
         result_df = pd.DataFrame([r for r in agg.values() if r["forecasts"]])
