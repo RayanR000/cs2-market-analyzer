@@ -218,6 +218,46 @@ Directional accuracy improved from ~71-72% (post-Priority-1/2 fixes) to ~75-77% 
 
 ---
 
+---
+
+## Remaining Gaps (not yet implemented)
+
+### 1. Recency mismatch: 365d training vs 90d prediction
+
+`backend/models/forecaster.py:48-52` vs `:531`
+
+Training fetches 365 days of history; `predict()` fetches 90 days. Rolling features (mean, std, min/max at prediction time average over shorter windows than during training, shifting their distributions.
+
+**Fix:** Train on a matching 90d window or extend the predict fetch to 365d.
+
+### 2. Medium confidence bucket near-useless
+
+Bucket achieves 19-35% directional accuracy despite calibration targeting ≥55%. The range_pct-based heuristic produces a heterogeneous mix in the medium band.
+
+**Fix:** Consolidate to binary (high/low), or replace with model-based uncertainty (tree variance / Monte Carlo dropout).
+
+### 3. No hyperparameter search
+
+Parameters are hand-picked. Grid/Bayesian search over `num_leaves`, `learning_rate`, `lambda_l1/l2`, `feature_fraction` could yield 2-5pp more accuracy.
+
+### 4. No feature pruning
+
+~70+ features, many correlated (e.g., price_mean_7d/14d/20d/30d). Redundant features add noise. Fix: drop pairs with correlation > 0.95, remove zero-importance features after first training pass.
+
+### 5. No ensembling
+
+Single model per quantile. Train 3-5 LightGBMs with different seeds or add XGBoost/CatBoost and average across them.
+
+### 6. Single walk-forward split is noisy
+
+One 21-day holdout is sensitive to specific events in that window. Expanding-window CV (multiple train/val folds sliding through time) would give more robust accuracy estimates.
+
+### 7. No concept drift monitoring
+
+No mechanism to detect when accuracy degrades or trigger automatic retraining. Add sliding-window accuracy tracking and an auto-retrain scheduler.
+
+---
+
 ## Files Modified (Jul 2026 round)
 
 - `backend/models/forecaster.py` — event decay features, quantile crossing fix, confidence calibration

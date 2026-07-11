@@ -288,51 +288,103 @@ pattern.holdout_accuracy = consistency_score  # Circular!
 
 ## Priority 5 — Lower Impact
 
-### 16. Additional missing features
+### 16. Additional missing features (mostly resolved)
 
-Beyond RSI/MACD/Bollinger, the following feature families are entirely absent:
+Most features listed in the original audit are now implemented (log returns, autocorrelation, price acceleration, distance to support/resistance). Still absent:
 
 | Feature | Why It Matters |
 |---------|----------------|
-| Log returns | Stationary, normally distributed, scale-invariant |
-| Price autocorrelation (lag-1, lag-7) | Mean reversion signal |
-| Price acceleration (2nd derivative of price) | Change of momentum |
-| Distance to recent 30-day high/low | Support/resistance proximity |
 | On-balance volume (OBV) | Volume confirms trend direction |
 | Price spike indicator (price > 2*std in 24h) | Detects anomaly events |
 | Volatility regime change (vol_30d / vol_7d) | Regime shift detection |
 | Volume-weighted price | True value consensus |
 
-### 17. Recency mismatch between training and prediction
+### 17. Recency mismatch between training and prediction (partially resolved)
 
-**File:** `backend/models/forecaster.py:261` vs `:403`
+**File:** `backend/models/forecaster.py:48-52` vs `:531`
 
-Training uses 365 days of data but prediction merges `daily_analysis` from the last **3 days** (line 422) while training merged it from **30 days** (line 264). This asymmetry means features at prediction time may have different statistical properties than during training.
+Training fetches **365 days** of price history while `predict()` fetches only **90 days**. The daily_analysis merge issue was fixed (merge removed entirely), but the window asymmetry remains: rolling features (mean, std, min/max) at inference time average over shorter lookbacks than during training. This shifts their distribution.
 
-### 18. No hyperparameter tuning or feature selection
+**Fix:** Either train on a matching 90-day window, or extend the predict fetch window to 365 days.
 
-The codebase has no:
-- Cross-validation for hyperparameter optimization
+### 18. No automated hyperparameter tuning or feature selection (partially resolved)
+
+Hyperparameters were manually tuned with sensible defaults for financial noise (lower `num_leaves`, added regularization, etc.), but the codebase still lacks:
+- Automated search (grid / Bayesian) over hyperparameters
 - Feature importance-based pruning of low-value features
-- Correlation analysis to remove redundant features
+- Correlation analysis to remove redundant features (~70+ features, many correlated)
 - Learning curve analysis to determine optimal training size
 - Permutation importance to validate feature contributions
 
 ---
 
-## Summary: Recommended Implementation Order
+## Priority 6 — Post-Audit Improvements
 
-| Step | Change | Expected Impact | Complexity |
-|------|--------|----------------|------------|
-| 1 | Remove `daily_analysis` feature leakage | **High** | Low (1 file, delete merge) |
-| 2 | Change target from price level to returns | **High** | Medium (forecaster.py + backtest.py) |
-| 3 | Fix NaN imputation (per-feature medians) | **High** | Low (imputation logic) |
-| 4 | Add RSI, MACD, Bollinger %B features | **High** | Medium (compute in forecaster.py) |
-| 5 | Fix temporal train/val split (walk-forward) | **High** | Medium (sampling logic) |
-| 6 | Tune LightGBM params (regularization, depth) | Medium | Low (params dict) |
-| 7 | Add cross-sectional / market-regime features | Medium | Medium (new feature group) |
-| 8 | Replace days-since-event with decay weighting | Medium | Low (event feature logic) |
-| 9 | Fix event analyzer z-score (per-item volatility) | Low | Low (1-line change) |
-| 10 | Calibrate confidence scores | Low | Medium (validation set calibration) |
-| 11 | Standardize long-term vs daily analyzer | Low | Low (label mapping) |
-| 12 | Fix backtest evaluation methodology | Low | Low (threshold alignment) |
+### 19. Medium confidence bucket is near-useless
+
+**File:** `backend/models/forecaster.py:641-756`
+
+**Current accuracy:** Medium bucket achieves 19-35% directional accuracy — at or below random (50% for 2-class). The calibration loop finds thresholds that technically meet the ≥55% target, but the bucket collapses in practice because range_pct between "high" and "medium" boundaries captures a heterogenous mix of predictions.
+
+**Fixes (choose one):**
+- Consolidate to binary confidence (high/low), dropping the medium tier
+- Replace range_pct heuristic with model-based uncertainty (variance of predictions across trees, or dropout-like Monte Carlo sampling)
+- Require medium bucket to meet a higher accuracy target (≥60%) and accept it may be empty most days
+
+### 20. No ensembling
+
+**File:** `backend/models/forecaster.py:482-517`
+
+Each quantile+horizon combination uses a single LightGBM model. Single models are sensitive to seed and data ordering, producing higher prediction variance.
+
+**Fix:**
+- Train 3-5 LightGBM models per quantile with different `random_state` values
+- Average predictions across ensemble members
+- Optionally add XGBoost or CatBoost as a secondary model family and average across model types
+
+### 21. Single fixed walk-forward split is noisy
+
+**File:** `backend/models/forecaster.py:453-458`
+
+The validation split is a single 21-day holdout at the end of the time series. A single split is sensitive to the specific events in that window (a Major during validation inflates error, a quiet period deflates it).
+
+**Fix:**
+- Implement expanding-window cross-validation: train on months 1-6, validate on month 7; train on months 1-7, validate on month 8; etc.
+- Report mean ± std of accuracy across folds
+- Alternatively, use purged walk-forward (avoid temporal leakage between folds)
+
+### 22. No concept drift monitoring
+
+Once deployed, the model's accuracy will degrade as market dynamics shift (new game updates, changing player behavior, source data quality changes). There is no mechanism to detect drift or trigger retraining.
+
+**Fix:**
+- Track rolling directional accuracy over the last N predictions (e.g., 7-day sliding window)
+- Flag drift when accuracy drops below a threshold (e.g., 60% for 7d)
+- Trigger automatic retraining via a scheduler or webhook
+- Log drift events to an `accuracy_alerts` table for observability
+
+---
+
+## Summary: Implementation Order
+
+| Step | Change | Expected Impact | Complexity | Status |
+|------|--------|----------------|------------|--------|
+| 1 | Remove `daily_analysis` feature leakage | **High** | Low | ✅ Done |
+| 2 | Change target from price level to returns | **High** | Medium | ✅ Done |
+| 3 | Fix NaN imputation (per-feature medians) | **High** | Low | ✅ Done |
+| 4 | Add RSI, MACD, Bollinger %B features | **High** | Medium | ✅ Done |
+| 5 | Fix temporal train/val split (walk-forward) | **High** | Medium | ✅ Done |
+| 6 | Tune LightGBM params (regularization, depth) | Medium | Low | ✅ Done |
+| 7 | Add cross-sectional / market-regime features | Medium | Medium | ✅ Done |
+| 8 | Replace days-since-event with decay weighting | Medium | Low | ✅ Done |
+| 9 | Fix event analyzer z-score (per-item volatility) | Low | Low | ✅ Done |
+| 10 | Calibrate confidence scores | Low | Medium | ✅ Done |
+| 11 | Standardize long-term vs daily analyzer | Low | Low | ✅ Done |
+| 12 | Fix backtest evaluation methodology | Low | Low | ✅ Done |
+| 13 | Fix recency mismatch (365d → 90d align) | Medium | Low | ❌ Pending |
+| 14 | Automated HP search (grid/Bayesian) | Medium | Medium | ❌ Pending |
+| 15 | Feature pruning (correlation + importance) | Medium | Medium | ❌ Pending |
+| 16 | Fix medium confidence bucket | Low | Medium | ❌ Pending |
+| 17 | Model ensembling (multi-seed + XGBoost) | Medium | Medium | ❌ Pending |
+| 18 | Expanding-window CV (multiple folds) | Medium | Medium | ❌ Pending |
+| 19 | Concept drift monitoring & auto-retrain | Medium | Medium | ❌ Pending |

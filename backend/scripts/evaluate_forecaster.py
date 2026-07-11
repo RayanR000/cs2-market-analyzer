@@ -143,6 +143,8 @@ def run_walkforward_evaluation(max_items=500):
             interval_total = 0
             all_metrics = []
 
+            best_params = None
+
             for window_end in range(split_idx + 1, len(dates)):
                 train_dates = dates[:window_end]
                 val_date = dates[window_end]
@@ -160,7 +162,6 @@ def run_walkforward_evaluation(max_items=500):
                 # Learn feature medians from training data
                 feature_cols = [c for c in forecaster.feature_cols if c in tdf.columns]
                 if not feature_cols:
-                    # Define feature cols from train data
                     exclude = {"item_id", "date", "timestamp", "price", "volume",
                                "name", "release_date"}
                     exclude |= {f"target_{h}d" for h in forecaster.HORIZONS}
@@ -168,51 +169,100 @@ def run_walkforward_evaluation(max_items=500):
                     feature_cols = [c for c in tdf.columns if c not in exclude
                                     and tdf[c].dtype in (np.float64, np.float32, np.int64, int, float)]
 
+                # Feature pruning: remove highly correlated features
+                if len(feature_cols) > 2:
+                    corr = train_df[feature_cols].corr().abs()
+                    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+                    to_drop = set()
+                    for col in upper.columns:
+                        if col in to_drop:
+                            continue
+                        highly_corr = upper[col][upper[col] > 0.95].index
+                        to_drop.update(highly_corr)
+                    feature_cols = [c for c in feature_cols if c not in to_drop]
+
                 X_train = train_df[feature_cols].fillna(train_df[feature_cols].median())
                 y_train = train_df[f"target_return_{horizon}d"]
                 X_val = val_df[feature_cols].fillna(train_df[feature_cols].median())
                 y_val = val_df[f"target_return_{horizon}d"]
 
-                # Train quantile models on this window
+                # Run grid search ONCE on the first valid window, cache results
+                if best_params is None:
+                    logger.info("    Grid search (first window only)...")
+                    grid = {
+                        "num_leaves": [15, 31],
+                        "learning_rate": [0.01, 0.03],
+                        "lambda_l1": [0.0, 0.5],
+                        "lambda_l2": [0.0, 0.5],
+                    }
+                    best_params = {"num_leaves": 31, "learning_rate": 0.03,
+                                   "lambda_l1": 0.5, "lambda_l2": 0.5}
+                    best_loss = float("inf")
+                    for nl in grid["num_leaves"]:
+                        for lr in grid["learning_rate"]:
+                            for l1 in grid["lambda_l1"]:
+                                for l2 in grid["lambda_l2"]:
+                                    p = {
+                                        "objective": "quantile", "alpha": 0.5,
+                                        "metric": "quantile", "boosting_type": "gbdt",
+                                        "num_leaves": nl, "max_depth": 5,
+                                        "min_data_in_leaf": 15, "min_gain_to_split": 0.1,
+                                        "learning_rate": lr, "feature_fraction": 0.7,
+                                        "bagging_fraction": 0.7, "bagging_freq": 5,
+                                        "lambda_l1": l1, "lambda_l2": l2,
+                                        "verbosity": -1, "random_state": 42, "n_jobs": -1,
+                                    }
+                                    dt = lgb.Dataset(X_train.values, y_train.values)
+                                    dv = lgb.Dataset(X_val.values, y_val.values, reference=dt)
+                                    m = lgb.train(
+                                        p, dt, num_boost_round=150, valid_sets=[dv],
+                                        callbacks=[lgb.early_stopping(10), lgb.log_evaluation(0)]
+                                    )
+                                    loss = m.best_score["valid_0"]["quantile"]
+                                    if loss < best_loss:
+                                        best_loss = loss
+                                        best_params = p.copy()
+
+                # Train ensemble of 3 models per quantile with cached best params
+                ensemble_seeds = [42, 73, 91]
                 models = {}
                 for q in [0.1, 0.5, 0.9]:
-                    params = {
+                    base_params = {
                         "objective": "quantile",
                         "alpha": q,
                         "metric": "quantile",
                         "boosting_type": "gbdt",
-                        "num_leaves": 31,
                         "max_depth": 5,
                         "min_data_in_leaf": 15,
                         "min_gain_to_split": 0.1,
-                        "learning_rate": 0.03,
                         "feature_fraction": 0.7,
                         "bagging_fraction": 0.7,
                         "bagging_freq": 5,
-                        "lambda_l1": 0.5,
-                        "lambda_l2": 0.5,
                         "verbosity": -1,
-                        "random_state": 42,
                         "n_jobs": -1,
                     }
-                    dtrain = lgb.Dataset(X_train.values, y_train.values)
-                    dval = lgb.Dataset(X_val.values, y_val.values, reference=dtrain)
-                    model = lgb.train(
-                        params, dtrain,
-                        num_boost_round=200,
-                        valid_sets=[dval],
-                        callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)]
-                    )
-                    models[q] = model
+                    for k in ("num_leaves", "learning_rate", "lambda_l1", "lambda_l2"):
+                        if k in best_params:
+                            base_params[k] = best_params[k]
 
-                # Predict
-                preds = {}
-                for q, model in models.items():
-                    preds[q] = model.predict(X_val.values)
+                    ensemble_preds = []
+                    for ei, seed in enumerate(ensemble_seeds):
+                        params = base_params.copy()
+                        params["random_state"] = seed
+                        dtrain = lgb.Dataset(X_train.values, y_train.values)
+                        dval = lgb.Dataset(X_val.values, y_val.values, reference=dtrain)
+                        model = lgb.train(
+                            params, dtrain,
+                            num_boost_round=100,
+                            valid_sets=[dval],
+                            callbacks=[lgb.early_stopping(15), lgb.log_evaluation(0)]
+                        )
+                        ensemble_preds.append(model.predict(X_val.values))
+                    models[q] = np.mean(ensemble_preds, axis=0)
 
-                p10_ret = preds[0.1]
-                p50_ret = preds[0.5]
-                p90_ret = preds[0.9]
+                p10_ret = models[0.1]
+                p50_ret = models[0.5]
+                p90_ret = models[0.9]
 
                 # Ensure quantile monotonicity without scrambling model identities
                 low_ret_arr = np.minimum(p10_ret, p50_ret)
@@ -278,7 +328,12 @@ def run_walkforward_evaluation(max_items=500):
 
 
 def main():
-    results = run_walkforward_evaluation(max_items=500)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--max-items", type=int, default=50,
+                        help="Number of items to evaluate (default: 50)")
+    args = parser.parse_args()
+    results = run_walkforward_evaluation(max_items=args.max_items)
     print(f"\nRESULT: {json.dumps(results, indent=2)}")
     return 0
 

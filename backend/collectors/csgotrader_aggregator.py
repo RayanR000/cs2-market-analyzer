@@ -178,10 +178,19 @@ class CSGOTraderAggregator:
             return _get_safe(info.get("price")) or _get_safe(info)
         return None
 
-    def _match_item(self, name: str, source_data: Dict[str, dict]) -> Optional[str]:
-        """Fuzzy-match an item name against source_data keys. Returns the matched key or None."""
+    @staticmethod
+    def _build_source_lookup(source_data: Dict[str, dict]) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """Pre-build lowercase + normalized lookup dicts for a source."""
         cache_keys = {k.lower(): k for k in source_data.keys()}
-        normalized_cache_keys = {self._normalize_name(k): k for k in source_data.keys()}
+        normalized_cache_keys = {}
+        for k in source_data.keys():
+            normalized_cache_keys[CSGOTraderAggregator._normalize_name(k)] = k
+        return cache_keys, normalized_cache_keys
+
+    def _match_item(self, name: str,
+                    cache_keys: Dict[str, str],
+                    normalized_cache_keys: Dict[str, str]) -> Optional[str]:
+        """Fuzzy-match an item name against pre-built lookup dicts. Returns the matched key or None."""
         name_lower = name.lower()
         normalized_name = self._normalize_name(name)
 
@@ -230,6 +239,12 @@ class CSGOTraderAggregator:
             return {}
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        # Pre-build lookup dicts once per source instead of per item per source
+        source_lookups: Dict[str, Tuple[Dict[str, str], Dict[str, str]]] = {}
+        for src_name, src_data in self._raw_sources.items():
+            source_lookups[src_name] = self._build_source_lookup(src_data)
+
         results: Dict[str, Optional[SourceData]] = {}
 
         matched_count = 0
@@ -237,7 +252,8 @@ class CSGOTraderAggregator:
             sources: SourceData = {}
 
             for src_name, src_data in self._raw_sources.items():
-                matched_key = self._match_item(name, src_data)
+                cache_keys, normalized_cache_keys = source_lookups[src_name]
+                matched_key = self._match_item(name, cache_keys, normalized_cache_keys)
                 if matched_key is None:
                     continue
 

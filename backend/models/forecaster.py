@@ -30,6 +30,9 @@ class ItemForecaster:
     # A relative split stays valid as data accumulates (a fixed date would
     # eventually leave the validation set covering all new data).
     VALIDATION_WINDOW_DAYS = 21
+    N_ENSEMBLES = 3
+    ENSEMBLE_SEEDS = [42, 73, 91]
+    PRUNE_CORRELATION_THRESHOLD = 0.95
 
     def __init__(self, db_session, model_dir: str = None):
         self.db = db_session
@@ -350,6 +353,95 @@ class ItemForecaster:
 
         return df
 
+    def _prune_features(self, df: pd.DataFrame) -> List[str]:
+        """Remove highly correlated features to reduce noise and multicollinearity.
+
+        Identifies feature pairs with correlation > PRUNE_CORRELATION_THRESHOLD
+        and drops one from each pair, keeping features with lower index (earlier
+        in the list).
+        """
+        if len(self.feature_cols) < 2:
+            return self.feature_cols
+
+        corr = df[self.feature_cols].corr().abs()
+        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+
+        to_drop = set()
+        for col in upper.columns:
+            if col in to_drop:
+                continue
+            highly_correlated = upper[col][upper[col] > self.PRUNE_CORRELATION_THRESHOLD].index
+            to_drop.update(highly_correlated)
+
+        pruned = [c for c in self.feature_cols if c not in to_drop]
+        if pruned != self.feature_cols:
+            logger.info(
+                f"  Pruned {len(self.feature_cols) - len(pruned)} features "
+                f"(corr>{self.PRUNE_CORRELATION_THRESHOLD}): "
+                f"{len(pruned)} remaining"
+            )
+        return pruned
+
+    def _grid_search_params(self, X_train, y_train, X_val, y_val) -> Dict[str, Any]:
+        """Simple grid search over key hyperparameters for quantile regression.
+
+        Searches over num_leaves, learning_rate, lambda_l1, lambda_l2 using
+        validation quantile loss to pick the best combination.
+        """
+        grid = {
+            "num_leaves": [15, 31, 63],
+            "learning_rate": [0.01, 0.03, 0.05],
+            "lambda_l1": [0.0, 0.5, 1.0],
+            "lambda_l2": [0.0, 0.5, 1.0],
+        }
+
+        best_params = None
+        best_loss = float("inf")
+
+        n_trials = 0
+        for nl in grid["num_leaves"]:
+            for lr in grid["learning_rate"]:
+                for l1 in grid["lambda_l1"]:
+                    for l2 in grid["lambda_l2"]:
+                        n_trials += 1
+                        params = {
+                            "objective": "quantile",
+                            "alpha": 0.5,
+                            "metric": "quantile",
+                            "boosting_type": "gbdt",
+                            "num_leaves": nl,
+                            "max_depth": 5,
+                            "min_data_in_leaf": 15,
+                            "min_gain_to_split": 0.1,
+                            "learning_rate": lr,
+                            "feature_fraction": 0.7,
+                            "bagging_fraction": 0.7,
+                            "bagging_freq": 5,
+                            "lambda_l1": l1,
+                            "lambda_l2": l2,
+                            "verbosity": -1,
+                            "random_state": 42,
+                            "n_jobs": -1,
+                        }
+                        dtrain = lgb.Dataset(X_train, y_train)
+                        dval = lgb.Dataset(X_val, y_val, reference=dtrain)
+                        model = lgb.train(
+                            params, dtrain,
+                            num_boost_round=200,
+                            valid_sets=[dval],
+                            callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)]
+                        )
+                        loss = model.best_score["valid_0"]["quantile"]
+                        if loss < best_loss:
+                            best_loss = loss
+                            best_params = params.copy()
+
+        logger.info(
+            f"  Grid search ({n_trials} combos): best loss={best_loss:.6f} "
+            f"params={best_params}"
+        )
+        return best_params
+
     def engineer_features(self, price_df: pd.DataFrame,
                           events_df: pd.DataFrame) -> pd.DataFrame:
         # Resample to one row per item per day before feature engineering.
@@ -415,6 +507,9 @@ class ItemForecaster:
         self.feature_cols = [c for c in df.columns if c not in exclude
                              and df[c].dtype in (np.float64, np.float32, np.int64, int, float)]
 
+        # Prune highly correlated features to reduce noise
+        self.feature_cols = self._prune_features(df)
+
         # Prepare targets for each horizon
         targets = {}
         for h in self.HORIZONS:
@@ -438,7 +533,7 @@ class ItemForecaster:
 
     def train(self, max_rows: int = 200_000):
         logger.info("=" * 60)
-        logger.info("TRAINING LIGHTGBM FORECASTER (return target, walk-forward)")
+        logger.info("TRAINING LIGHTGBM FORECASTER (ensemble, HP search, walk-forward)")
         logger.info("=" * 60)
 
         df, targets_by_horizon = self.build_training_data(days_back=365)
@@ -479,40 +574,55 @@ class ItemForecaster:
             X_val = val_set[self.feature_cols].fillna(feature_medians)
             y_val = val_set[f"target_return_{horizon}d"]
 
-            for q in self.QUANTILES:
-                logger.info(f"Training {horizon}d p{int(q*100)} model...")
+            # Grid search for best hyperparameters
+            logger.info(f"  Grid searching hyperparameters for {horizon}d...")
+            best_params = self._grid_search_params(X_train, y_train, X_val, y_val)
 
-                params = {
+            for q in self.QUANTILES:
+                logger.info(f"Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
+
+                base_params = {
                     "objective": "quantile",
                     "alpha": q,
                     "metric": "quantile",
                     "boosting_type": "gbdt",
-                    "num_leaves": 31,
                     "max_depth": 5,
                     "min_data_in_leaf": 15,
                     "min_gain_to_split": 0.1,
-                    "learning_rate": 0.03,
                     "feature_fraction": 0.7,
                     "bagging_fraction": 0.7,
                     "bagging_freq": 5,
-                    "lambda_l1": 0.5,
-                    "lambda_l2": 0.5,
                     "verbosity": -1,
-                    "random_state": 42,
                     "n_jobs": -1,
                 }
+                # Merge grid search results into base params
+                if best_params:
+                    for k in ("num_leaves", "learning_rate", "lambda_l1", "lambda_l2"):
+                        if k in best_params:
+                            base_params[k] = best_params[k]
+                else:
+                    base_params["num_leaves"] = 31
+                    base_params["learning_rate"] = 0.03
+                    base_params["lambda_l1"] = 0.5
+                    base_params["lambda_l2"] = 0.5
 
-                dtrain = lgb.Dataset(X_train, y_train)
-                dval = lgb.Dataset(X_val, y_val, reference=dtrain)
-                model = lgb.train(
-                    params, dtrain,
-                    num_boost_round=1000,
-                    valid_sets=[dval],
-                    callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)]
-                )
+                ensemble_models = []
+                for ei in range(self.N_ENSEMBLES):
+                    params = base_params.copy()
+                    params["random_state"] = self.ENSEMBLE_SEEDS[ei]
 
-                self.models[(horizon, q)] = model
-                fi = self._get_feature_importance(model)
+                    dtrain = lgb.Dataset(X_train, y_train)
+                    dval = lgb.Dataset(X_val, y_val, reference=dtrain)
+                    model = lgb.train(
+                        params, dtrain,
+                        num_boost_round=1000,
+                        valid_sets=[dval],
+                        callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)]
+                    )
+                    ensemble_models.append(model)
+
+                self.models[(horizon, q)] = ensemble_models
+                fi = self._get_feature_importance(ensemble_models[0])
                 logger.info(f"  Top features: {fi['feature'].head(5).tolist()}")
 
             # Calibrate confidence thresholds from validation set
@@ -528,7 +638,7 @@ class ItemForecaster:
     def predict(self, item_ids: List[int] = None) -> pd.DataFrame:
         logger.info("Generating forecasts...")
 
-        price_df = self.fetch_price_history(days_back=90)
+        price_df = self.fetch_price_history(days_back=365)
 
         # Skip items without a real recent series: snapshot-tier items keep
         # only a single latest row, and a "forecast" from one data point is
@@ -586,7 +696,16 @@ class ItemForecaster:
             for q in self.QUANTILES:
                 key = (horizon, q)
                 if key in self.models:
-                    preds[q] = self.models[key].predict(X_batch)
+                    ensemble = self.models[key]
+                    if isinstance(ensemble, list):
+                        # Average ensemble predictions
+                        all_preds = []
+                        for m in ensemble:
+                            all_preds.append(m.predict(X_batch))
+                        preds[q] = np.mean(all_preds, axis=0)
+                    else:
+                        # Backwards compat: single model
+                        preds[q] = ensemble.predict(X_batch)
 
             if len(preds) != 3:
                 continue
@@ -638,22 +757,30 @@ class ItemForecaster:
             return {}
         return results.iloc[0].to_dict()
 
+    def _get_ensemble_prediction(self, horizon, q, X):
+        """Get averaged prediction from an ensemble or single model."""
+        key = (horizon, q)
+        if key not in self.models:
+            return None
+        ensemble = self.models[key]
+        if isinstance(ensemble, list):
+            preds = np.mean([m.predict(X) for m in ensemble], axis=0)
+        else:
+            preds = ensemble.predict(X)
+        return preds
+
     def _calibrate_confidence(self, X_val, y_val, val_set, horizon):
         """Calibrate confidence thresholds from validation set predictions.
 
-        Finds data-driven range_pct thresholds so that:
+        Binary confidence (high/low only):
         - "high" confidence achieves >= 75% directional accuracy
-        - "medium" confidence achieves >= 55% directional accuracy
+        - everything else is "low"
         """
-        p50_model = self.models.get((horizon, 0.5))
-        p10_model = self.models.get((horizon, 0.1))
-        p90_model = self.models.get((horizon, 0.9))
-        if not all([p50_model, p10_model, p90_model]):
+        p50_pred = self._get_ensemble_prediction(horizon, 0.5, X_val.values)
+        p10_pred = self._get_ensemble_prediction(horizon, 0.1, X_val.values)
+        p90_pred = self._get_ensemble_prediction(horizon, 0.9, X_val.values)
+        if p50_pred is None or p10_pred is None or p90_pred is None:
             return
-
-        p50_pred = p50_model.predict(X_val.values)
-        p10_pred = p10_model.predict(X_val.values)
-        p90_pred = p90_model.predict(X_val.values)
 
         current_prices = val_set["price"].values
         actual_returns = y_val.values
@@ -690,16 +817,13 @@ class ItemForecaster:
 
         df = pd.DataFrame(records)
 
-        # Find optimal range_pct thresholds by scanning percentiles
+        # Find optimal range_pct threshold for high confidence (binary)
         thresholds = sorted(df["range_pct"].quantile([i / 20 for i in range(1, 20)]).unique())
 
         best_high_threshold = 0.15
-        best_medium_threshold = 0.30
         best_high_acc = 0.0
-        best_medium_acc = 0.0
 
         for t in thresholds:
-            # "High" candidates: narrow range
             subset = df[df["range_pct"] < t]
             if len(subset) >= max(50, len(df) * 0.05):
                 acc = subset["hit"].mean()
@@ -707,23 +831,14 @@ class ItemForecaster:
                     best_high_threshold = t
                     best_high_acc = acc
 
-            # "Medium" candidates: moderate range
-            subset2 = df[(df["range_pct"] >= best_high_threshold) & (df["range_pct"] < t)]
-            if len(subset2) >= max(50, len(df) * 0.05):
-                acc = subset2["hit"].mean()
-                if acc >= 0.55 and acc > best_medium_acc:
-                    best_medium_threshold = t
-                    best_medium_acc = acc
-
-        # Also check the change_pct condition for high confidence
+        # Find change_pct threshold that further improves high confidence
+        best_change_threshold = 0.0
+        best_change_acc = best_high_acc
         if best_high_threshold > 0:
             high_set = df[df["range_pct"] < best_high_threshold]
             if len(high_set) > 0:
-                # Find change_pct threshold that improves accuracy
                 change_thresholds = sorted(high_set["change_pct"].quantile(
                     [i / 10 for i in range(1, 10)]).unique())
-                best_change_threshold = 0.0
-                best_change_acc = high_set["hit"].mean()
                 for ct in change_thresholds:
                     subset = high_set[high_set["change_pct"] > ct]
                     if len(subset) >= max(20, len(high_set) * 0.3):
@@ -734,28 +849,23 @@ class ItemForecaster:
 
                 self.confidence_thresholds = {
                     "high_range": best_high_threshold,
-                    "medium_range": best_medium_threshold,
                     "high_change": best_change_threshold,
                     "high_accuracy": round(best_change_acc * 100, 1),
-                    "medium_accuracy": round(best_medium_acc * 100, 1),
                 }
         else:
             self.confidence_thresholds = {
                 "high_range": 0.15,
-                "medium_range": 0.30,
                 "high_change": 0.0,
                 "high_accuracy": 0.0,
-                "medium_accuracy": 0.0,
             }
 
         logger.info(
-            f"  Calibrated confidence: high_range={self.confidence_thresholds['high_range']:.3f} "
-            f"(acc={self.confidence_thresholds['high_accuracy']:.1f}%), "
-            f"medium_range={self.confidence_thresholds['medium_range']:.3f} "
-            f"(acc={self.confidence_thresholds['medium_accuracy']:.1f}%)"
+            f"  Calibrated (binary): high_range={self.confidence_thresholds['high_range']:.3f} "
+            f"(acc={self.confidence_thresholds['high_accuracy']:.1f}%)"
         )
 
     def _compute_confidence(self, mid: float, low: float, high: float, current: float) -> str:
+        """Binary confidence: high (narrow prediction interval) or low."""
         if mid == 0 or current == 0:
             return "low"
         range_pct = (high - low) / mid
@@ -763,14 +873,83 @@ class ItemForecaster:
 
         # Use calibrated thresholds if available, fall back to sensible defaults
         high_range = self.confidence_thresholds.get("high_range", 0.15)
-        medium_range = self.confidence_thresholds.get("medium_range", 0.30)
         high_change = self.confidence_thresholds.get("high_change", 0.0)
 
         if range_pct < high_range and change_pct > high_change:
             return "high"
-        elif range_pct < medium_range:
-            return "medium"
         return "low"
+
+    # ------------------------------------------------------------------
+    # Concept drift monitoring
+    # ------------------------------------------------------------------
+
+    def check_concept_drift(self, horizon: int = 7, sliding_window: int = 7,
+                             threshold: float = 60.0) -> Optional[Dict]:
+        """Check if recent prediction accuracy has dropped below threshold.
+
+        Queries the last `sliding_window` days of forecast backtest results
+        and compares directional accuracy against the threshold. Logs an
+        alert to the accuracy_alerts table if drift is detected.
+        """
+        from database import PredictionAccuracy, AccuracyAlert
+        from sqlalchemy import desc
+
+        cutoff = (self._now() - timedelta(days=sliding_window * 2)).strftime("%Y-%m-%d")
+        records = self.db.execute(text("""
+            SELECT evaluation_date, metrics
+            FROM prediction_accuracy
+            WHERE prediction_type = 'forecast'
+              AND horizon_days = :horizon
+              AND evaluation_date >= :cutoff
+            ORDER BY evaluation_date DESC
+            LIMIT :limit
+        """), {"horizon": horizon, "cutoff": cutoff, "limit": sliding_window}).fetchall()
+
+        if not records:
+            return None
+
+        accuracies = []
+        for r in records:
+            m = r.metrics if isinstance(r.metrics, dict) else json.loads(r.metrics)
+            if "directional_accuracy" in m:
+                accuracies.append(m["directional_accuracy"])
+
+        if len(accuracies) < 3:
+            return None
+
+        recent_avg = sum(accuracies) / len(accuracies)
+        logger.info(f"  Drift check ({horizon}d, {len(accuracies)} windows): "
+                     f"avg_acc={recent_avg:.1f}%, threshold={threshold:.1f}%")
+
+        if recent_avg >= threshold:
+            # Resolve any open alert
+            open_alert = self.db.query(AccuracyAlert).filter(
+                AccuracyAlert.prediction_type == "forecast",
+                AccuracyAlert.horizon_days == horizon,
+                AccuracyAlert.resolved_at.is_(None),
+            ).first()
+            if open_alert:
+                open_alert.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                self.db.commit()
+                logger.info(f"  Drift resolved: accuracy back to {recent_avg:.1f}%")
+            return {"drifted": False, "accuracy": recent_avg, "threshold": threshold}
+
+        # Trigger alert
+        alert = AccuracyAlert(
+            prediction_type="forecast",
+            horizon_days=horizon,
+            sliding_window_days=sliding_window,
+            current_accuracy=round(recent_avg, 2),
+            threshold_accuracy=threshold,
+            sample_count=len(accuracies),
+            triggered_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            details={"window_accuracies": accuracies},
+        )
+        self.db.add(alert)
+        self.db.commit()
+        logger.warning(f"  DRIFT DETECTED ({horizon}d): accuracy={recent_avg:.1f}% "
+                        f"below threshold={threshold:.1f}%")
+        return {"drifted": True, "accuracy": recent_avg, "threshold": threshold}
 
     # ------------------------------------------------------------------
     # Persistence
@@ -778,9 +957,14 @@ class ItemForecaster:
 
     def save_models(self):
         os.makedirs(self.model_dir, exist_ok=True)
-        for (horizon, q), model in self.models.items():
-            path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
-            model.save_model(path)
+        for (horizon, q), ensemble in self.models.items():
+            if isinstance(ensemble, list):
+                for ei, model in enumerate(ensemble):
+                    path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}_e{ei}.txt")
+                    model.save_model(path)
+            else:
+                path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
+                ensemble.save_model(path)
 
         # Save feature columns and calibration thresholds
         thresholds = {k: float(v) if isinstance(v, (np.floating, np.integer)) else v
@@ -789,6 +973,7 @@ class ItemForecaster:
             "feature_cols": self.feature_cols,
             "trained_at": str(self._now()),
             "confidence_thresholds": thresholds,
+            "n_ensembles": self.N_ENSEMBLES,
         }
         with open(os.path.join(self.model_dir, "meta.json"), "w") as f:
             json.dump(meta, f)
@@ -805,14 +990,24 @@ class ItemForecaster:
             meta = json.load(f)
         self.feature_cols = meta["feature_cols"]
         self.confidence_thresholds = meta.get("confidence_thresholds", {})
+        n_ensembles = meta.get("n_ensembles", 1)
 
         for horizon in self.HORIZONS:
             for q in self.QUANTILES:
-                path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
-                if os.path.exists(path):
-                    self.models[(horizon, q)] = lgb.Booster(model_file=path)
+                if n_ensembles > 1:
+                    ensemble = []
+                    for ei in range(n_ensembles):
+                        path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}_e{ei}.txt")
+                        if os.path.exists(path):
+                            ensemble.append(lgb.Booster(model_file=path))
+                    if ensemble:
+                        self.models[(horizon, q)] = ensemble
+                else:
+                    path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
+                    if os.path.exists(path):
+                        self.models[(horizon, q)] = lgb.Booster(model_file=path)
 
-        logger.info(f"Loaded {len(self.models)} models from {self.model_dir}")
+        logger.info(f"Loaded {len(self.models)} model groups from {self.model_dir}")
         return len(self.models) > 0
 
     def has_models(self) -> bool:

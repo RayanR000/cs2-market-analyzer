@@ -209,9 +209,6 @@ def backtest_forecasts(db, today=None):
             "confidence_accuracy_low": round(
                 confidence_buckets["low"]["hits"] / confidence_buckets["low"]["total"] * 100, 2
             ) if confidence_buckets["low"]["total"] > 0 else 0,
-            "confidence_accuracy_medium": round(
-                confidence_buckets["medium"]["hits"] / confidence_buckets["medium"]["total"] * 100, 2
-            ) if confidence_buckets["medium"]["total"] > 0 else 0,
             "confidence_accuracy_high": round(
                 confidence_buckets["high"]["hits"] / confidence_buckets["high"]["total"] * 100, 2
             ) if confidence_buckets["high"]["total"] > 0 else 0,

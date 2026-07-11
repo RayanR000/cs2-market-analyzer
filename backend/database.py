@@ -283,6 +283,30 @@ class PredictionAccuracy(Base):
     )
 
 
+class AccuracyAlert(Base):
+    """Concept drift monitoring — tracks accuracy degradation over time.
+
+    Alerts are generated when sliding-window directional accuracy drops
+    below a threshold, indicating the model has drifted and needs retraining.
+    """
+    __tablename__ = "accuracy_alerts"
+
+    id = Column(Integer, primary_key=True)
+    prediction_type = Column(String(50), nullable=False, index=True)
+    horizon_days = Column(Integer, nullable=True)
+    sliding_window_days = Column(Integer, nullable=False, default=7)
+    current_accuracy = Column(Float, nullable=False)
+    threshold_accuracy = Column(Float, nullable=False, default=60.0)
+    sample_count = Column(Integer, nullable=False, default=0)
+    triggered_at = Column(DateTime, nullable=False, default=utcnow_naive)
+    resolved_at = Column(DateTime, nullable=True)
+    details = Column(JSON, nullable=True)
+
+    __table_args__ = (
+        Index('idx_alert_type_triggered', 'prediction_type', 'triggered_at'),
+    )
+
+
 class EventCorrelation(Base):
     """Event correlation model - causal analysis with statistical rigor"""
     __tablename__ = "event_correlations"
