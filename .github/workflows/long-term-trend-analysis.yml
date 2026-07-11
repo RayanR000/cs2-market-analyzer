@@ -2,8 +2,9 @@ name: Long-Term Trend Analysis
 
 on:
   schedule:
-    # Every Sunday at 2:00 AM EDT / 06:00 UTC — before DB maintenance at 08:00 UTC
-    - cron: '0 6 * * 0'
+    # Every Sunday at 12:00 AM EDT / 04:00 UTC — after daily trend analysis chain finishes,
+    # before event correlation at 06:00 UTC (so event analysis uses full-history trends).
+    - cron: '0 4 * * 0'
   workflow_dispatch: # Allow manual trigger
 
 defaults:

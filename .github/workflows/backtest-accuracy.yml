@@ -5,9 +5,10 @@ on:
   workflow_run:
     workflows: ["Price Forecast"]
     types: [completed]
-  # Weekly (Sunday): run full historical walk-forward through parquet archive
+  # Weekday fallback: runs live backtesting if the chain from Price Forecast failed.
+  # Sunday historical is handled by the chained trigger only (runs live + historical).
   schedule:
-    - cron: '0 8 * * 0'
+    - cron: '0 8 * * 1-6'
   workflow_dispatch:
     inputs:
       type:
@@ -55,15 +56,16 @@ jobs:
         run: |
           if [ -n "${{ inputs.type }}" ]; then
             echo "type=${{ inputs.type }}" >> $GITHUB_OUTPUT
-          elif [ "$(date +%u)" = "7" ]; then
-            # Sunday: include full historical walk-forward (computationally expensive)
-            echo "type=historical" >> $GITHUB_OUTPUT
+          elif [ "$(date +%u)" = "7" ] && [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # Sunday chained trigger: run live + historical in one shot.
+            # (No separate Sunday cron — see schedule above.)
+            echo "type=sunday" >> $GITHUB_OUTPUT
           else
             echo "type=live" >> $GITHUB_OUTPUT
           fi
 
       - name: Run live backtesting (forecast + trend + opportunity)
-        if: steps.mode.outputs.type == 'live' || steps.mode.outputs.type == 'full'
+        if: steps.mode.outputs.type == 'live' || steps.mode.outputs.type == 'sunday'
         working-directory: ./backend
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
@@ -75,8 +77,8 @@ jobs:
           python scripts/backtest_accuracy.py --type trend_direction 2>&1 | tee -a backtest.log
           python scripts/backtest_accuracy.py --type opportunity 2>&1 | tee -a backtest.log
 
-      - name: Run historical walk-forward backtest (weekly)
-        if: steps.mode.outputs.type == 'historical'
+      - name: Run historical walk-forward backtest (Sunday only)
+        if: steps.mode.outputs.type == 'sunday'
         working-directory: ./backend
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
@@ -84,10 +86,10 @@ jobs:
           DEBUG: false
         run: |
           echo "Running historical walk-forward backtest..."
-          python scripts/backtest_accuracy.py --type historical 2>&1 | tee backtest.log
+          python scripts/backtest_accuracy.py --type historical 2>&1 | tee -a backtest.log
 
       - name: Run single-type backtest (manual dispatch)
-        if: steps.mode.outputs.type != 'live' && steps.mode.outputs.type != 'historical'
+        if: steps.mode.outputs.type != 'live' && steps.mode.outputs.type != 'sunday'
         working-directory: ./backend
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}

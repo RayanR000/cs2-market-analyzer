@@ -143,8 +143,6 @@ def run_walkforward_evaluation(max_items=500):
             interval_total = 0
             all_metrics = []
 
-            best_params = None
-
             step = 60
             for window_end in range(split_idx + 1, len(dates), step):
                 train_dates = dates[:window_end]
@@ -187,80 +185,38 @@ def run_walkforward_evaluation(max_items=500):
                 X_val = val_df[feature_cols].fillna(train_df[feature_cols].median())
                 y_val = val_df[f"target_return_{horizon}d"]
 
-                # Run grid search ONCE on the first valid window, cache results
-                if best_params is None:
-                    logger.info("    Grid search (first window only)...")
-                    grid = {
-                        "num_leaves": [15, 31],
-                        "learning_rate": [0.01, 0.03],
-                        "lambda_l1": [0.0, 0.5],
-                        "lambda_l2": [0.0, 0.5],
-                    }
-                    best_params = {"num_leaves": 31, "learning_rate": 0.03,
-                                   "lambda_l1": 0.5, "lambda_l2": 0.5}
-                    best_loss = float("inf")
-                    for nl in grid["num_leaves"]:
-                        for lr in grid["learning_rate"]:
-                            for l1 in grid["lambda_l1"]:
-                                for l2 in grid["lambda_l2"]:
-                                    p = {
-                                        "objective": "quantile", "alpha": 0.5,
-                                        "metric": "quantile", "boosting_type": "gbdt",
-                                        "num_leaves": nl, "max_depth": 5,
-                                        "min_data_in_leaf": 15, "min_gain_to_split": 0.1,
-                                        "learning_rate": lr, "feature_fraction": 0.7,
-                                        "bagging_fraction": 0.7, "bagging_freq": 5,
-                                        "lambda_l1": l1, "lambda_l2": l2,
-                                        "verbosity": -1, "random_state": 42, "n_jobs": -1,
-                                    }
-                                    dt = lgb.Dataset(X_train.values, y_train.values)
-                                    dv = lgb.Dataset(X_val.values, y_val.values, reference=dt)
-                                    m = lgb.train(
-                                        p, dt, num_boost_round=150, valid_sets=[dv],
-                                        callbacks=[lgb.early_stopping(10), lgb.log_evaluation(0)]
-                                    )
-                                    loss = m.best_score["valid_0"]["quantile"]
-                                    if loss < best_loss:
-                                        best_loss = loss
-                                        best_params = p.copy()
-
-                # Train ensemble of 3 models per quantile with cached best params
-                # Ensemble of 2 models per quantile (3 seeds → 2 for eval speed)
-                eval_ensemble_seeds = [42, 73]
+                # Use fixed tuned params (same defaults as forecaster.py train())
+                # No grid search or ensemble in eval mode — this is a measurement run.
                 models = {}
                 for q in [0.1, 0.5, 0.9]:
-                    base_params = {
+                    params = {
                         "objective": "quantile",
                         "alpha": q,
                         "metric": "quantile",
                         "boosting_type": "gbdt",
+                        "num_leaves": 31,
                         "max_depth": 5,
                         "min_data_in_leaf": 15,
                         "min_gain_to_split": 0.1,
+                        "learning_rate": 0.03,
                         "feature_fraction": 0.7,
                         "bagging_fraction": 0.7,
                         "bagging_freq": 5,
+                        "lambda_l1": 0.5,
+                        "lambda_l2": 0.5,
                         "verbosity": -1,
+                        "random_state": 42,
                         "n_jobs": -1,
                     }
-                    for k in ("num_leaves", "learning_rate", "lambda_l1", "lambda_l2"):
-                        if k in best_params:
-                            base_params[k] = best_params[k]
-
-                    ensemble_preds = []
-                    for ei, seed in enumerate(eval_ensemble_seeds):
-                        params = base_params.copy()
-                        params["random_state"] = seed
-                        dtrain = lgb.Dataset(X_train.values, y_train.values)
-                        dval = lgb.Dataset(X_val.values, y_val.values, reference=dtrain)
-                        model = lgb.train(
-                            params, dtrain,
-                            num_boost_round=100,
-                            valid_sets=[dval],
-                            callbacks=[lgb.early_stopping(15), lgb.log_evaluation(0)]
-                        )
-                        ensemble_preds.append(model.predict(X_val.values))
-                    models[q] = np.mean(ensemble_preds, axis=0)
+                    dtrain = lgb.Dataset(X_train.values, y_train.values)
+                    dval = lgb.Dataset(X_val.values, y_val.values, reference=dtrain)
+                    model = lgb.train(
+                        params, dtrain,
+                        num_boost_round=100,
+                        valid_sets=[dval],
+                        callbacks=[lgb.early_stopping(15, verbose=False), lgb.log_evaluation(0)]
+                    )
+                    models[q] = model.predict(X_val.values)
 
                 p10_ret = models[0.1]
                 p50_ret = models[0.5]
@@ -271,16 +227,16 @@ def run_walkforward_evaluation(max_items=500):
                 high_ret_arr = np.maximum(p50_ret, p90_ret)
                 mid_ret_arr = p50_ret
 
-                actual_prices = val_df["price"].values
                 current_prices = val_df["price"].values
+                actual_returns = y_val.values
 
                 for i in range(len(val_df)):
                     low_ret, mid_ret, high_ret = low_ret_arr[i], mid_ret_arr[i], high_ret_arr[i]
                     current_price = float(current_prices[i])
+                    actual_return = float(actual_returns[i])
 
-                    # Direction check
-                    actual_future_price = float(actual_prices[i])
-                    actual_return = ((actual_future_price - current_price) / current_price) * 100
+                    # Future price for MAE / interval coverage
+                    actual_future_price = current_price * (1 + actual_return / 100)
 
                     actual_dir = "up" if actual_return > 0 else "down" if actual_return < 0 else "flat"
                     pred_dir = "up" if mid_ret > 0 else "down" if mid_ret < 0 else "flat"

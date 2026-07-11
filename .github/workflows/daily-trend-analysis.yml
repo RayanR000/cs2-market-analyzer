@@ -2,8 +2,8 @@ name: Daily Trend Analysis
 
 on:
   schedule:
-    # Every day at 3:00 AM UTC (11:00 PM EDT previous day)
-    - cron: '0 3 * * *'
+    # Every day at 2:00 AM UTC (10:00 PM EDT previous day) — 2h buffer after aggregator-update finishes
+    - cron: '0 2 * * *'
   workflow_dispatch: # Allow manual trigger
 
 defaults:
@@ -62,24 +62,10 @@ jobs:
           Trigger: ${{ github.event_name }}" \
             --label "automation" 2>/dev/null || true
 
-      - name: Run trend & opportunity backtesting
-        working-directory: ./backend
-        env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          ENVIRONMENT: production
-          DEBUG: false
-        run: |
-          echo "📊 Running trend direction backtest..."
-          python scripts/backtest_accuracy.py --type trend_direction 2>&1 | tee -a backtest.log
-          echo "📊 Running opportunity backtest..."
-          python scripts/backtest_accuracy.py --type opportunity 2>&1 | tee -a backtest.log
-
       - name: Upload analysis logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: analysis-logs-${{ github.run_id }}
-          path: |
-            backend/analysis.log
-            backend/backtest.log
+          path: backend/analysis.log
           retention-days: 30
