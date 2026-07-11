@@ -131,7 +131,7 @@ The pre-fix baseline was ~34% directional accuracy (near random) for the old MA-
 
 ---
 
-## Additional Fixes Applied (Jul 2026)
+## Changes Applied (Jul 2026 round)
 
 All remaining items from `docs/model-audit.md` have been implemented:
 
