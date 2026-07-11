@@ -17,8 +17,8 @@ When the Parquet architecture was introduced, the pipeline was changed to route 
 
 ### 3. `trend_indicators` table grew unbounded (~6M+ rows/year)
 Two scripts wrote to `trend_indicators` using pure INSERT with a unique `datetime.utcnow()` timestamp each time:
-- `pipeline.run_feature_computation()` — daily, ~17,000 rows
-- `LongTermTrendAnalyzer.run_analysis()` — weekly, ~17,000 rows
+- `pipeline.run_feature_computation()` — daily, one row per item
+- `LongTermTrendAnalyzer.run_analysis()` — weekly, one row per item
 
 Despite a `UniqueConstraint(item_id, timestamp)`, the unique constraint never fired because each run had a different timestamp. The API only ever reads the **latest row per item**, so historical rows were dead weight.
 

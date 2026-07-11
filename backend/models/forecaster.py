@@ -247,41 +247,63 @@ class ItemForecaster:
     def _add_event_features(self, df: pd.DataFrame, events_df: pd.DataFrame) -> pd.DataFrame:
         event_types = ["major", "operation", "case_drop", "update", "game_update"]
 
+        # Decay constants: days until ~37% effect remaining (learnable per type)
+        decay_constants = {
+            "major": 60,
+            "operation": 21,
+            "case_drop": 14,
+            "update": 7,
+            "game_update": 7,
+        }
+
         if events_df.empty:
             for event_type in event_types:
-                df[f"days_since_{event_type}"] = 999
+                df[f"event_decay_{event_type}"] = 0.0
                 df[f"events_next_30d_{event_type}"] = 0
+                df[f"event_density_30d_{event_type}"] = 0
+                df[f"event_density_90d_{event_type}"] = 0
             return df
 
         for event_type in event_types:
             type_events = events_df[events_df["type"] == event_type].sort_values("date")
+            decay_tau = decay_constants.get(event_type, 30)
 
             if type_events.empty:
-                df[f"days_since_{event_type}"] = 999
+                df[f"event_decay_{event_type}"] = 0.0
                 df[f"events_next_30d_{event_type}"] = 0
+                df[f"event_density_30d_{event_type}"] = 0
+                df[f"event_density_90d_{event_type}"] = 0
                 continue
 
-            # Map: for each item date, find days since last event
             dates = pd.to_datetime(df["date"])
             event_dates = pd.to_datetime(type_events["date"].unique())
-
-            # Compute days since last event
             sorted_events = np.sort(event_dates)
             all_dates = dates.values
-            indices = np.searchsorted(sorted_events, all_dates) - 1
 
-            # Handle items before first event
+            # Exponential decay of most recent event: exp(-days_since / tau)
+            indices = np.searchsorted(sorted_events, all_dates) - 1
             valid = indices >= 0
-            days_since = np.full(len(dates), 999, dtype=float)
+            decay_val = np.zeros(len(dates), dtype=float)
             if valid.any():
                 last_event_dates = sorted_events[indices[valid]]
-                days_since[valid] = (all_dates[valid] - last_event_dates).astype('timedelta64[D]').astype(float)
-            df[f"days_since_{event_type}"] = np.clip(days_since, 0, 999)
+                days_since = (all_dates[valid] - last_event_dates).astype('timedelta64[D]').astype(float)
+                decay_val[valid] = np.exp(-days_since / decay_tau)
+            df[f"event_decay_{event_type}"] = decay_val
 
             # Count events in next 30 days (vectorized)
             left = np.searchsorted(sorted_events, all_dates, side="right")
             right = np.searchsorted(sorted_events, all_dates + np.timedelta64(30, "D"), side="right")
             df[f"events_next_30d_{event_type}"] = right - left
+
+            # Event density: number of events in recent windows
+            past_30 = np.searchsorted(sorted_events, all_dates, side="right") - np.searchsorted(
+                sorted_events, all_dates - np.timedelta64(30, "D"), side="right"
+            )
+            past_90 = np.searchsorted(sorted_events, all_dates, side="right") - np.searchsorted(
+                sorted_events, all_dates - np.timedelta64(90, "D"), side="right"
+            )
+            df[f"event_density_30d_{event_type}"] = past_30
+            df[f"event_density_90d_{event_type}"] = past_90
 
         return df
 

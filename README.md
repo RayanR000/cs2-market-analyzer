@@ -46,7 +46,7 @@ CS2 Market Analyzer is a full-stack analytics platform that collects, validates,
 
 ## Features
 
-- **Automated Collection** — scrapes 17,000+ CS2 items via priority and full-aggregator pipelines
+- **Automated Collection** — scrapes all CS2 items via priority and full-aggregator pipelines
 - **Trend Analysis** — 90-day and full-history trend computation with opportunity detection
 - **Database Maintenance** — automated pruning, downsampling, and schema migrations
 - **Interactive Dashboard** — responsive charts, market views, and portfolio tracking
@@ -169,7 +169,7 @@ python scripts/run_task.py <task>
 
 | Task | Description |
 |------|-------------|
-| `aggregate` | Full collector run (all 17k items) |
+| `aggregate` | Full collector run (all items) |
 | `priority` | Scrape top 2000 priority items |
 | `prune` | Database pruning & downsampling |
 | `trends` | 90-day trend analysis & opportunity detection |

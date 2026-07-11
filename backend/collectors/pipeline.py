@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
 from typing import Any, Optional, List, Dict
-from sqlalchemy import bindparam, func, text
+from sqlalchemy import func
 from sqlalchemy.orm import scoped_session
 
 logger = logging.getLogger(__name__)
@@ -260,45 +260,7 @@ class DataPipeline:
                     backfilled_csv_path = csv_path
                     logger.info("Wrote %s backfilled rows to %s (all sources)", len(backfilled_dicts), csv_path)
 
-                # ── Write aggregator_sync + historical_fallback to Supabase ──
-                supabase_rows = [d for d in rows_as_dicts
-                                 if d["source"] == "aggregator_sync"
-                                 or d["source"].startswith("historical_fallback:")]
-                if supabase_rows:
-                    snapshot_supabase = [d for d in supabase_rows if d["item_id"] not in hist_item_ids]
-                    backfilled_supabase = [d for d in supabase_rows if d["item_id"] in hist_item_ids]
-
-                    # Delete old snapshot-tier aggregator_sync rows
-                    snapshot_ids = list({d["item_id"] for d in snapshot_supabase if d["source"] == "aggregator_sync"})
-                    for i in range(0, len(snapshot_ids), 1000):
-                        self.db_session.execute(
-                            text(
-                                "DELETE FROM price_history "
-                                "WHERE item_id IN :ids "
-                                "AND source = 'aggregator_sync'"
-                            ).bindparams(bindparam("ids", expanding=True)),
-                            {"ids": snapshot_ids[i:i + 1000]},
-                        )
-
-                    # Insert rows (aggregator_sync + historical_fallback)
-                    all_supabase = []
-                    if snapshot_supabase:
-                        all_supabase.extend(snapshot_supabase)
-                    if backfilled_supabase:
-                        all_supabase.extend(backfilled_supabase)
-                    if all_supabase:
-                        self.db_session.execute(
-                            text("""
-                                INSERT INTO price_history (item_id, timestamp, price, volume, source)
-                                VALUES (:item_id, :timestamp, :price, :volume, :source)
-                                ON CONFLICT (item_id, timestamp, source) DO NOTHING
-                            """),
-                            all_supabase,
-                        )
-                        logger.info("Saved %s rows to price_history (Supabase): %s aggregator_sync, %s fallback",
-                                    len(all_supabase),
-                                    sum(1 for d in all_supabase if d["source"] == "aggregator_sync"),
-                                    sum(1 for d in all_supabase if d["source"].startswith("historical_fallback:")))
+                # ── No Supabase write — daily data goes only to CSV → Parquet ──
 
             if missing_names:
                 sample_missing = missing_names[:20]

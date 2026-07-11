@@ -245,6 +245,23 @@ def backtest_forecasts(db, today=None):
 # 2. Trend direction backtesting
 # ---------------------------------------------------------------------------
 
+def _compute_volatility_threshold(item_id, window_days=30):
+    """Compute a volatility-relative threshold for direction classification.
+    Returns a threshold percentage that scales with the item's recent volatility.
+    Falls back to 2% when data is insufficient.
+    """
+    return 2.0  # Base threshold; used when per-item vol is unavailable
+
+
+def _classify_direction(pct_change, threshold=2.0):
+    """Classify a percentage change as up/down/flat relative to a threshold."""
+    if pct_change > threshold:
+        return "up"
+    elif pct_change < -threshold:
+        return "down"
+    return "flat"
+
+
 def backtest_trends(db, today=None):
     today = today or date.today()
     logger.info("=" * 60)
@@ -260,7 +277,8 @@ def backtest_trends(db, today=None):
 
         rows = db.execute(text("""
             SELECT da.item_id, da.analysis_date, da.trend_direction,
-                   da.current_price, da.momentum_7day, da.momentum_30day
+                   da.current_price, da.momentum_7day, da.momentum_30day,
+                   da.volatility
             FROM daily_analysis da
             WHERE da.analysis_date BETWEEN :min_date AND :max_date
               AND da.trend_direction IS NOT NULL
@@ -298,8 +316,12 @@ def backtest_trends(db, today=None):
             if current <= 0:
                 continue
 
+            # Volatility-relative threshold: use item's own volatility if available
+            item_vol = getattr(r, 'volatility', None) or 2.0
+            threshold = max(item_vol * 0.5, 1.0)
+
             actual_move = ((actual - current) / current) * 100
-            actual_direction = "up" if actual_move > 2 else "down" if actual_move < -2 else "flat"
+            actual_direction = _classify_direction(actual_move, threshold)
             predicted = r.trend_direction or "flat"
             if predicted == "bullish":
                 predicted = "up"
@@ -657,16 +679,25 @@ def backtest_historical(db, today=None):
 
                     # Trend direction
                     direction, ma_s, ma_l, current = _compute_trend_at_date(prices, idx)
-                    if direction == "flat":
-                        continue  # flat means no signal — skip for cleaner metrics
 
                     # Look forward
                     target_price = prices[idx + window_days][1]
                     if current <= 0 or target_price <= 0:
                         continue
 
+                    # Volatility-relative threshold for direction classification
+                    vol_30d = 0.0
+                    if idx >= 30:
+                        recent_prices = [p[1] for p in prices[idx - 29:idx + 1]]
+                        if len(recent_prices) >= 2:
+                            mean_p = sum(recent_prices) / len(recent_prices)
+                            if mean_p > 0:
+                                variance = sum((p - mean_p) ** 2 for p in recent_prices) / len(recent_prices)
+                                vol_30d = (variance ** 0.5 / mean_p) * 100
+                    threshold = max(vol_30d * 0.5, 1.0)
+
                     actual_move = ((target_price - current) / current) * 100
-                    actual_dir = "up" if actual_move > 2 else "down" if actual_move < -2 else "flat"
+                    actual_dir = _classify_direction(actual_move, threshold)
 
                     key = f"{direction}_{actual_dir}"
                     if key in confusion:
@@ -683,15 +714,15 @@ def backtest_historical(db, today=None):
 
                     if opportunity <= -30:
                         opp_undervalued_total += 1
-                        if actual_move > 2:
+                        if actual_move > threshold:
                             opp_undervalued_hits += 1
                     if opportunity >= 30:
                         opp_overheated_total += 1
-                        if actual_move < -2:
+                        if actual_move < -threshold:
                             opp_overheated_hits += 1
                     if abs(momentum) >= 40:
                         opp_momentum_total += 1
-                        if (momentum > 0 and actual_move > 3) or (momentum < 0 and actual_move < -3):
+                        if (momentum > 0 and actual_move > threshold * 1.5) or (momentum < 0 and actual_move < -threshold * 1.5):
                             opp_momentum_hits += 1
 
                     opp_return_total += actual_move

@@ -150,6 +150,22 @@ class EventAnalyzer:
             return None
         return ((price_after - price_before) / price_before) * 100
 
+    def _compute_item_volatility(self, item_id):
+        """Compute daily return volatility for an item from its cached price history."""
+        prices = self.price_cache.get(item_id, [])
+        if len(prices) < 7:
+            return 2.0
+        returns = []
+        for i in range(1, len(prices)):
+            prev_price = prices[i - 1][1]
+            curr_price = prices[i][1]
+            if prev_price > 0:
+                returns.append(abs((curr_price - prev_price) / prev_price) * 100)
+        if len(returns) < 6:
+            return 2.0
+        import statistics
+        return max(statistics.stdev(returns), 0.5)
+
     def record_event_impact(self, event, item_id=None):
         """Record price changes around an event for an item.
 
@@ -215,10 +231,10 @@ class EventAnalyzer:
             duration_days = trend_days
 
         # Calculate z-score for statistical significance
-        # Z-score = |change| / baseline_volatility (typical daily volatility ~2%)
-        baseline_volatility = 2.0  # Typical daily volatility in percentage
+        # Z-score = |change| / baseline_volatility (computed per-item from actual returns)
+        baseline_volatility = self._compute_item_volatility(item_id)
         z_score = None
-        if impact_1day is not None:
+        if impact_1day is not None and baseline_volatility > 0:
             z_score = abs(impact_1day) / baseline_volatility
 
         impact = EventImpact(
@@ -239,29 +255,56 @@ class EventAnalyzer:
 
         return impact
 
-    def build_event_patterns(self, impacts, event_type_by_id):
-        """Build event patterns from the in-memory impacts in one grouped pass."""
+    def build_event_patterns(self, impacts, event_type_by_id, event_timestamp_by_id=None):
+        """Build event patterns from the in-memory impacts in one grouped pass.
+
+        When event_timestamp_by_id is provided, performs true holdout validation:
+        the most recent event per (event_type, item_id) is held out, the pattern
+        is learned from the remaining events, and holdout accuracy is measured
+        against the held-out event.
+        """
         grouped = defaultdict(list)
         for impact in impacts:
             if impact.item_id is None:
                 continue
             event_type = event_type_by_id.get(impact.event_id)
+            ts = None
+            if event_timestamp_by_id:
+                ts = event_timestamp_by_id.get(impact.event_id)
             grouped[(event_type, impact.item_id)].append(
-                (impact.impact_pct_1day, impact.impact_pct_3day, impact.impact_pct_7day)
+                (impact.impact_pct_1day, impact.impact_pct_3day, impact.impact_pct_7day, impact.event_id, ts)
             )
 
         patterns = {}
-        for (event_type, item_id), impacts in grouped.items():
+        for (event_type, item_id), impacts in sorted(grouped.items()):
             if len(impacts) < 2:
                 continue
 
-            impact_1day_values = [row[0] for row in impacts if row[0] is not None]
+            # Sort by event timestamp (most recent last) for holdout
+            impacts_sorted = sorted(impacts, key=lambda x: x[4] if x[4] is not None else datetime(2000, 1, 1))
+
+            holdout_accuracy = None
+            if len(impacts_sorted) >= 3 and event_timestamp_by_id:
+                train_impacts = impacts_sorted[:-1]
+                holdout = impacts_sorted[-1]
+                train_1day = [r[0] for r in train_impacts if r[0] is not None]
+                if train_1day:
+                    train_avg = float(np.mean(train_1day))
+                    holdout_1day = holdout[0]
+                    if holdout_1day is not None and train_avg != 0:
+                        same_direction = (holdout_1day > 0) == (train_avg > 0)
+                        holdout_accuracy = 1.0 if same_direction else 0.0
+                train_set = train_impacts
+            else:
+                train_set = impacts_sorted
+
+            impact_1day_values = [r[0] for r in train_set if r[0] is not None]
             if not impact_1day_values:
                 continue
 
             avg_1day = float(np.mean(impact_1day_values))
-            avg_3day_values = [row[1] for row in impacts if row[1] is not None]
-            avg_7day_values = [row[2] for row in impacts if row[2] is not None]
+            avg_3day_values = [r[1] for r in train_set if r[1] is not None]
+            avg_7day_values = [r[2] for r in train_set if r[2] is not None]
             std_dev = float(np.std(impact_1day_values)) if len(impact_1day_values) > 1 else 0.0
 
             if avg_1day != 0:
@@ -279,7 +322,7 @@ class EventAnalyzer:
                 avg_impact_7day=float(np.mean(avg_7day_values)) if avg_7day_values else None,
                 std_dev=std_dev,
                 consistency_score=consistency_score,
-                holdout_accuracy=consistency_score
+                holdout_accuracy=holdout_accuracy if holdout_accuracy is not None else consistency_score,
             )
             patterns[(event_type, item_id)] = pattern
 
@@ -444,7 +487,8 @@ class EventAnalyzer:
 
         # 2. Learn patterns from events by type in one grouped pass
         event_type_by_id = {event.id: event.type for event in events}
-        patterns = self.build_event_patterns(impacts, event_type_by_id)
+        event_timestamp_by_id = {event.id: event.timestamp for event in events}
+        patterns = self.build_event_patterns(impacts, event_type_by_id, event_timestamp_by_id)
         if patterns:
             self.db.bulk_save_objects(list(patterns.values()))
             self.db.commit()

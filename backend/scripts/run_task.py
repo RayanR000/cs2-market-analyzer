@@ -46,7 +46,7 @@ def run_task(task_name):
 
         if task_name == "aggregate":
             logger.info("="*60)
-            logger.info("TASK: Full Aggregator Scrape (All 17k items)")
+            logger.info("TASK: Full Aggregator Scrape (All items)")
             logger.info("="*60)
             result = pipeline.run_full_aggregator_collection()
 

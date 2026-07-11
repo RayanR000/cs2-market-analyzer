@@ -1,4 +1,4 @@
-name: Aggregator Market Update (17k Items)
+name: Aggregator Market Update
 
 on:
   schedule:

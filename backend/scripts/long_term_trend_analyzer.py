@@ -170,12 +170,12 @@ class LongTermTrendAnalyzer:
 
     def determine_trend(self, ma_7, ma_30):
         if ma_7 is None or ma_30 is None:
-            return "neutral"
+            return "flat"
         if ma_7 > ma_30 * 1.02:
-            return "bullish"
+            return "up"
         elif ma_7 < ma_30 * 0.98:
-            return "bearish"
-        return "neutral"
+            return "down"
+        return "flat"
 
     def calculate_momentum_score(self, momentum_7, momentum_30):
         if momentum_7 is None or momentum_30 is None:
