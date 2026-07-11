@@ -31,10 +31,6 @@ class ItemForecaster:
     # eventually leave the validation set covering all new data).
     VALIDATION_WINDOW_DAYS = 21
 
-    @property
-    def TRAIN_SPLIT_DATE(self) -> str:
-        return (self._now() - timedelta(days=self.VALIDATION_WINDOW_DAYS)).strftime("%Y-%m-%d")
-
     def __init__(self, db_session, model_dir: str = None):
         self.db = db_session
         self.model_dir = model_dir or str(Path(__file__).parent / "saved_models")
@@ -249,12 +245,15 @@ class ItemForecaster:
         return df
 
     def _add_event_features(self, df: pd.DataFrame, events_df: pd.DataFrame) -> pd.DataFrame:
+        event_types = ["major", "operation", "case_drop", "update", "game_update"]
+
         if events_df.empty:
-            df["days_since_last_event"] = 999
-            df["events_next_30d"] = 0
+            for event_type in event_types:
+                df[f"days_since_{event_type}"] = 999
+                df[f"events_next_30d_{event_type}"] = 0
             return df
 
-        for event_type in ["major", "operation", "case_drop", "update", "game_update"]:
+        for event_type in event_types:
             type_events = events_df[events_df["type"] == event_type].sort_values("date")
 
             if type_events.empty:
@@ -301,14 +300,19 @@ class ItemForecaster:
             df[f"item_return_vs_market_{lag}d"] = df[ret_col] - df[market_col]
 
         # Market volatility: mean of individual item volatilities per date
-        vol_cols = [c for c in df.columns if c.startswith("price_std_")]
         if "price_std_30d" in df.columns:
             df["market_volatility_30d"] = df.groupby("date")["price_std_30d"].transform("mean")
 
-        # Market volume: mean volume across all items per date
+        # Market volume: compute daily market mean, then rolling 30d of that
         if "volume" in df.columns and df["volume"].notna().any():
-            df["market_volume_mean_30d"] = df.groupby("date")["volume"].transform(
-                lambda x: x.rolling(30, min_periods=1).mean()
+            daily_vol = df.groupby("date")["volume"].mean().to_frame("daily_market_vol")
+            daily_vol = daily_vol.sort_index()
+            daily_vol["market_volume_mean_30d"] = daily_vol["daily_market_vol"].rolling(
+                30, min_periods=1
+            ).mean()
+            df = df.merge(
+                daily_vol[["market_volume_mean_30d"]],
+                left_on="date", right_index=True, how="left"
             )
             df["item_volume_vs_market_30d"] = (
                 df["volume"] / df["market_volume_mean_30d"].replace(0, np.nan)
@@ -347,7 +351,20 @@ class ItemForecaster:
     def prepare_targets(self, df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         logger.info(f"Preparing {horizon}d targets...")
         df = df.sort_values(["item_id", "date"]).copy()
-        df[f"target_{horizon}d"] = df.groupby("item_id")["price"].shift(-horizon)
+
+        # Date-based target lookup: find the price exactly `horizon` calendar
+        # days later, rather than shifting rows. Row-based shift gives
+        # incorrect horizons when item data has gaps.
+        df["_date_dt"] = pd.to_datetime(df["date"])
+        df["_target_dt"] = df["_date_dt"] + pd.Timedelta(days=horizon)
+        df["_target_date"] = df["_target_dt"].dt.date
+
+        future = df[["item_id", "_target_date", "price"]].rename(
+            columns={"_target_date": "date", "price": f"target_{horizon}d"}
+        )
+        df = df.merge(future, on=["item_id", "date"], how="left")
+        df = df.drop(columns=["_date_dt", "_target_dt", "_target_date"])
+
         df[f"target_return_{horizon}d"] = (
             (df[f"target_{horizon}d"] - df["price"]) / df["price"].replace(0, np.nan) * 100
         )
@@ -410,9 +427,10 @@ class ItemForecaster:
             tdf = tdf.dropna(subset=[f"target_return_{horizon}d"]).copy()
             tdf = tdf.sort_values("date")
 
-            # Proper temporal walk-forward split:
-            # Train on data up to TRAIN_SPLIT_DATE, validate on everything after
-            split_date = pd.to_datetime(self.TRAIN_SPLIT_DATE)
+            # Proper temporal walk-forward split (using actual data dates):
+            # Hold out the last VALIDATION_WINDOW_DAYS of calendar data.
+            max_date = pd.to_datetime(tdf["date"].max())
+            split_date = max_date - timedelta(days=self.VALIDATION_WINDOW_DAYS)
             train_set = tdf[pd.to_datetime(tdf["date"]) < split_date]
             val_set = tdf[pd.to_datetime(tdf["date"]) >= split_date]
 

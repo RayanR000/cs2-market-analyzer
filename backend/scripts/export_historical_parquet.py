@@ -5,7 +5,7 @@ One-time export: read csmarketapi.db STEAMCOMMUNITY data → year-split Parquet 
 Exports only STEAMCOMMUNITY-market data (Steam Community Market price basis).
 MarketCSGO rows (~13.5% below Steam) are excluded.
 
-Columns: item_slug, day, mean_price, median_price, volume
+Columns: item_slug, day, mean_price, median_price, min_price, max_price, volume, source
 Writes to archive/price-archive/prices-YYYY.parquet.
 
 Usage:
@@ -53,7 +53,10 @@ def main():
                 day,
                 COALESCE(mean_price, median_price) AS mean_price,
                 median_price,
-                volume
+                min_price,
+                max_price,
+                volume,
+                market AS source
             FROM src.sales_history
             WHERE market = 'STEAMCOMMUNITY'
               AND median_price IS NOT NULL
