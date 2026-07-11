@@ -59,11 +59,22 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
             logger.warning("No forecast results generated.")
             return {"status": "empty", "forecast_count": 0}
 
+        # Map item slugs (strings from Parquet) to integer IDs from the DB
+        slug_rows = db.execute(
+            text("SELECT id, name FROM items WHERE is_backfilled = 1")
+        ).fetchall()
+        slug_to_id = {r.name: r.id for r in slug_rows}
+        logger.info(f"Loaded {len(slug_to_id)} slug→ID mappings from DB")
+
         # Write forecasts to DB
         today = date.today()
         forecast_rows = []
         for _, row in results.iterrows():
-            item_id = int(row["item_id"])
+            slug = str(row["item_id"])
+            item_id = slug_to_id.get(slug)
+            if item_id is None:
+                logger.warning(f"  Skipping unknown slug: {slug}")
+                continue
             current_price = row.get("current_price")
             forecasts = row.get("forecasts", {})
 

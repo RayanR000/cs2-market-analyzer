@@ -48,7 +48,8 @@ class ItemForecaster:
     def _now(self):
         return datetime.now(timezone.utc)
 
-    def fetch_price_history(self, days_back: int = 365) -> pd.DataFrame:
+    def fetch_price_history(self, days_back: int = 365,
+                            backfilled_only: bool = False) -> pd.DataFrame:
         logger.info(f"Fetching price history (last {days_back}d)...")
 
         archive_dir = Path(__file__).parent.parent.parent / "price-archive"
@@ -57,16 +58,27 @@ class ItemForecaster:
             cutoff = (self._now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
             con = duckdb.connect()
             try:
+                slug_filter = ""
+                if backfilled_only:
+                    slug_filter = """
+                        AND item_slug IN (
+                            SELECT DISTINCT item_slug
+                            FROM read_parquet('{}/prices-*.parquet')
+                            WHERE source = 'STEAMCOMMUNITY'
+                        )
+                    """.format(archive_dir)
                 rows = con.sql("""
                     SELECT item_slug, day, mean_price AS price, volume
                     FROM read_parquet('{}/prices-*.parquet')
-                    WHERE day >= ?
+                    WHERE day >= ? {slug_filter}
                     ORDER BY item_slug, day
-                """.format(archive_dir), params=[cutoff]).fetchall()
+                """.format(archive_dir, slug_filter=slug_filter), params=[cutoff]).fetchall()
                 df = pd.DataFrame(rows, columns=["item_id", "timestamp", "price", "volume"])
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 df["date"] = df["timestamp"].dt.date
                 logger.info(f"  {len(df):,} rows (Parquet), {df.item_id.nunique():,} items")
+                if backfilled_only:
+                    logger.info(f"  Filtered to STEAMCOMMUNITY-backfilled items only")
                 return df
             finally:
                 con.close()
@@ -490,8 +502,9 @@ class ItemForecaster:
     # Build training dataset
     # ------------------------------------------------------------------
 
-    def build_training_data(self, days_back: int = 365) -> Tuple[pd.DataFrame, Dict[int, pd.DataFrame]]:
-        price_df = self.fetch_price_history(days_back=days_back)
+    def build_training_data(self, days_back: int = 365,
+                            backfilled_only: bool = False) -> Tuple[pd.DataFrame, Dict[int, pd.DataFrame]]:
+        price_df = self.fetch_price_history(days_back=days_back, backfilled_only=backfilled_only)
         events_df = self.fetch_events()
 
         df = self.engineer_features(price_df, events_df)
@@ -537,7 +550,7 @@ class ItemForecaster:
         logger.info("TRAINING LIGHTGBM FORECASTER (ensemble, HP search, walk-forward)")
         logger.info("=" * 60)
 
-        df, targets_by_horizon = self.build_training_data(days_back=365)
+        df, targets_by_horizon = self.build_training_data(days_back=365, backfilled_only=True)
 
         for horizon in self.HORIZONS:
             tdf = targets_by_horizon[horizon]
@@ -640,7 +653,7 @@ class ItemForecaster:
     def predict(self, item_ids: List[int] = None) -> pd.DataFrame:
         logger.info("Generating forecasts...")
 
-        price_df = self.fetch_price_history(days_back=365)
+        price_df = self.fetch_price_history(days_back=365, backfilled_only=True)
 
         # Skip items without a real recent series: snapshot-tier items keep
         # only a single latest row, and a "forecast" from one data point is

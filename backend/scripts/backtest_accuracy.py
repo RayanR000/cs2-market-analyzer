@@ -242,14 +242,6 @@ def backtest_forecasts(db, today=None):
 # 2. Trend direction backtesting
 # ---------------------------------------------------------------------------
 
-def _compute_volatility_threshold(item_id, window_days=30):
-    """Compute a volatility-relative threshold for direction classification.
-    Returns a threshold percentage that scales with the item's recent volatility.
-    Falls back to 2% when data is insufficient.
-    """
-    return 2.0  # Base threshold; used when per-item vol is unavailable
-
-
 def _classify_direction(pct_change, threshold=2.0):
     """Classify a percentage change as up/down/flat relative to a threshold."""
     if pct_change > threshold:
@@ -390,7 +382,8 @@ def backtest_opportunities(db, today=None):
         rows = db.execute(text("""
             SELECT da.item_id, da.analysis_date, da.opportunity_score,
                    da.momentum_score, da.current_price,
-                   da.trend_direction, da.price_stability
+                   da.trend_direction, da.price_stability,
+                   da.volatility
             FROM daily_analysis da
             WHERE da.analysis_date BETWEEN :min_date AND :max_date
               AND da.opportunity_score IS NOT NULL
@@ -434,18 +427,20 @@ def backtest_opportunities(db, today=None):
 
             opportunity = r.opportunity_score or 0
             momentum = r.momentum_score or 0
+            item_vol = getattr(r, 'volatility', None) or 2.0
+            threshold = max(item_vol * 0.5, 1.0)
 
             if opportunity <= -30:
                 undervalued_total += 1
-                if actual_return > 2:
+                if actual_return > threshold:
                     undervalued_hits += 1
             if opportunity >= 30:
                 overheated_total += 1
-                if actual_return < -2:
+                if actual_return < -threshold:
                     overheated_hits += 1
             if abs(momentum) >= 40:
                 momentum_total += 1
-                if (momentum > 0 and actual_return > 3) or (momentum < 0 and actual_return < -3):
+                if (momentum > 0 and actual_return > threshold * 1.5) or (momentum < 0 and actual_return < -threshold * 1.5):
                     momentum_hits += 1
 
         if return_count == 0:

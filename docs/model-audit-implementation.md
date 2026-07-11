@@ -321,10 +321,30 @@ Total improvement from pre-audit baseline: **~49-53 percentage points** for dire
 
 ---
 
-## Files Modified (Jul 2026 round 2)
+---
 
+## Caveats & Known Limitations
+
+### 1. Directional accuracy baseline is effectively ~50%, not ~33%
+The accuracy checker classifies actual price movement as `up` / `down` / `flat`. However, comparison of two floating-point prices almost never yields exact equality, so `flat` is practically never assigned as the actual direction. The model also rarely predicts `flat` (its `direction` is derived from whether `price_mid == current_price`). This makes it a **de facto 2-class problem** where random chance is ~50%, not the theoretical 33.3% for 3 classes. The reported 87% directional accuracy remains strong against a 50% baseline — the improvement is ~37pp rather than ~54pp.
+
+### 2. Historical walk-forward evaluates a simplified model
+The `backtest_historical()` function uses a **simple MA-crossover** (short vs long moving average with a 2% threshold) to generate synthetic trend signals, not the full production `TrendAnalyzer` pipeline (RSI, MACD, Bollinger Bands, support/resistance, etc.). The 87%/83% accuracy figures reported for the historical backtest reflect this simplified signal, not the actual live pipeline. The live pipeline's accuracy may differ.
+
+### 3. Opportunity backtest now uses volatility-relative thresholds (Jul 2026 round 3)
+Previously, `backtest_opportunities()` used fixed thresholds (2% for undervalued/overheated, 3% for momentum), while `backtest_trends()` and `backtest_historical()` used volatility-relative thresholds (`max(vol * 0.5, 1.0)`). This inconsistency meant opportunity signal precision could not be directly compared with trend accuracy. Fixed in round 3 to use the same volatility-relative threshold as the other backtest types.
+
+### 4. Evaluate forecaster bug (fixed in round 2)
+`evaluate_forecaster.py` originally used `val_df["price"]` for both `current_prices` and `actual_prices`, making all returns 0% and directional accuracy stuck at ~14-16%. Fixed in Jul 2026 round 2 — `actual_returns` now reads from `y_val.values`.
+
+## Files Modified
+
+### Jul 2026 round 2
 - `backend/models/forecaster.py` — feature pruning, grid HP search, 3-member ensemble training, binary confidence, recency mismatch fix (365d predict), concept drift monitoring, ensemble save/load
 - `backend/scripts/evaluate_forecaster.py` — fixed actual_prices bug (zero-return), added feature pruning, argparser for `--max-items`, parquet glob fix
 - `backend/scripts/backtest_accuracy.py` — removed medium confidence tracking, parquet glob fix
 - `backend/database.py` — added `AccuracyAlert` ORM model
 - `backend/migrations/versions/0013_add_accuracy_alerts.py` — new migration for accuracy_alerts table
+
+### Jul 2026 round 3
+- `backend/scripts/backtest_accuracy.py` — removed dead `_compute_volatility_threshold()` (always returned 2.0, never called); aligned opportunity backtest thresholds with trend backtest (fixed 2%/3% → volatility-relative `max(vol * 0.5, 1.0)`)

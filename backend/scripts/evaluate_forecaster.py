@@ -30,13 +30,23 @@ logger = logging.getLogger("evaluate_forecaster")
 ARCHIVE_DIR = Path(__file__).parent.parent.parent / "price-archive"
 
 
-def _load_parquet_items(con, min_rows=90):
+def _load_parquet_items(con, min_rows=90, backfilled_only=False):
+    where_clause = ""
+    if backfilled_only:
+        where_clause = f"""
+            WHERE item_slug IN (
+                SELECT DISTINCT item_slug
+                FROM read_parquet('{ARCHIVE_DIR}/prices-*.parquet')
+                WHERE source = 'STEAMCOMMUNITY'
+            )
+        """
     rows = con.sql(f"""
         SELECT item_slug,
                MIN(day) AS first_day,
                MAX(day) AS last_day,
                COUNT(*) AS row_count
         FROM read_parquet('{ARCHIVE_DIR}/prices-*.parquet')
+        {where_clause}
         GROUP BY item_slug
         HAVING row_count >= {min_rows}
         ORDER BY row_count DESC
@@ -93,9 +103,9 @@ def run_walkforward_evaluation(max_items=500):
         events_df = forecaster.fetch_events()
         db.close()
 
-        items = _load_parquet_items(con)
+        items = _load_parquet_items(con, backfilled_only=True)
         items = items[:max_items]
-        logger.info(f"  {len(items)} items for evaluation")
+        logger.info(f"  {len(items)} items for evaluation (backfilled only)")
 
         # Load all items' price data into one DataFrame for batch feature engineering
         all_rows = []
