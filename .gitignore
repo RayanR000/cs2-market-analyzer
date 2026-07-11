@@ -59,6 +59,9 @@ backend/data/*.json
 !backend/data/historical_prices_template.json
 !backend/data/historical_prices_template.csv
 
+# Price archive (lives on data-archive branch, not main)
+price-archive/
+
 # OS
 Thumbs.db
 .DS_Store
