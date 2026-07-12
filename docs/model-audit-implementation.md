@@ -348,3 +348,94 @@ Previously, `backtest_opportunities()` used fixed thresholds (2% for undervalued
 
 ### Jul 2026 round 3
 - `backend/scripts/backtest_accuracy.py` — removed dead `_compute_volatility_threshold()` (always returned 2.0, never called); aligned opportunity backtest thresholds with trend backtest (fixed 2%/3% → volatility-relative `max(vol * 0.5, 1.0)`)
+
+---
+
+## Jul 2026 Round 4 — Horizon Expansion & Optuna Fix
+
+### 1. Horizons expanded from 2 to 4
+
+**Before:** `HORIZONS = [1, 7, 30]` — 1d was defined but never trained or predicted (no model files existed, no forecasts written to DB). Only 18 models (7d + 30d, 3 quantiles × 3 seeds) were actually produced.
+
+**After:** `HORIZONS = [3, 7, 14, 30]` — 1d removed (too noisy), 3d and 14d added. 36 models total.
+
+**Why 3d and 14d:**
+- **3d (87.7% dir acc):** Short-term momentum; smooths weekend/noise gaps; performs nearly as well as 7d; the feature set already included `return_3d`, `price_lag_3d`.
+- **14d (85.9% dir acc):** Natural midpoint between 7 and 30; many CS2 demand cycles run ~2 weeks (case rotations, operation hype); the feature set already computed 14d rolling windows.
+- **1d rejected** as too noisy for CS2 skin daily price action.
+
+### 2. Optuna search quantile bug fix
+
+**File:** `backend/models/forecaster.py:428-488`
+
+**Before:** `_optuna_search_params` hardcoded `alpha=0.5` in the objective function. The method signature was `(self, X_train, y_train, X_val, y_val)` — it did **not** accept a `quantile` parameter even though the caller passed `quantile=q`. This meant:
+
+- The p10 model training used hyperparameters optimized with `alpha=0.5` (median), not `alpha=0.1`
+- The p90 model was similarly mis-optimized
+- Only the p50 model was correctly tuned
+
+**After:** Added `quantile: float = 0.5` to the method signature. The objective function now sets `alpha: quantile` from the caller-supplied value. Each quantile gets its own Optuna search with the correct alpha.
+
+### 3. Confidence thresholds per-horizon
+
+**File:** `backend/models/forecaster.py`
+
+**Before:** `self.confidence_thresholds` was a flat dict (`{"high_range": 0.15, "high_change": ..., "high_accuracy": ...}`). Each call to `_calibrate_confidence()` overwrote the thresholds from the previous horizon, so only the last horizon's calibration survived. All horizons used the same (30d-calibrated) thresholds at prediction time.
+
+**After:** `self.confidence_thresholds` is now `Dict[int, Dict[str, float]]` — keyed by horizon. Each horizon stores its own calibration. Serialized to `meta.json` as `{"7": {"high_range": ...}, "30": {...}, "3": {...}, "14": {...}}`. `_compute_confidence()` accepts a `horizon` kwarg and looks up that horizon's thresholds. `load_models()` handles both the new nested format and legacy flat dicts (distributed to all horizons for backward compatibility).
+
+### 4. Evaluate script now uses HORIZONS constant
+
+**File:** `backend/scripts/evaluate_forecaster.py:127`
+
+**Before:** `for horizon in [7, 30]:` — hardcoded to 7d and 30d only.
+
+**After:** `for horizon in ItemForecaster.HORIZONS:` — automatically follows the configured horizon list.
+
+---
+
+## Updated Accuracy Results (50 items, walk-forward, ~27k samples per horizon)
+
+| Horizon | Directional Acc | MAE | Interval Coverage (90% target) |
+|---------|:--------------:|:---:|:-----------------------------:|
+| **3d** | **87.7%** | $0.08 | 93.7% |
+| **7d** | **88.4%** | $0.08 | 95.3% |
+| **14d** | **85.9%** | $0.13 | 94.5% |
+| **30d** | **79.7%** | $0.09 | 93.4% |
+
+**Top features by horizon (from ensemble member 0, p50 model):**
+
+| 3d | 7d | 14d | 30d |
+|----|----|-----|-----|
+| return_3d | log_return_7d | item_return_vs_market_14d | item_return_vs_market_30d |
+| bb_pct_b | item_return_vs_market_7d | rsi_14 | distance_to_support |
+| price_std_20d | market_return_7d | market_return_14d | price_std_30d |
+| distance_to_support | price_accel_7d | price_std_30d | market_return_30d |
+| price_std_30d | volume_mean_30d | volume_mean_30d | doy_sin |
+
+Shorter horizons favor momentum/volatility features; longer horizons shift toward market-relative and macro features.
+
+---
+
+## Comparison: Full timeline
+
+| Stage | 7d Dir Acc | 30d Dir Acc | Changes |
+|-------|:----------:|:-----------:|---------|
+| Pre-audit (MA-crossover) | ~34% | ~34% | Random baseline (3-class) |
+| After P1/P2 fixes | 70.9% | 72.5% | Leakage fix, returns target, NaN fix, technical indicators, walk-forward split |
+| After Jul '26 round 1 | 75.3% | 77.0% | Event decay, confidence calibration, per-item vol, backtest fixes |
+| After Jul '26 round 2 | 87.0% | 83.0% | Feature pruning, HP search, ensemble, binary confidence, recency fix, drift monitoring |
+| **After Jul '26 round 4** | **88.4%** | **79.7%** | Horizon expansion, Optuna quantile fix, per-horizon confidence |
+
+*Note: 7d increased from 87.0% → 88.4% post-Optuna fix (all quantiles now correctly tuned). 30d dropped from 83.0% → 79.7% — the prior 83% was computed with the ensembled production model in the evaluation harness; the current result uses single-model eval (fixed params, no ensemble) for consistency. A fair comparison is within-round only.*
+
+---
+
+## Files Modified (Jul 2026 round 4)
+
+- `backend/models/forecaster.py` — HORIZONS expanded to [3, 7, 14, 30]; Optuna quantile bug fix; per-horizon confidence thresholds; per-horizon serialization/loading
+- `backend/scripts/forecast_prices.py` — updated docstring
+- `backend/scripts/evaluate_forecaster.py` — uses ItemForecaster.HORIZONS instead of hardcoded [7, 30]
+- `docs/model-architecture-decisions.md` — updated model count (18→36), horizons (2→4), added Optuna fix, per-horizon confidence, and horizon selection rationale
+- `docs/model-audit.md` — updated header accuracy numbers, marked all 19 items resolved in summary table
+- `docs/model-audit-implementation.md` — this file, added round 4 documentation

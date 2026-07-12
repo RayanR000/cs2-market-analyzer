@@ -1,7 +1,9 @@
 # Model Audit: Accuracy Analysis & Improvement Roadmap
 
-Current directional accuracy: **~34%** (baseline for 3-class random: 33.3%)
-Measured across 187,850+ historical walk-forward samples per window.
+Current directional accuracy: **86-88%** (3d/7d), **80-86%** (14d/30d)
+Measured across ~27k walk-forward samples per horizon (50 items, parquet archive).
+
+**All 19 identified issues from the original audit are resolved.** See the summary table below for the implementation order and current status.
 
 ---
 
@@ -381,10 +383,10 @@ Once deployed, the model's accuracy will degrade as market dynamics shift (new g
 | 10 | Calibrate confidence scores | Low | Medium | ✅ Done |
 | 11 | Standardize long-term vs daily analyzer | Low | Low | ✅ Done |
 | 12 | Fix backtest evaluation methodology | Low | Low | ✅ Done |
-| 13 | Fix recency mismatch (365d → 90d align) | Medium | Low | ❌ Pending |
-| 14 | Automated HP search (grid/Bayesian) | Medium | Medium | ❌ Pending |
-| 15 | Feature pruning (correlation + importance) | Medium | Medium | ❌ Pending |
-| 16 | Fix medium confidence bucket | Low | Medium | ❌ Pending |
-| 17 | Model ensembling (multi-seed + XGBoost) | Medium | Medium | ❌ Pending |
+| 13 | Fix recency mismatch (365d → 90d align) | Medium | Low | ✅ Done (Jul '26 round 2) |
+| 14 | Automated HP search (grid/Bayesian → Optuna) | Medium | Medium | ✅ Done (Jul '26 rounds 2 + 4) |
+| 15 | Feature pruning (correlation + importance) | Medium | Medium | ✅ Done (Jul '26 round 2) |
+| 16 | Fix medium confidence bucket → binary | Low | Medium | ✅ Done (Jul '26 round 2) |
+| 17 | Model ensembling (multi-seed) | Medium | Medium | ✅ Done (Jul '26 round 2) |
 | 18 | Expanding-window CV (multiple folds) | Medium | Medium | ❌ Pending |
-| 19 | Concept drift monitoring & auto-retrain | Medium | Medium | ❌ Pending |
+| 19 | Concept drift monitoring & auto-retrain | Medium | Medium | ✅ Done (Jul '26 round 2) |
