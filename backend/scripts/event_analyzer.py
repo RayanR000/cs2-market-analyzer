@@ -60,7 +60,7 @@ class EventAnalyzer:
                 placeholders = ','.join('?' for _ in slug_set)
                 rows = con.sql(f"""
                     SELECT item_slug, day, mean_price AS price
-                    FROM read_parquet('{archive_dir}/*.parquet')
+                    FROM read_parquet('{archive_dir}/prices-*.parquet')
                     WHERE item_slug IN ({placeholders})
                       AND day >= ?
                       AND day <= ?

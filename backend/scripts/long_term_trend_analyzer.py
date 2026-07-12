@@ -60,7 +60,7 @@ class LongTermTrendAnalyzer:
             try:
                 rows = con.sql("""
                     SELECT item_slug, MIN(day) AS first_seen
-                    FROM read_parquet('{}/*.parquet')
+                    FROM read_parquet('{}/prices-*.parquet')
                     GROUP BY item_slug
                 """.format(archive_dir)).fetchall()
                 slug_rows = self.db.query(Item.id, Item.item_id).all()
@@ -241,13 +241,22 @@ class LongTermTrendAnalyzer:
         dialect_name = bind.dialect.name if bind is not None else "sqlite"
         insert_stmt = sqlite_insert if dialect_name == "sqlite" else pg_insert
 
+        import numpy as np
         from database import DailyAnalysis
         table = DailyAnalysis.__table__
 
         CHUNK_SIZE = 500
         for i in range(0, len(rows), CHUNK_SIZE):
             chunk = rows[i:i + CHUNK_SIZE]
-            filtered = [{k: v for k, v in row.items() if k in DAILY_ANALYSIS_COLUMNS} for row in chunk]
+            filtered = []
+            for row in chunk:
+                converted = {}
+                for k, v in row.items():
+                    if k in DAILY_ANALYSIS_COLUMNS:
+                        if isinstance(v, (np.floating, np.integer)):
+                            v = float(v)
+                        converted[k] = v
+                filtered.append(converted)
             stmt = insert_stmt(table).values(filtered)
             update_columns = {
                 c.name: getattr(stmt.excluded, c.name)

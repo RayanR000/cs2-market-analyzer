@@ -59,21 +59,23 @@ class ItemForecaster:
             cutoff = (self._now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
             con = duckdb.connect()
             try:
-                slug_filter = ""
+                backfilled_slugs = None
                 if backfilled_only:
-                    slug_filter = """
-                        AND item_slug IN (
+                    backfilled_slugs = [
+                        r[0] for r in con.sql(f"""
                             SELECT DISTINCT item_slug
-                            FROM read_parquet('{}/prices-*.parquet')
+                            FROM read_parquet('{archive_dir}/prices-*.parquet')
                             WHERE source = 'STEAMCOMMUNITY'
-                        )
-                    """.format(archive_dir)
-                rows = con.sql("""
+                        """).fetchall()
+                    ]
+                rows = con.sql(f"""
                     SELECT item_slug, day, mean_price AS price, volume
-                    FROM read_parquet('{}/prices-*.parquet')
-                    WHERE day >= ? {slug_filter}
+                    FROM read_parquet('{archive_dir}/prices-*.parquet')
+                    WHERE day >= ?
                     ORDER BY item_slug, day
-                """.format(archive_dir, slug_filter=slug_filter), params=[cutoff]).fetchall()
+                """, params=[cutoff]).fetchall()
+                if backfilled_slugs is not None:
+                    rows = [r for r in rows if r[0] in backfilled_slugs]
                 df = pd.DataFrame(rows, columns=["item_id", "timestamp", "price", "volume"])
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 df["date"] = df["timestamp"].dt.date

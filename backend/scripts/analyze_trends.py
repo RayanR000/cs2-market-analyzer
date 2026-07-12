@@ -85,7 +85,7 @@ def _load_from_parquet(item_ids, days=90):
         placeholders = ','.join('?' for _ in slug_list)
         rows = con.sql(f"""
             SELECT item_slug, day, mean_price AS price
-            FROM read_parquet('{ARCHIVE_DIR}/*.parquet')
+            FROM read_parquet('{ARCHIVE_DIR}/prices-*.parquet')
             WHERE item_slug IN ({placeholders})
               AND day >= ?
             ORDER BY item_slug, day

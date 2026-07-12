@@ -744,6 +744,7 @@ class DataPipeline:
         """
         import duckdb
         from database import Item
+        from pathlib import Path
 
         if not item_ids or not self.db_session:
             return {}
@@ -755,6 +756,7 @@ class DataPipeline:
         slug_to_int = {v: k for k, v in int_to_slug.items()}
 
         cutoff = (datetime.utcnow() - timedelta(days=days)).date()
+        archive_dir = Path(__file__).parent.parent.parent / "price-archive"
 
         con = duckdb.connect()
         try:
@@ -762,7 +764,7 @@ class DataPipeline:
             placeholders = ','.join('?' for _ in slug_list)
             rows = con.sql(f"""
                 SELECT item_slug, day, mean_price AS price
-                FROM read_parquet('../price-archive/prices-*.parquet')
+                FROM read_parquet('{archive_dir}/prices-*.parquet')
                 WHERE item_slug IN ({placeholders})
                   AND day >= ?
                 ORDER BY item_slug, day
