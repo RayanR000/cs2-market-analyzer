@@ -1,7 +1,15 @@
 # Model Audit: Accuracy Analysis & Improvement Roadmap
 
-Current directional accuracy: **86-88%** (3d/7d), **80-86%** (14d/30d)
-Measured across ~27k walk-forward samples per horizon (50 items, parquet archive).
+> **⚠️ 2026-07-12 Correction:** The accuracy numbers below (86-88%, 80-86%) were measured with a critical target-inversion bug — `prepare_targets` was looking up prices `horizon` days **ago** instead of **ahead**. The model was learning to predict past returns from current features, producing deceptively high validation accuracy. These numbers are **not genuine predictive skill**. After the fix, the real walk-forward accuracy is:
+
+| Horizon | Directional Accuracy | vs 50% baseline | Interval Coverage | MAE |
+|---------|:--------------------:|:---------------:|:-----------------:|:---:|
+| **3d**  | 59.7%                | +9.7pp          | 85.8%             | $0.20 |
+| **7d**  | 61.1%                | +11.1pp         | 86.2%             | $0.25 |
+| **14d** | 60.8%                | +10.8pp         | 85.6%             | $0.34 |
+| **30d** | 65.8%                | +15.8pp         | 82.8%             | $0.52 |
+
+Measured via walk-forward evaluation on 50 items, 26 expanding windows (60-day steps), ~27k samples per horizon. All previous accuracy milestones below should be treated with caution as they were computed with the buggy target computation. The fix is documented in `docs/2026-07-12-prediction-model-fixes.md`.
 
 **All 19 identified issues from the original audit are resolved.** See the summary table below for the implementation order and current status.
 
@@ -373,6 +381,7 @@ Once deployed, the model's accuracy will degrade as market dynamics shift (new g
 |------|--------|----------------|------------|--------|
 | 1 | Remove `daily_analysis` feature leakage | **High** | Low | ✅ Done |
 | 2 | Change target from price level to returns | **High** | Medium | ✅ Done |
+| 2b | **🐛 Fix target inversion** — `prepare_targets` looked backward instead of forward | **CRITICAL** | Low | ✅ Done (2026-07-12) |
 | 3 | Fix NaN imputation (per-feature medians) | **High** | Low | ✅ Done |
 | 4 | Add RSI, MACD, Bollinger %B features | **High** | Medium | ✅ Done |
 | 5 | Fix temporal train/val split (walk-forward) | **High** | Medium | ✅ Done |

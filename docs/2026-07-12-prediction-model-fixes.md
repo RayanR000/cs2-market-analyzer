@@ -24,7 +24,7 @@ The `prepare_targets` merge was looking up the price `horizon` days **ago** inst
 
 **Fix:** Reversed the merge direction. Each row now looks up the price at `date + horizon` (forward), using a backward date shift on the future table.
 
-**Impact:** After retraining, the model will predict actual future returns instead of past-return extrapolation. Validation accuracy may drop initially (since actual forward prediction is harder than backward detection) but will be genuinely predictive.
+**Impact:** After retraining, the model will predict actual future returns instead of past-return extrapolation. Validation accuracy dropped from the illusory 86-88% to ~60-66% (walk-forward evaluation on fixed code, vs 50% 2-class baseline) — this is the **real** predictive accuracy, not a regression.
 
 ## 3. 📉 Prediction spike smoothing
 **File:** `backend/models/forecaster.py:730-745`
@@ -74,7 +74,7 @@ The old fix (`np.minimum(p10, p50)`) collapsed prediction intervals to zero widt
 ## 9. 📈 30d horizon improvements
 **File:** `backend/models/forecaster.py`
 
-The 30d horizon underperformed (79.7% vs 86-88% for shorter horizons). Root causes: insufficient long-term context in features, and too little training data for a 30-day prediction cycle (~12 independent windows with 365 days).
+The 30d horizon underperformed in the bug-era eval (79.7% vs 86-88% for shorter horizons — both illusory due to the target inversion). After the fix, the 30d horizon actually performs **best** (65.8% vs ~60-61% for shorter horizons), likely because the longer 730d training window and new 60d rolling features give it more signal. Root causes originally identified (insufficient long-term features, too little training data) are still relevant for further improvement.
 
 **Fixes:**
 - Added 60-day rolling windows (price_mean/ std/ min/ max, volume_mean/ std)
@@ -105,6 +105,19 @@ The evaluation output now explicitly states the effective ~50% 2-class baseline 
 85 passed across all tests (6 pre-existing integration failures unrelated)
 ```
 
+## Measured Accuracy (Post-Fix)
+
+Walk-forward evaluation on 50 items, 26 expanding windows (60-day steps), ~27k samples per horizon, fixed LightGBM params (no ensemble):
+
+| Horizon | Directional Accuracy | vs 50% baseline | Interval Coverage | MAE |
+|---------|:--------------------:|:---------------:|:-----------------:|:---:|
+| **3d**  | 59.7%                | +9.7pp          | 85.8%             | $0.20 |
+| **7d**  | 61.1%                | +11.1pp         | 86.2%             | $0.25 |
+| **14d** | 60.8%                | +10.8pp         | 85.6%             | $0.34 |
+| **30d** | 65.8%                | +15.8pp         | 82.8%             | $0.52 |
+
+All horizons are well above the 50% 2-class baseline (9-16pp improvement). The 30d horizon benefits most from the 730d training window and added long-term features. The ~80% target interval coverage is being met consistently by the crossing-aware quantile fix.
+
 ## Next Retrain Needed
 
-The target fix (#2) changes what the model predicts. A full retrain (`python scripts/forecast_prices.py`) is required before the next forecast run to use corrected targets.
+The target fix (#2) changes what the model predicts. A full retrain (`python scripts/forecast_prices.py`) is required before the next forecast run to use corrected targets. The saved models on disk were trained with the inverted target and should be regenerated.

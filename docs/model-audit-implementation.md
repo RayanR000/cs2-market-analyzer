@@ -1,5 +1,7 @@
 # Model Audit Implementation
 
+> **⚠️ 2026-07-12 Correction — Target Inversion Bug:** All accuracy numbers in this document prior to the "Target Inversion Fix" row were measured with a critical bug: `prepare_targets` looked up the price `horizon` days **ago** instead of **ahead**. The model learned to predict past returns from current features (e.g., feature `return_7d` ≈ target `target_return_7d`), producing deceptively high validation accuracy. The reported 86-88% was **not genuine predictive skill**. After the fix, the real walk-forward accuracy is ~60-66% (9-16pp above 50% baseline). See the new "Target Inversion Fix" section at the bottom.
+
 Changes applied to `backend/models/forecaster.py` addressing Priority 1 and Priority 2 items from `docs/model-audit.md`.
 
 ---
@@ -426,10 +428,77 @@ Shorter horizons favor momentum/volatility features; longer horizons shift towar
 | After Jul '26 round 1 | 75.3% | 77.0% | Event decay, confidence calibration, per-item vol, backtest fixes |
 | After Jul '26 round 2 | 87.0% | 83.0% | Feature pruning, HP search, ensemble, binary confidence, recency fix, drift monitoring |
 | **After Jul '26 round 4** | **88.4%** | **79.7%** | Horizon expansion, Optuna quantile fix, per-horizon confidence |
+| **After target inversion fix** | **61.1%** | **65.8%** | Target computation corrected (looks forward, not backward); spike smoothing; confidence calibration rewrite; 60d features; 730d training window |
 
 *Note: 7d increased from 87.0% → 88.4% post-Optuna fix (all quantiles now correctly tuned). 30d dropped from 83.0% → 79.7% — the prior 83% was computed with the ensembled production model in the evaluation harness; the current result uses single-model eval (fixed params, no ensemble) for consistency. A fair comparison is within-round only.*
 
+**All numbers above the "After target inversion fix" row were computed with buggy targets (looking backward instead of forward). They are not genuine predictive accuracy. The corrected numbers are ~60-66% across horizons — still well above the 50% 2-class baseline, but significantly lower than the inflated bug-era metrics.**
+
 ---
+
+---
+
+## Target Inversion Fix (2026-07-12)
+
+### Discovery
+
+While auditing the prediction pipeline, the `prepare_targets` method was found to compute targets incorrectly:
+
+```python
+# BUG: Looked up price horizon days AGO instead of AHEAD
+future = df[["item_id", "_target_date", "price"]].rename(
+    columns={"_target_date": "date", "price": f"target_{horizon}d"}
+)
+
+# FIX: Shift each row's price BACKWARD by horizon to become the target
+future["date"] = future["date"] - pd.Timedelta(days=horizon)
+```
+
+The original code set `_target_date = _date_dt + horizon`, then joined on that date — but it used the **same price table** as the source. Since it looked up price at `date + horizon` from the current row, and the current row already has that price, it was effectively joining the current price as the "future" target of a row `horizon` days later. The fix shifts the future table's date **backward** by `horizon`, making the join produce the price `horizon` days ahead for each row.
+
+### Impact on All Prior Accuracy Measurements
+
+Every accuracy number in this document prior to this fix was inflated because:
+1. The model learned that `return_7d` (a lag feature) ≈ `target_return_7d` (the target) — these were the same calculation when looking backward
+2. Validation accuracy appeared high because the target leaked the feature value
+3. The confidence calibration optimized on these illusory targets, producing 99.6-99.8% "high" accuracy with near-zero coverage
+
+### Accuracy After Fix
+
+Walk-forward evaluation with the corrected target computation:
+
+| Horizon | Directional Accuracy | vs 50% baseline | Interval Coverage | MAE | Fold mean ± std | Fold range |
+|---------|:--------------------:|:---------------:|:-----------------:|:---:|:---------------:|:----------:|
+| **3d**  | 59.7%                | +9.7pp          | 85.8%             | $0.20 | 59.7% ± 5.6% | [40.3%, 69.0%] |
+| **7d**  | 61.1%                | +11.1pp         | 86.2%             | $0.25 | 61.1% ± 7.5% | [44.7%, 77.5%] |
+| **14d** | 60.8%                | +10.8pp         | 85.6%             | $0.34 | 60.8% ± 10.5% | [34.8%, 75.5%] |
+| **30d** | 65.8%                | +15.8pp         | 82.8%             | $0.52 | 65.8% ± 13.7% | [27.8%, 85.5%] |
+
+**Configuration:** 50 items, 26 expanding windows (60-day steps), fixed LightGBM params, no ensemble, 730d training data. Covers 2022-2026.
+
+**Key observations:**
+- The 30d horizon performs best (65.8%), likely benefiting from the longer 730d training window and new 60d rolling features added in this fix cycle
+- Shorter horizons (3d, 7d, 14d) cluster around 60-61%, suggesting the core signal-to-noise ratio for short-term CS2 price movement is the limiting factor
+- Interval coverage is consistent at 82-86%, close to the target 80% — the crossing-aware quantile fix is working
+- Fold variance increases with horizon length (SD 5.6% → 13.7%), reflecting fewer independent 30d windows in the data
+
+### Related Fixes Applied Simultaneously
+
+These changes were bundled with the target inversion fix and affect comparability with prior measurements:
+
+| Fix | Impact on Accuracy |
+|-----|-------------------|
+| Spike smoothing (3d median price filter) | Reduces outlier contamination; minor impact on overall metrics |
+| Confidence calibration rewrite (maximize coverage ≥80% acc) | Changes the definition of "high confidence" — previously 99.6% on zero coverage, now ~80% on meaningful coverage |
+| 60d rolling features + 730d training window | Primarily helps 30d horizon; may have minor positive effect on others |
+| Quantile crossing (impute avg half-width) | Preserves interval width for crossed items; improves coverage metric |
+| Drift-triggered auto-retrain | No impact on walk-forward eval (script-level change) |
+
+### Next Steps
+
+1. **Retrain production models** — the saved models on disk were trained with buggy targets and must be regenerated
+2. **Re-evaluate after Optuna + ensemble** — the walk-forward measurement above uses fixed params (no HP search) and single-model eval (no 3-seed ensemble). Training with the full pipeline (Optuna tuning + 3-member ensemble + 1000 rounds) may recover some of the gap
+3. **Assess remaining upside** — with genuine ~60-66% accuracy and a 50% baseline, the ~10-16pp edge is real but modest. Focus areas for improvement should target the fundamental signal-to-noise ratio rather than chasing the illusory 86-88%
 
 ## Files Modified (Jul 2026 round 4)
 
@@ -439,3 +508,10 @@ Shorter horizons favor momentum/volatility features; longer horizons shift towar
 - `docs/model-architecture-decisions.md` — updated model count (18→36), horizons (2→4), added Optuna fix, per-horizon confidence, and horizon selection rationale
 - `docs/model-audit.md` — updated header accuracy numbers, marked all 19 items resolved in summary table
 - `docs/model-audit-implementation.md` — this file, added round 4 documentation
+
+## Files Modified (2026-07-12 target inversion fix)
+
+- `backend/models/forecaster.py` — Target inversion fix (forward-looking merge); spike smoothing; 60d rolling features; quantile crossing imputation; confidence calibration rewrite; training window 365→730d
+- `backend/scripts/forecast_prices.py` — Name join fix (item_id vs name); drift-triggered auto-retrain
+- `backend/scripts/evaluate_forecaster.py` — Per-fold CV metrics; baseline reporting; quantile crossing imputation
+- `backend/tests/test_forecaster.py` — **New** 41 unit tests

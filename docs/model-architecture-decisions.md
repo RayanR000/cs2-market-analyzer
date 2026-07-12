@@ -19,14 +19,14 @@ Predictions are averaged across seeds per quantile. p10/p90 provide the interval
 |-----------|---------|-------|-----|
 | Ensemble seeds | 3 | ✅ Keep | 3-5 is the sweet spot. More seeds give diminishing variance reduction. |
 | Quantiles | 3 (p10/p50/p90) | ✅ Keep | Minimal set for point prediction + confidence interval. Dropping p50 loses predictions; adding more doesn't help much. |
-| Horizons | 4 (3d, 7d, 14d, 30d) | ✅ Keep | 3d captures short-term momentum similar to 7d (87.7% dir acc); 14d is a natural midpoint between 7 and 30 (85.9%). 1d was rejected for being too noisy. |
+| Horizons | 4 (3d, 7d, 14d, 30d) | ✅ Keep | 3d captures short-term momentum similar to 7d; 14d is a natural midpoint between 7 and 30. 1d was rejected for being too noisy. (Note: prior accuracy estimates of 87.7%/85.9% were from the buggy target-inversion era; genuine accuracy is ~59-61% for these horizons.) |
 | Confidence | Per-horizon binary (high/low) | ✅ Keep | Each horizon calibrates its own range_pct and change_pct thresholds from validation data. Stored as nested dict in meta.json. |
 | Model family | LightGBM only | ➕ Add CatBoost | Largest remaining lift opportunity. Different algorithm = different error patterns. Ensemble averaging across families typically gives +1-3pp. |
 
 ## What Not To Do
 
 - **Do not replace with a fine-tuned LLM.** LLMs are worse at numerical time series, slower, harder to retrain, and need 100-1000x more data. LightGBM is the right tool for tabular forecasting.
-- **Do not add more neural forecasting models** (N-BEATS, PatchTST, etc.) unless accuracy plateaus and you're willing to manage GPU training. The complexity jump isn't justified at 86-88% accuracy.
+- **Do not add more neural forecasting models** (N-BEATS, PatchTST, etc.) unless accuracy plateaus and you're willing to manage GPU training. The complexity jump isn't justified at the current ~60-66% accuracy (which is genuine, unlike the ~86-88% reported before the target-inversion fix).
 
 ## Hyperparameter Search
 
@@ -64,9 +64,9 @@ After training, `_calibrate_confidence()` scans the validation set per horizon t
 | Horizon | Rejected? | Why |
 |---------|-----------|-----|
 | 1d | ❌ Too noisy | Day-to-day CS2 price action is dominated by random walk. The feature set lacks same-day microstructure data. |
-| 3d | ✅ Added | Short-term momentum, smooths weekend gaps, performs nearly as well as 7d (87.7% vs 88.4%). |
+| 3d | ✅ Added | Short-term momentum, smooths weekend gaps, performs similarly to 7d (59.7% vs 61.1% genuine accuracy). |
 | 14d | ✅ Added | Natural midpoint between 7 and 30. Many CS2 trade/demand cycles run ~2 weeks. The feature set already computes 14d rolling windows. |
-| 60d | ❌ Not yet | Would require more training data. The 30d model already sees accuracy drop to 79.7%; 60d would be worse without richer long-term features. |
+| 60d | ❌ Not yet | Would require more training data. The 30d model (65.8%) benefits from the 730d training window, but 60d would need even more data and richer long-term features. |
 
 ## Future Consideration (do this after CatBoost)
 
