@@ -1,27 +1,21 @@
 name: Backtest Accuracy
 
 on:
-  # Daily: evaluate live forecasts & recent trend/opportunity signals
+  # Daily: evaluate live forecasts
   workflow_run:
     workflows: ["Price Forecast"]
     types: [completed]
-  # Weekday fallback: runs live backtesting if the chain from Price Forecast failed.
-  # Sunday historical is handled by the chained trigger only (runs live + historical).
   schedule:
     - cron: '0 8 * * 1-6'
   workflow_dispatch:
     inputs:
       type:
-        description: 'Backtest type (leave empty for all)'
+        description: 'Backtest type (forecast only)'
         required: false
-        default: ''
+        default: 'forecast'
         type: choice
         options:
-          - ''
           - forecast
-          - trend_direction
-          - opportunity
-          - historical
 
 defaults:
   run:
@@ -61,53 +55,15 @@ jobs:
       - name: Link price-archive
         run: ln -s $PWD/archive/price-archive price-archive
 
-      - name: Determine run mode
-        id: mode
-        run: |
-          if [ -n "${{ inputs.type }}" ]; then
-            echo "type=${{ inputs.type }}" >> $GITHUB_OUTPUT
-          elif [ "$(date +%u)" = "7" ] && [ "${{ github.event_name }}" = "workflow_run" ]; then
-            # Sunday chained trigger: run live + historical in one shot.
-            # (No separate Sunday cron — see schedule above.)
-            echo "type=sunday" >> $GITHUB_OUTPUT
-          else
-            echo "type=live" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Run live backtesting (forecast + trend + opportunity)
-        if: steps.mode.outputs.type == 'live' || steps.mode.outputs.type == 'sunday'
+      - name: Run forecast backtest
         working-directory: ./backend
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           ENVIRONMENT: production
           DEBUG: false
         run: |
-          echo "Running live backtest (forecast, trend_direction, opportunity)..."
+          echo "Running forecast backtest..."
           python scripts/backtest_accuracy.py --type forecast 2>&1 | tee backtest.log
-          python scripts/backtest_accuracy.py --type trend_direction 2>&1 | tee -a backtest.log
-          python scripts/backtest_accuracy.py --type opportunity 2>&1 | tee -a backtest.log
-
-      - name: Run historical walk-forward backtest (Sunday only)
-        if: steps.mode.outputs.type == 'sunday'
-        working-directory: ./backend
-        env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          ENVIRONMENT: production
-          DEBUG: false
-        run: |
-          echo "Running historical walk-forward backtest..."
-          python scripts/backtest_accuracy.py --type historical 2>&1 | tee -a backtest.log
-
-      - name: Run single-type backtest (manual dispatch)
-        if: steps.mode.outputs.type != 'live' && steps.mode.outputs.type != 'sunday'
-        working-directory: ./backend
-        env:
-          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
-          ENVIRONMENT: production
-          DEBUG: false
-        run: |
-          echo "Running backtest for: ${{ steps.mode.outputs.type }}"
-          python scripts/backtest_accuracy.py --type ${{ steps.mode.outputs.type }} 2>&1 | tee backtest.log
 
       - name: Notify on failure
         if: failure() && github.event_name == 'workflow_run'

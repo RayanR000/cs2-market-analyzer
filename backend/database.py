@@ -54,7 +54,6 @@ class Item(Base):
     is_backfilled = Column(Integer, default=0)  # boolean: has CSMarketAPI historical series
     
     price_histories = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
-    daily_analyses = relationship("DailyAnalysis", back_populates="item", cascade="all, delete-orphan")
     forecasts = relationship("ItemForecast", back_populates="item", cascade="all, delete-orphan")
     
     __table_args__ = (
@@ -132,34 +131,6 @@ class Event(Base):
     
     __table_args__ = (
         Index('idx_event_type_timestamp', 'type', 'timestamp'),
-    )
-
-class DailyAnalysis(Base):
-    """Daily analysis model - per-item daily computed signals."""
-    __tablename__ = "daily_analysis"
-
-    id = Column(Integer, primary_key=True)
-    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
-    analysis_date = Column(Date, nullable=False)
-    current_price = Column(Float, nullable=True)
-    ma_7day = Column(Float, nullable=True)
-    ma_30day = Column(Float, nullable=True)
-    ma_90day = Column(Float, nullable=True)
-    momentum_7day = Column(Float, nullable=True)
-    momentum_30day = Column(Float, nullable=True)
-    volatility = Column(Float, nullable=True)
-    trend_direction = Column(String(20), nullable=True)
-    momentum_score = Column(Float, nullable=True)
-    opportunity_score = Column(Float, nullable=True)
-    trading_volume_trend = Column(Float, nullable=True)
-    price_stability = Column(Float, nullable=True)
-    created_at = Column(DateTime, default=utcnow_naive)
-
-    item = relationship("Item", back_populates="daily_analyses")
-
-    __table_args__ = (
-        UniqueConstraint('item_id', 'analysis_date', name='uq_daily_analysis_item_date'),
-        Index('idx_daily_analysis_item_date', 'item_id', 'analysis_date'),
     )
 
 class ItemForecast(Base):
@@ -250,19 +221,14 @@ class EventPattern(Base):
 
 
 class PredictionAccuracy(Base):
-    """Accuracy tracking for all prediction/analysis types.
+    """Accuracy tracking for ML forecasts.
 
     Stores aggregated accuracy metrics computed by the backtesting system.
-    prediction_type: forecast | trend_direction | opportunity | event_impact
-    metrics JSON schema varies by type:
-      - forecast:      {mae, rmse, mape, directional_accuracy, interval_coverage,
-                        confidence_accuracy_low, confidence_accuracy_medium,
-                        confidence_accuracy_high, sample_count, horizon_days}
-      - trend_direction: {overall_accuracy, confusion_matrix, sample_count,
-                         avg_subsequent_return, avg_subsequent_return_days}
-      - opportunity:     {undervalued_precision, undervalued_recall, overheated_precision,
-                         overheated_recall, momentum_precision, avg_return, sample_count}
-      - event_impact:    {mae, rmse, directional_accuracy, sample_count}
+    prediction_type: forecast
+    metrics JSON schema:
+      - forecast: {mae, rmse, mape, directional_accuracy, interval_coverage,
+                   confidence_accuracy_low, confidence_accuracy_medium,
+                   confidence_accuracy_high, sample_count, horizon_days}
     """
     __tablename__ = "prediction_accuracy"
 

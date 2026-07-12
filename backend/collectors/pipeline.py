@@ -803,68 +803,9 @@ class DataPipeline:
         return {item_id: count for item_id, count in rows}
     
     def run_trend_analysis(self):
-        """Execute trend scoring and opportunity detection"""
-        try:
-            logger.info("Starting trend analysis")
-            
-            from analytics.trend_analyzer import TrendAnalyzer, OpportunityDetector
-            from database import Item
-            
-            if not self.db_session:
-                logger.error("Database session not available")
-                return {"status": "failed", "error": "No database session"}
-            
-            items = self.db_session.query(Item.id, Item.name).all()
-            item_ids = [item_id for item_id, _ in items]
-            recent_counts = self._load_recent_price_counts(item_ids, days=90)
-            recent_histories = self._load_recent_price_histories(
-                [item_id for item_id, _ in items if recent_counts.get(item_id, 0) >= 7],
-                days=90
-            )
-            opportunities_detected = 0
-            
-            for item_id, item_name in items:
-                try:
-                    price_history = recent_histories.get(item_id, [])
-                    prices = [price for _, price in price_history]
-                    
-                    if len(prices) < 7:
-                        continue
-                    
-                    # Compute trend
-                    trend_score = TrendAnalyzer.compute_trend_score(prices)
-                    if trend_score is not None:
-                        direction, confidence = TrendAnalyzer.classify_trend(trend_score)
-                        
-                        # Detect opportunities
-                        baseline = OpportunityDetector.compute_baseline_trend(prices)
-                        current_price = prices[-1]
-                        
-                        if baseline:
-                            is_undervalued, discount = OpportunityDetector.detect_undervalued(current_price, baseline)
-                            is_overheated, premium = OpportunityDetector.detect_overheated(current_price, baseline)
-                            has_momentum, change_pct, momentum_dir = OpportunityDetector.detect_momentum(prices)
-                            
-                            if is_undervalued or is_overheated or has_momentum:
-                                opportunities_detected += 1
-                                logger.info(f"{item_name}: {direction} ({confidence}) | "
-                                          f"Undervalued: {is_undervalued} | "
-                                          f"Overheated: {is_overheated} | "
-                                          f"Momentum: {has_momentum}")
-                
-                except Exception as item_error:
-                    logger.error(f"Error analyzing {item_name}: {item_error}")
-            
-            logger.info(f"Trend analysis completed: {opportunities_detected} opportunities detected")
-            return {
-                "status": "success",
-                "timestamp": datetime.utcnow(),
-                "opportunities_detected": opportunities_detected
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in trend analysis: {e}", exc_info=True)
-            return {"status": "failed", "error": str(e)}
+        """Trend analysis is deprecated — ML forecasts handle all signal generation."""
+        logger.info("Trend analysis is deprecated (removed). Skipping.")
+        return {"status": "success", "message": "Deprecated — no-op"}
 
     
 

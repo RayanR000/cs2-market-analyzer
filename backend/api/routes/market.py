@@ -2,11 +2,11 @@ import re
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, or_, func, case
+from sqlalchemy import or_, func, case
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
-from database import get_db, Item, DailyAnalysis, PriceHistory, backfilled_item_clause
+from database import get_db, Item, PriceHistory, backfilled_item_clause
 from api.cache import get_or_build
 from pydantic import BaseModel
 
@@ -121,34 +121,9 @@ def _build_market_summary(db: Session, type: Optional[str], q: Optional[str]):
 
     item_ids = [i.id for i in items]
 
-    latest_sub = (
-        db.query(
-            DailyAnalysis.item_id,
-            DailyAnalysis.analysis_date,
-        )
-        .distinct(DailyAnalysis.item_id)
-        .order_by(DailyAnalysis.item_id, desc(DailyAnalysis.analysis_date))
-        .subquery()
-    )
-    daily_query = (
-        db.query(DailyAnalysis)
-        .join(
-            latest_sub,
-            (DailyAnalysis.item_id == latest_sub.c.item_id)
-            & (DailyAnalysis.analysis_date == latest_sub.c.analysis_date),
-        )
-    )
-    if q or type:
-        daily_query = daily_query.filter(DailyAnalysis.item_id.in_(item_ids))
-    daily_rows = daily_query.all()
-    daily_map = {d.item_id: d for d in daily_rows}
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=2)
     price_query = db.query(PriceHistory).filter(PriceHistory.timestamp >= cutoff)
     if q or type:
-        # Only constrain by id for filtered queries; the unfiltered build
-        # covers every item, and a 19K-parameter IN clause costs more than
-        # fetching all recent rows.
         price_query = price_query.filter(PriceHistory.item_id.in_(item_ids))
     price_rows = price_query.order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
     prices_by_item: dict[int, list] = {}
@@ -157,17 +132,11 @@ def _build_market_summary(db: Session, type: Optional[str], q: Optional[str]):
 
     per_item = {}
     for item in items:
-        da = daily_map.get(item.id)
         ph_list = prices_by_item.get(item.id, [])
 
-        current_price = None
+        current_price = ph_list[-1].price if ph_list else None
         price_change_24h = None
         volume_24h = None
-
-        if da and da.current_price:
-            current_price = da.current_price
-        elif ph_list:
-            current_price = ph_list[-1].price
 
         if len(ph_list) >= 2:
             first = ph_list[0]
@@ -182,7 +151,6 @@ def _build_market_summary(db: Session, type: Optional[str], q: Optional[str]):
             "base_name": base_name,
             "quality": quality,
             "item": item,
-            "da": da,
             "current_price": current_price,
             "price_change_24h": price_change_24h,
             "volume_24h": volume_24h,
@@ -204,7 +172,6 @@ def _build_market_summary(db: Session, type: Optional[str], q: Optional[str]):
         prices = [v["current_price"] for v in variants if v["current_price"] is not None]
         volumes = [v["volume_24h"] for v in variants if v["volume_24h"] is not None]
         changes = [v["price_change_24h"] for v in variants if v["price_change_24h"] is not None]
-        volatilities = [v["da"].volatility for v in variants if v["da"] and v["da"].volatility is not None]
 
         first_variant = variants[0]
         item = first_variant["item"]
@@ -213,7 +180,6 @@ def _build_market_summary(db: Session, type: Optional[str], q: Optional[str]):
         price_min = round(min(prices), 2) if prices else None
         price_max = round(max(prices), 2) if prices else None
         avg_change = round(sum(changes) / len(changes), 2) if changes else None
-        avg_volatility = round(sum(volatilities) / len(volatilities), 2) if volatilities else None
         total_volume = sum(volumes) if volumes else None
 
         quality_list = []
@@ -237,7 +203,6 @@ def _build_market_summary(db: Session, type: Optional[str], q: Optional[str]):
             price_min=price_min,
             price_max=price_max,
             price_change_24h=avg_change,
-            volatility=avg_volatility,
             volume_24h=total_volume,
             quality_count=len(variants),
             qualities=quality_list,

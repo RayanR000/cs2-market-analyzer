@@ -47,10 +47,6 @@ class TrendAnalysisOut(BaseModel):
     current_price: float
     trend_direction: str
     confidence: str
-    sma_7: Optional[float] = None
-    sma_30: Optional[float] = None
-    volatility: Optional[float] = None
-    trend_score: Optional[float] = None
     explanation: str
     rsi: Optional[float] = None
     bollinger_upper: Optional[float] = None
@@ -61,6 +57,8 @@ class TrendAnalysisOut(BaseModel):
     support: Optional[float] = None
     resistance: Optional[float] = None
     factors: List[str] = []
+    sma_7: Optional[float] = None
+    sma_30: Optional[float] = None
 
     class Config:
         from_attributes = True

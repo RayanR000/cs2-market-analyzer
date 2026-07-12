@@ -60,10 +60,6 @@ export interface TrendAnalysis {
   current_price: number;
   trend_direction: 'bullish' | 'neutral' | 'bearish';
   confidence: 'low' | 'medium' | 'high';
-  sma_7?: number;
-  sma_30?: number;
-  volatility?: number;
-  trend_score?: number;
   explanation: string;
 }
 

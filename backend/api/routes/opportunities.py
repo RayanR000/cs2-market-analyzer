@@ -1,34 +1,37 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
+from datetime import date
 
-from database import get_db, DailyAnalysis, Item
+from database import get_db, ItemForecast, Item
 from api.cache import get_or_build
 from api.schemas import OpportunityOut
 
 router = APIRouter(prefix="/opportunities", tags=["opportunities"])
 
 
-def _build_opportunity(item: Item, analysis: DailyAnalysis, opp_type: str) -> OpportunityOut:
+def _build_opportunity(item: Item, forecast: ItemForecast, opp_type: str) -> OpportunityOut:
+    current_price = forecast.current_price or 0.0
+    predicted_return = ((forecast.price_mid or current_price) - current_price) / current_price * 100 if current_price > 0 else 0
     return OpportunityOut(
         item_id=item.id,
         item_name=item.name,
-        current_price=analysis.current_price or 0.0,
+        current_price=current_price,
         opportunity_type=opp_type,
-        opportunity_score=analysis.opportunity_score or 0.0,
-        reason=_reason_for_type(opp_type, analysis),
-        current_trend=analysis.trend_direction or "neutral",
-        volatility=analysis.volatility,
+        opportunity_score=round(predicted_return, 2),
+        reason=_reason_for_type(opp_type),
+        current_trend=forecast.direction or "neutral",
+        volatility=None,
     )
 
 
-def _reason_for_type(opp_type: str, a: DailyAnalysis) -> str:
+def _reason_for_type(opp_type: str) -> str:
     if opp_type == "undervalued":
-        return "Price is below moving averages with potential for reversion."
+        return "ML forecast predicts significant upward movement with high confidence."
     if opp_type == "overheated":
-        return "Price has risen sharply above moving averages."
-    return "Strong upward momentum with increasing volume."
+        return "ML forecast predicts significant downward movement with high confidence."
+    return "ML forecast shows strong predicted price movement."
 
 
 def _load_items(item_ids: list[int], db: Session) -> dict[int, Item]:
@@ -38,22 +41,25 @@ def _load_items(item_ids: list[int], db: Session) -> dict[int, Item]:
     return {i.id: i for i in items}
 
 
-def _latest_analyses(db: Session):
+def _latest_forecasts(db: Session, horizon_days: int = 7):
+    """Get the latest forecast per item for a given horizon."""
     subq = (
         db.query(
-            DailyAnalysis.item_id,
-            DailyAnalysis.analysis_date,
+            ItemForecast.item_id,
+            ItemForecast.forecast_date,
         )
-        .distinct(DailyAnalysis.item_id)
+        .filter(ItemForecast.horizon_days == horizon_days)
+        .distinct(ItemForecast.item_id)
         .order_by(
-            DailyAnalysis.item_id,
-            desc(DailyAnalysis.analysis_date),
+            ItemForecast.item_id,
+            desc(ItemForecast.forecast_date),
         )
         .subquery()
     )
     return (
-        db.query(DailyAnalysis)
-        .join(subq, (DailyAnalysis.item_id == subq.c.item_id) & (DailyAnalysis.analysis_date == subq.c.analysis_date))
+        db.query(ItemForecast)
+        .join(subq, (ItemForecast.item_id == subq.c.item_id) & (ItemForecast.forecast_date == subq.c.forecast_date))
+        .filter(ItemForecast.horizon_days == horizon_days)
         .all()
     )
 
@@ -72,21 +78,23 @@ def get_opportunities(
 
 
 def _build_opportunities(db: Session, type: Optional[str], limit: int):
-    analyses = _latest_analyses(db)
-    item_ids = [a.item_id for a in analyses if a.opportunity_score is not None]
+    forecasts = _latest_forecasts(db)
+    item_ids = [f.item_id for f in forecasts if f.direction is not None]
     items_map = _load_items(item_ids, db)
 
     results = []
-    for a in analyses:
-        if a.opportunity_score is None:
+    for f in forecasts:
+        if f.direction is None or f.current_price is None or f.current_price <= 0:
             continue
-        item = items_map.get(a.item_id)
+        item = items_map.get(f.item_id)
         if not item:
             continue
 
-        if a.opportunity_score > 0.6:
+        predicted_return = ((f.price_mid or f.current_price) - f.current_price) / f.current_price * 100
+
+        if f.direction == "up" and f.confidence == "high":
             opp_type = "undervalued"
-        elif a.opportunity_score < -0.4:
+        elif f.direction == "down" and f.confidence == "high":
             opp_type = "overheated"
         else:
             opp_type = "momentum"
@@ -94,7 +102,7 @@ def _build_opportunities(db: Session, type: Optional[str], limit: int):
         if type and opp_type != type:
             continue
 
-        results.append(_build_opportunity(item, a, opp_type))
+        results.append(_build_opportunity(item, f, opp_type))
 
     results.sort(key=lambda x: abs(x.opportunity_score), reverse=True)
     return results[:limit]
@@ -105,20 +113,46 @@ def get_undervalued(
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    analyses = (
-        db.query(DailyAnalysis)
-        .filter(DailyAnalysis.opportunity_score > 0.5)
-        .order_by(desc(DailyAnalysis.opportunity_score))
+    subq = (
+        db.query(
+            ItemForecast.item_id,
+            ItemForecast.forecast_date,
+        )
+        .filter(
+            ItemForecast.horizon_days == 7,
+            ItemForecast.direction == "up",
+            ItemForecast.confidence == "high",
+        )
+        .distinct(ItemForecast.item_id)
+        .order_by(ItemForecast.item_id, desc(ItemForecast.forecast_date))
+        .subquery()
+    )
+    forecasts = (
+        db.query(ItemForecast)
+        .join(subq, (ItemForecast.item_id == subq.c.item_id) & (ItemForecast.forecast_date == subq.c.forecast_date))
+        .filter(
+            ItemForecast.horizon_days == 7,
+            ItemForecast.direction == "up",
+            ItemForecast.confidence == "high",
+            ItemForecast.current_price.isnot(None),
+            ItemForecast.current_price > 0,
+            ItemForecast.price_mid.isnot(None),
+        )
+        .order_by(
+            desc(
+                (ItemForecast.price_mid - ItemForecast.current_price) / ItemForecast.current_price * 100
+            )
+        )
         .limit(limit)
         .all()
     )
-    items_map = _load_items([a.item_id for a in analyses], db)
+    items_map = _load_items([f.item_id for f in forecasts], db)
     results = []
-    for a in analyses:
-        item = items_map.get(a.item_id)
+    for f in forecasts:
+        item = items_map.get(f.item_id)
         if not item:
             continue
-        results.append(_build_opportunity(item, a, "undervalued"))
+        results.append(_build_opportunity(item, f, "undervalued"))
     return results
 
 
@@ -127,20 +161,46 @@ def get_overheated(
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    analyses = (
-        db.query(DailyAnalysis)
-        .filter(DailyAnalysis.opportunity_score < -0.3)
-        .order_by(DailyAnalysis.opportunity_score)
+    subq = (
+        db.query(
+            ItemForecast.item_id,
+            ItemForecast.forecast_date,
+        )
+        .filter(
+            ItemForecast.horizon_days == 7,
+            ItemForecast.direction == "down",
+            ItemForecast.confidence == "high",
+        )
+        .distinct(ItemForecast.item_id)
+        .order_by(ItemForecast.item_id, desc(ItemForecast.forecast_date))
+        .subquery()
+    )
+    forecasts = (
+        db.query(ItemForecast)
+        .join(subq, (ItemForecast.item_id == subq.c.item_id) & (ItemForecast.forecast_date == subq.c.forecast_date))
+        .filter(
+            ItemForecast.horizon_days == 7,
+            ItemForecast.direction == "down",
+            ItemForecast.confidence == "high",
+            ItemForecast.current_price.isnot(None),
+            ItemForecast.current_price > 0,
+            ItemForecast.price_mid.isnot(None),
+        )
+        .order_by(
+            desc(
+                (ItemForecast.current_price - ItemForecast.price_mid) / ItemForecast.current_price * 100
+            )
+        )
         .limit(limit)
         .all()
     )
-    items_map = _load_items([a.item_id for a in analyses], db)
+    items_map = _load_items([f.item_id for f in forecasts], db)
     results = []
-    for a in analyses:
-        item = items_map.get(a.item_id)
+    for f in forecasts:
+        item = items_map.get(f.item_id)
         if not item:
             continue
-        results.append(_build_opportunity(item, a, "overheated"))
+        results.append(_build_opportunity(item, f, "overheated"))
     return results
 
 
@@ -149,18 +209,38 @@ def get_momentum(
     limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    analyses = (
-        db.query(DailyAnalysis)
-        .filter(DailyAnalysis.momentum_score > 0.3)
-        .order_by(desc(DailyAnalysis.momentum_score))
+    subq = (
+        db.query(
+            ItemForecast.item_id,
+            ItemForecast.forecast_date,
+        )
+        .filter(ItemForecast.horizon_days == 7)
+        .distinct(ItemForecast.item_id)
+        .order_by(ItemForecast.item_id, desc(ItemForecast.forecast_date))
+        .subquery()
+    )
+    forecasts = (
+        db.query(ItemForecast)
+        .join(subq, (ItemForecast.item_id == subq.c.item_id) & (ItemForecast.forecast_date == subq.c.forecast_date))
+        .filter(
+            ItemForecast.horizon_days == 7,
+            ItemForecast.current_price.isnot(None),
+            ItemForecast.current_price > 0,
+            ItemForecast.price_mid.isnot(None),
+        )
+        .order_by(
+            desc(
+                func.abs((ItemForecast.price_mid - ItemForecast.current_price) / ItemForecast.current_price * 100)
+            )
+        )
         .limit(limit)
         .all()
     )
-    items_map = _load_items([a.item_id for a in analyses], db)
+    items_map = _load_items([f.item_id for f in forecasts], db)
     results = []
-    for a in analyses:
-        item = items_map.get(a.item_id)
+    for f in forecasts:
+        item = items_map.get(f.item_id)
         if not item:
             continue
-        results.append(_build_opportunity(item, a, "momentum"))
+        results.append(_build_opportunity(item, f, "momentum"))
     return results

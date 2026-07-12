@@ -66,24 +66,16 @@ def run_task(task_name):
 
         elif task_name == "trends":
             logger.info("="*60)
-            logger.info("TASK: Trend Analysis & Opportunity Detection (90-day)")
+            logger.info("TASK: Trend Analysis — Deprecated, skipping")
             logger.info("="*60)
-            result = pipeline.run_trend_analysis()
-            from scripts.analyze_trends import main as daily_analysis
-            result2 = daily_analysis()
-            if isinstance(result2, dict) and result2.get("status") == "success":
-                logger.info("✅ Daily analysis completed")
-            else:
-                logger.warning(f"Daily analysis returned non-success: {result2}")
-            print(f"RESULT: {result}, {result2}")
+            result = {"status": "success", "message": "Trend analysis deprecated (ML forecasts used instead)"}
+            print(f"RESULT: {result}")
 
         elif task_name == "long_term_trends":
             logger.info("="*60)
-            logger.info("TASK: Long-Term Trend Analysis (Full History)")
+            logger.info("TASK: Long-Term Trend Analysis — Deprecated, skipping")
             logger.info("="*60)
-            from scripts.long_term_trend_analyzer import LongTermTrendAnalyzer
-            analyzer = LongTermTrendAnalyzer(db_session=db)
-            result = analyzer.run_analysis()
+            result = {"status": "success", "message": "Long-term trend analysis deprecated (ML forecasts used instead)"}
             print(f"RESULT: {result}")
 
         elif task_name == "migrate":
@@ -149,7 +141,7 @@ def run_task(task_name):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python run_task.py <task_name>")
-        print("Tasks: aggregate, priority, trends, long_term_trends, migrate")
+        print("Tasks: aggregate, priority, trends, long_term_trends (deprecated), migrate, backtest, backtest_historical")
         sys.exit(1)
         
     run_task(sys.argv[1])

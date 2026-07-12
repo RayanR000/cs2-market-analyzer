@@ -8,7 +8,7 @@ import re
 import math
 
 from database import (
-    get_db, Item, PriceHistory, DailyAnalysis, ItemForecast,
+    get_db, Item, PriceHistory, ItemForecast,
     Event, EventImpact, backfilled_item_clause,
 )
 from api.cache import get_or_build
@@ -88,27 +88,53 @@ def _latest_prices(db: Session, item_ids: list[int]) -> dict[int, float]:
 
 
 def _build_trending(db: Session, limit: int):
+    from sqlalchemy import case
+    from datetime import date
+
+    today = date.today()
+    subq = (
+        db.query(
+            ItemForecast.item_id,
+            ItemForecast.forecast_date,
+            ItemForecast.direction,
+            ItemForecast.confidence,
+            ItemForecast.price_mid,
+            ItemForecast.current_price,
+        )
+        .filter(ItemForecast.forecast_date == today, ItemForecast.horizon_days == 7)
+        .distinct(ItemForecast.item_id)
+        .order_by(ItemForecast.item_id, desc(ItemForecast.forecast_date))
+        .subquery()
+    )
+
+    confidence_order = case(
+        (subq.c.confidence == "high", 3),
+        (subq.c.confidence == "medium", 2),
+        else_=1,
+    )
+
     items = (
-        db.query(Item)
+        db.query(Item, subq.c.direction, subq.c.confidence, subq.c.price_mid, subq.c.current_price)
+        .outerjoin(subq, Item.id == subq.c.item_id)
         .filter(Item.icon_url.isnot(None), backfilled_item_clause())
-        .order_by(desc(Item.updated_at))
-        .limit(max(limit * 10, 100))
+        .order_by(desc(confidence_order), desc(subq.c.price_mid / func.nullif(subq.c.current_price, 0)))
+        .limit(limit)
         .all()
     )
-    item_ids = [i.id for i in items]
+    item_ids = [i.Item.id for i in items]
     latest_prices = _latest_prices(db, item_ids) if item_ids else {}
 
     result = [
         TrendingItemOut(
-            id=item.id,
-            item_id=item.item_id,
-            name=item.name,
-            type=item.type,
-            icon_url=item.icon_url,
-            latest_price=latest_prices.get(item.id, 0.0),
+            id=row.Item.id,
+            item_id=row.Item.item_id,
+            name=row.Item.name,
+            type=row.Item.type,
+            icon_url=row.Item.icon_url,
+            latest_price=latest_prices.get(row.Item.id, 0.0),
         )
-        for item in items
-        if latest_prices.get(item.id, 0.0) > 0
+        for row in items
+        if latest_prices.get(row.Item.id, 0.0) > 0
     ]
     return result[:limit]
 
@@ -162,36 +188,15 @@ def get_item_variants(
     for pr in price_rows:
         prices_by_item.setdefault(pr.item_id, []).append(pr)
 
-    latest_sub = (
-        db.query(DailyAnalysis.item_id, DailyAnalysis.analysis_date)
-        .distinct(DailyAnalysis.item_id)
-        .order_by(DailyAnalysis.item_id, desc(DailyAnalysis.analysis_date))
-        .subquery()
-    )
-    daily_rows = (
-        db.query(DailyAnalysis)
-        .join(
-            latest_sub,
-            (DailyAnalysis.item_id == latest_sub.c.item_id)
-            & (DailyAnalysis.analysis_date == latest_sub.c.analysis_date),
-        )
-        .filter(DailyAnalysis.item_id.in_(item_ids))
-        .all()
-    )
-    daily_map = {d.item_id: d for d in daily_rows}
-
     by_quality: dict[str, dict] = {}
     for i in matching:
-        da = daily_map.get(i.id)
         ph_list = prices_by_item.get(i.id, [])
 
         current_price = None
         price_change_24h = None
         volume_24h = None
 
-        if da and da.current_price:
-            current_price = da.current_price
-        elif ph_list:
+        if ph_list:
             current_price = ph_list[-1].price
 
         if len(ph_list) >= 2:
@@ -323,12 +328,17 @@ def _compute_support_resistance(prices, window=20):
 @router.get("/{item_id}/trends", response_model=TrendAnalysisOut)
 def get_item_trends(item_id: str, db: Session = Depends(get_db)):
     item = _resolve_item(item_id, db)
-    latest_analysis = (
-        db.query(DailyAnalysis)
-        .filter(DailyAnalysis.item_id == item.id)
-        .order_by(desc(DailyAnalysis.analysis_date))
+
+    latest_forecast = (
+        db.query(ItemForecast)
+        .filter(
+            ItemForecast.item_id == item.id,
+            ItemForecast.horizon_days == 7,
+        )
+        .order_by(desc(ItemForecast.forecast_date))
         .first()
     )
+
     latest_price = (
         db.query(PriceHistory)
         .filter(PriceHistory.item_id == item.id)
@@ -336,27 +346,12 @@ def get_item_trends(item_id: str, db: Session = Depends(get_db)):
         .first()
     )
     current_price = latest_price.price if latest_price else 0.0
-    trend_dir = "neutral"
-    sma_7 = None
-    sma_30 = None
-    volatility = None
-    trend_score = None
 
-    if latest_analysis:
-        trend_dir = latest_analysis.trend_direction or "neutral"
-        sma_7 = latest_analysis.ma_7day
-        sma_30 = latest_analysis.ma_30day
-        volatility = latest_analysis.volatility
-        trend_score = latest_analysis.momentum_score
+    direction_map = {"up": "bullish", "down": "bearish", "flat": "neutral", None: "neutral"}
+    trend_dir = direction_map.get(latest_forecast.direction if latest_forecast else None, "neutral")
+    confidence = latest_forecast.confidence if latest_forecast and latest_forecast.confidence else "low"
 
-    confidence = "low"
-    if trend_score is not None:
-        if abs(trend_score) > 50:
-            confidence = "high"
-        elif abs(trend_score) > 20:
-            confidence = "medium"
-
-    explanation = _build_trend_explanation(trend_dir, confidence, sma_7, current_price)
+    explanation = _build_trend_explanation(trend_dir, confidence, current_price)
 
     price_points = [
         r.price for r in (
@@ -366,6 +361,14 @@ def get_item_trends(item_id: str, db: Session = Depends(get_db)):
             .all()
         )
     ]
+
+    # Compute SMAs from raw price history
+    sma_7 = None
+    sma_30 = None
+    if len(price_points) >= 7:
+        sma_7 = sum(price_points[-7:]) / 7
+    if len(price_points) >= 30:
+        sma_30 = sum(price_points[-30:]) / 30
 
     bollinger_upper, bollinger_middle, bollinger_lower = _compute_bollinger_bands(price_points)
     rsi = _compute_rsi(price_points)
@@ -378,12 +381,10 @@ def get_item_trends(item_id: str, db: Session = Depends(get_db)):
             factors.append("RSI overbought (>70)")
         elif rsi < 30:
             factors.append("RSI oversold (<30)")
-    if trend_dir == "up":
-        factors.append("Short-term MA above long-term MA")
-    elif trend_dir == "down":
-        factors.append("Short-term MA below long-term MA")
-    if volatility is not None and volatility > 10:
-        factors.append(f"High volatility ({volatility:.1f}%)")
+    if trend_dir == "bullish":
+        factors.append("Forecast predicts upward movement")
+    elif trend_dir == "bearish":
+        factors.append("Forecast predicts downward movement")
     if support is not None and resistance is not None:
         band_width = ((resistance - support) / support) * 100
         factors.append(f"Trading range: {band_width:.1f}%")
@@ -394,10 +395,6 @@ def get_item_trends(item_id: str, db: Session = Depends(get_db)):
         current_price=current_price,
         trend_direction=trend_dir,
         confidence=confidence,
-        sma_7=sma_7,
-        sma_30=sma_30,
-        volatility=volatility,
-        trend_score=trend_score,
         explanation=explanation,
         rsi=rsi,
         bollinger_upper=bollinger_upper,
@@ -408,15 +405,17 @@ def get_item_trends(item_id: str, db: Session = Depends(get_db)):
         support=support,
         resistance=resistance,
         factors=factors,
+        sma_7=sma_7,
+        sma_30=sma_30,
     )
 
 
-def _build_trend_explanation(direction: str, confidence: str, sma_7, current_price) -> str:
+def _build_trend_explanation(direction: str, confidence: str, current_price) -> str:
     if direction == "bullish":
-        return f"Price momentum is strong. Confidence is {confidence}."
+        return f"ML forecast predicts upward movement. Confidence is {confidence}."
     elif direction == "bearish":
-        return f"Price showing downward momentum. Confidence is {confidence}."
-    return f"Price is relatively stable. Confidence is {confidence}."
+        return f"ML forecast predicts downward movement. Confidence is {confidence}."
+    return f"ML forecast predicts stable price. Confidence is {confidence}."
 
 
 @router.get("/{item_id}/prediction", response_model=PredictionOut)
