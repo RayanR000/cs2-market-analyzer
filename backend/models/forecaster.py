@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ItemForecaster:
-    HORIZONS = [7, 30]
+    HORIZONS = [1, 7, 30]
     QUANTILES = [0.1, 0.5, 0.9]
     MIN_HISTORY_DAYS = 30
     # Prediction eligibility is looser than training: the live aggregator
