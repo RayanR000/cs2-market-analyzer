@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Generate ML-based price forecasts for all CS2 items using LightGBM.
-Trains quantile regression models (1d, 7d and 30d horizons) and writes
+Trains quantile regression models (3d, 7d, 14d and 30d horizons) and writes
 forecasts to the item_forecasts table.
 
 Usage:

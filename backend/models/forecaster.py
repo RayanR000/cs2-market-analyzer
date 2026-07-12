@@ -1,6 +1,6 @@
 """
 LightGBM-based price forecaster for CS2 items.
-Trains quantile regression models for 1d, 7d and 30d horizons,
+Trains quantile regression models for 3d, 7d, 14d and 30d horizons,
 using price history, technical indicators, events, and item metadata.
 """
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ItemForecaster:
-    HORIZONS = [1, 7, 30]
+    HORIZONS = [3, 7, 14, 30]
     QUANTILES = [0.1, 0.5, 0.9]
     MIN_HISTORY_DAYS = 30
     # Prediction eligibility is looser than training: the live aggregator

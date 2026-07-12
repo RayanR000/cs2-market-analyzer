@@ -124,7 +124,7 @@ def run_walkforward_evaluation(max_items=500):
         all_prices = pd.concat(all_rows, ignore_index=True)
 
         results_by_horizon = {}
-        for horizon in [7, 30]:
+        for horizon in ItemForecaster.HORIZONS:
             logger.info(f"\n  Evaluating {horizon}d horizon...")
 
             # Build features for all items
