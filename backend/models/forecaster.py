@@ -426,7 +426,8 @@ class ItemForecaster:
             )
         return pruned
 
-    def _optuna_search_params(self, X_train, y_train, X_val, y_val) -> Dict[str, Any]:
+    def _optuna_search_params(self, X_train, y_train, X_val, y_val,
+                               quantile: float = 0.5) -> Dict[str, Any]:
         """Bayesian hyperparameter search via Optuna.
 
         Searches over 6 key params using TPE pruning, with early
@@ -439,7 +440,7 @@ class ItemForecaster:
         def objective(trial):
             params = {
                 "objective": "quantile",
-                "alpha": 0.5,
+                "alpha": quantile,
                 "metric": "quantile",
                 "boosting_type": "gbdt",
                 "verbosity": -1,
