@@ -137,22 +137,22 @@ class ItemForecaster:
         grouped = df.groupby("item_id")
 
         # Lag prices
-        for lag in [1, 3, 7, 14, 30]:
+        for lag in [1, 3, 7, 14, 30, 60]:
             df[f"price_lag_{lag}d"] = grouped["price"].shift(lag)
 
         # Returns
-        for lag in [1, 3, 7, 14, 30]:
+        for lag in [1, 3, 7, 14, 30, 60]:
             col = f"price_lag_{lag}d"
             df[f"return_{lag}d"] = (df["price"] - df[col]) / df[col].replace(0, np.nan) * 100
 
         # Winsorize extreme returns (>500%) which are likely data artifacts
-        for lag in [1, 3, 7, 14, 30]:
+        for lag in [1, 3, 7, 14, 30, 60]:
             col = f"return_{lag}d"
             if col in df.columns:
                 df[col] = df[col].clip(-500, 500)
 
         # Rolling statistics (min_periods=1 so items with short history get partial estimates)
-        for window in [7, 14, 20, 30]:
+        for window in [7, 14, 20, 30, 60]:
             roll = grouped["price"].rolling(window, min_periods=1)
             df[f"price_mean_{window}d"] = roll.mean().reset_index(level=0, drop=True)
             df[f"price_std_{window}d"] = roll.std().reset_index(level=0, drop=True)
@@ -163,6 +163,17 @@ class ItemForecaster:
         mean_30 = df["price_mean_30d"]
         std_30 = df["price_std_30d"].replace(0, np.nan)
         df["price_zscore_30d"] = (df["price"] - mean_30) / std_30
+
+        # Long-term volatility regime: ratio of 60d to 30d volatility
+        # Values > 1 mean volatility is rising, < 1 mean it's falling.
+        vol_30 = df["price_std_30d"].replace(0, np.nan)
+        vol_60 = df["price_std_60d"].replace(0, np.nan)
+        df["vol_regime_60_30"] = vol_60 / vol_30
+
+        # Trend divergence: ratio of 30d return to 60d return.
+        # Shows whether short-term momentum agrees with long-term trend.
+        df["trend_divergence_30_60"] = (df.get("return_30d", pd.Series(np.nan, index=df.index)) /
+                                        df.get("return_60d", pd.Series(np.nan, index=df.index)).replace(0, np.nan))
 
         # Price acceleration (2nd derivative)
         df["price_accel_7d"] = df["return_7d"] - df["return_7d"].groupby(df["item_id"]).shift(7)
@@ -238,6 +249,12 @@ class ItemForecaster:
             df["volume_std_30d"] = grouped["volume"].rolling(
                 30, min_periods=1
             ).std().reset_index(level=0, drop=True)
+            df["volume_mean_60d"] = grouped["volume"].rolling(
+                60, min_periods=1
+            ).mean().reset_index(level=0, drop=True)
+            df["volume_std_60d"] = grouped["volume"].rolling(
+                60, min_periods=1
+            ).std().reset_index(level=0, drop=True)
 
             # Log-ratio volume change (avoids division-by-zero issues)
             vol_lag_1 = df["volume_lag_1d"].replace(0, np.nan)
@@ -257,6 +274,7 @@ class ItemForecaster:
         else:
             for col in ["volume_lag_1d", "volume_lag_7d", "volume_mean_7d",
                         "volume_mean_30d", "volume_std_30d",
+                        "volume_mean_60d", "volume_std_60d",
                         "volume_log_change_1d", "volume_log_change_7d",
                         "volume_zscore_30d", "volume_price_conf_7d",
                         "volume_price_conf_1d"]:
@@ -408,14 +426,26 @@ class ItemForecaster:
             return self.feature_cols
 
         corr = df[self.feature_cols].corr().abs()
-        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+
+        # Find all pairs with correlation above threshold using the stacked
+        # (melted) correlation matrix. Each unordered pair appears twice in
+        # the stack; we deduplicate by index order.
+        stacked = corr.stack()
+        high_pairs = stacked[
+            (stacked > self.PRUNE_CORRELATION_THRESHOLD)
+            & (stacked.index.get_level_values(0) != stacked.index.get_level_values(1))
+        ]
 
         to_drop = set()
-        for col in upper.columns:
-            if col in to_drop:
+        feature_index = {name: i for i, name in enumerate(self.feature_cols)}
+        for feat_a, feat_b in high_pairs.index:
+            if feat_a in to_drop or feat_b in to_drop:
                 continue
-            highly_correlated = upper[col][upper[col] > self.PRUNE_CORRELATION_THRESHOLD].index
-            to_drop.update(highly_correlated)
+            # Keep the earlier feature (lower index), drop the later one
+            if feature_index[feat_a] < feature_index[feat_b]:
+                to_drop.add(feat_b)
+            else:
+                to_drop.add(feat_a)
 
         pruned = [c for c in self.feature_cols if c not in to_drop]
         if pruned != self.feature_cols:
@@ -517,14 +547,17 @@ class ItemForecaster:
         # days later, rather than shifting rows. Row-based shift gives
         # incorrect horizons when item data has gaps.
         df["_date_dt"] = pd.to_datetime(df["date"])
-        df["_target_dt"] = df["_date_dt"] + pd.Timedelta(days=horizon)
-        df["_target_date"] = df["_target_dt"].dt.date
 
-        future = df[["item_id", "_target_date", "price"]].rename(
-            columns={"_target_date": "date", "price": f"target_{horizon}d"}
-        )
+        # Shift each row's price BACKWARD by horizon so it becomes the
+        # target for the row `horizon` days earlier. E.g., the row at
+        # date=Jan 8 with price=P becomes target=P for the row at date=Jan 1.
+        future = df[["item_id", "_date_dt", "price"]].copy()
+        future.columns = ["item_id", "date", f"target_{horizon}d"]
+        future["date"] = future["date"] - pd.Timedelta(days=horizon)
+        future["date"] = future["date"].dt.date
+
         df = df.merge(future, on=["item_id", "date"], how="left")
-        df = df.drop(columns=["_date_dt", "_target_dt", "_target_date"])
+        df = df.drop(columns=["_date_dt"])
 
         df[f"target_return_{horizon}d"] = (
             (df[f"target_{horizon}d"] - df["price"]) / df["price"].replace(0, np.nan) * 100
@@ -583,7 +616,7 @@ class ItemForecaster:
         logger.info("TRAINING LIGHTGBM FORECASTER (ensemble, HP search, walk-forward)")
         logger.info("=" * 60)
 
-        df, targets_by_horizon = self.build_training_data(days_back=365, backfilled_only=True)
+        df, targets_by_horizon = self.build_training_data(days_back=730, backfilled_only=True)
 
         for horizon in self.HORIZONS:
             tdf = targets_by_horizon[horizon]
@@ -712,9 +745,28 @@ class ItemForecaster:
                 df[col] = np.nan
         df = df[self.feature_cols + [c for c in df.columns if c not in self.feature_cols]]
 
-        # Get latest feature row per item
+        # Use median of last 3 days for current_price to filter spike artifacts.
+        # Prediction features still come from the latest row (rolling windows
+        # inside the features already provide smoothing), but the base price
+        # used to convert percentage returns into dollar amounts is more
+        # robust when averaged over a short window.
         df = df.sort_values(["item_id", "date"])
+
+        # Compute the median price over the last 3 days per item
+        last_3 = df.groupby("item_id").tail(3)
+        smoothed_price = last_3.groupby("item_id")["price"].median().to_frame("_smoothed_price")
+
+        # Detect outliers: log when latest price deviates > 10% from 3d median
         latest_rows = df.groupby("item_id").last().reset_index()
+        latest_rows = latest_rows.merge(smoothed_price, left_on="item_id", right_index=True, how="left")
+        outlier_mask = (latest_rows["_smoothed_price"] > 0) & (
+            abs(latest_rows["price"] - latest_rows["_smoothed_price"]) / latest_rows["_smoothed_price"] > 0.10
+        )
+        n_outliers = outlier_mask.sum()
+        if n_outliers:
+            logger.warning(f"  {n_outliers} items have latest price >10% from 3d median — using smoothed price")
+        latest_rows["price"] = latest_rows["_smoothed_price"].fillna(latest_rows["price"])
+        latest_rows = latest_rows.drop(columns=["_smoothed_price"])
 
         if item_ids:
             latest_rows = latest_rows[latest_rows["item_id"].isin(item_ids)]
@@ -770,16 +822,36 @@ class ItemForecaster:
             p90_ret = preds[0.9]
 
             # Ensure quantile monotonicity without scrambling model identities.
-            # The median model (0.5) is kept as-is; low/high are clamped to
-            # guarantee p10 <= p50 <= p90.
-            low_ret_arr = np.minimum(p10_ret, p50_ret)
-            high_ret_arr = np.maximum(p50_ret, p90_ret)
+            # For items where quantiles cross (p10 > p50 or p50 > p90), we
+            # preserve a non-zero interval width by imputing the average
+            # half-width from well-behaved items. This avoids collapsing the
+            # prediction interval to a point (which clamping alone would do).
+            crossing_mask = (p10_ret > p50_ret) | (p50_ret > p90_ret)
+            non_crossing = ~crossing_mask
+
+            low_ret_arr = np.where(crossing_mask, p50_ret, p10_ret)
+            high_ret_arr = np.where(crossing_mask, p50_ret, p90_ret)
+
+            if non_crossing.any():
+                # Average half-width of non-crossing items (in percentage points)
+                avg_half_width = np.mean([
+                    np.mean(p50_ret[non_crossing] - p10_ret[non_crossing]),
+                    np.mean(p90_ret[non_crossing] - p50_ret[non_crossing]),
+                ])
+                # Apply symmetric interval to crossing items using the average width
+                if avg_half_width > 0:
+                    low_ret_arr[crossing_mask] = p50_ret[crossing_mask] - avg_half_width
+                    high_ret_arr[crossing_mask] = p50_ret[crossing_mask] + avg_half_width
+
+            low_ret_arr = np.minimum(low_ret_arr, p50_ret)
+            high_ret_arr = np.maximum(high_ret_arr, p50_ret)
             mid_ret_arr = p50_ret
 
             # Diagnostic: log crossing rate
-            crossing_rate = np.mean((p10_ret > p50_ret) | (p50_ret > p90_ret))
+            crossing_rate = np.mean(crossing_mask)
             if crossing_rate > 0.01:
-                logger.warning(f"  Quantile crossing rate: {crossing_rate:.3f}")
+                logger.warning(f"  Quantile crossing rate: {crossing_rate:.3f} "
+                               f"(imputed avg_half_width={avg_half_width:.2f}pp)")
 
             for i, iid in enumerate(item_id_arr):
                 low_ret, mid_ret, high_ret = (float(low_ret_arr[i]),
@@ -855,9 +927,14 @@ class ItemForecaster:
         """Calibrate confidence thresholds from validation set predictions.
 
         Binary confidence (high/low only):
-        - "high" confidence achieves >= 75% directional accuracy
-        - everything else is "low"
+        - Finds a range_pct threshold where high-confidence predictions achieve
+          >= target_accuracy (default 80%) while maximizing coverage.
+        - A change_pct floor prevents marking near-zero-move predictions as
+          "high" confidence (they're correct but uninformative).
         """
+        target_accuracy = 0.80
+        min_coverage_pct = 0.05
+
         p50_pred = self._get_ensemble_prediction(horizon, 0.5, X_val.values)
         p10_pred = self._get_ensemble_prediction(horizon, 0.1, X_val.values)
         p90_pred = self._get_ensemble_prediction(horizon, 0.9, X_val.values)
@@ -867,11 +944,27 @@ class ItemForecaster:
         current_prices = val_set["price"].values
         actual_returns = y_val.values
 
+        # Apply the same crossing-aware monotonicity correction for calibration
+        crossing_mask_cal = (p10_pred > p50_pred) | (p50_pred > p90_pred)
+        non_crossing_cal = ~crossing_mask_cal
+        low_pred = np.minimum(p10_pred, p50_pred)
+        high_pred = np.maximum(p90_pred, p50_pred)
+        if non_crossing_cal.any():
+            avg_half_width_cal = np.mean([
+                np.mean(p50_pred[non_crossing_cal] - p10_pred[non_crossing_cal]),
+                np.mean(p90_pred[non_crossing_cal] - p50_pred[non_crossing_cal]),
+            ])
+            if avg_half_width_cal > 0:
+                low_pred[crossing_mask_cal] = p50_pred[crossing_mask_cal] - avg_half_width_cal
+                high_pred[crossing_mask_cal] = p50_pred[crossing_mask_cal] + avg_half_width_cal
+        low_pred = np.minimum(low_pred, p50_pred)
+        high_pred = np.maximum(high_pred, p50_pred)
+
         records = []
         for i in range(len(val_set)):
             mid_ret = float(p50_pred[i])
-            low_ret = float(min(p10_pred[i], p50_pred[i]))
-            high_ret = float(max(p50_pred[i], p90_pred[i]))
+            low_ret = float(low_pred[i])
+            high_ret = float(high_pred[i])
             curr = float(current_prices[i])
             actual_ret = float(actual_returns[i])
 
@@ -899,24 +992,44 @@ class ItemForecaster:
 
         df = pd.DataFrame(records)
 
-        # Find optimal range_pct threshold for high confidence (binary)
+        # Find the widest range_pct threshold where accuracy >= target.
+        # Wider threshold = more items get "high" confidence → better coverage.
+        # This is the opposite of the old approach (which maximized accuracy).
         thresholds = sorted(df["range_pct"].quantile([i / 20 for i in range(1, 20)]).unique())
 
         best_high_threshold = 0.15
         best_high_acc = 0.0
+        best_high_coverage = 0
 
         for t in thresholds:
             subset = df[df["range_pct"] < t]
-            if len(subset) >= max(50, len(df) * 0.05):
+            if len(subset) >= max(50, len(df) * min_coverage_pct):
                 acc = subset["hit"].mean()
-                if acc >= 0.75 and acc > best_high_acc:
+                coverage = len(subset)
+                # Pick the threshold with the most coverage that meets the target
+                if acc >= target_accuracy and coverage > best_high_coverage:
                     best_high_threshold = t
                     best_high_acc = acc
+                    best_high_coverage = coverage
 
-        # Find change_pct threshold that further improves high confidence
+        # If no threshold meets target_accuracy, fall back to the highest accuracy
+        # that still covers at least 5% of items.
+        if best_high_coverage == 0:
+            for t in thresholds:
+                subset = df[df["range_pct"] < t]
+                if len(subset) >= max(50, len(df) * min_coverage_pct):
+                    acc = subset["hit"].mean()
+                    coverage = len(subset)
+                    if coverage > best_high_coverage or (coverage == best_high_coverage and acc > best_high_acc):
+                        best_high_threshold = t
+                        best_high_acc = acc
+                        best_high_coverage = coverage
+
+        # Find change_pct threshold that filters near-zero-move predictions
+        # (which are trivially correct but uninformative).
         best_change_threshold = 0.0
-        best_change_acc = best_high_acc
-        if best_high_threshold > 0:
+        best_change_coverage = best_high_coverage
+        if best_high_coverage > 0:
             high_set = df[df["range_pct"] < best_high_threshold]
             if len(high_set) > 0:
                 change_thresholds = sorted(high_set["change_pct"].quantile(
@@ -925,31 +1038,28 @@ class ItemForecaster:
                     subset = high_set[high_set["change_pct"] > ct]
                     if len(subset) >= max(20, len(high_set) * 0.3):
                         acc = subset["hit"].mean()
-                        if acc > best_change_acc:
+                        coverage = len(subset)
+                        # Accept the change_pct threshold if accuracy stays >= target
+                        if acc >= target_accuracy and coverage >= best_high_coverage * 0.5:
                             best_change_threshold = ct
-                            best_change_acc = acc
+                            best_change_coverage = coverage
 
-                self.confidence_thresholds[horizon] = {
-                    "high_range": best_high_threshold,
-                    "high_change": best_change_threshold,
-                    "high_accuracy": round(best_change_acc * 100, 1),
-                }
-        else:
-            self.confidence_thresholds[horizon] = {
-                "high_range": 0.15,
-                "high_change": 0.0,
-                "high_accuracy": 0.0,
-            }
+        self.confidence_thresholds[horizon] = {
+            "high_range": best_high_threshold,
+            "high_change": best_change_threshold,
+            "high_accuracy": round(best_high_acc * 100, 1),
+        }
 
         th = self.confidence_thresholds[horizon]
         logger.info(
             f"  Calibrated (binary): high_range={th['high_range']:.3f} "
-            f"(acc={th['high_accuracy']:.1f}%)"
+            f"(acc={th['high_accuracy']:.1f}%, "
+            f"coverage={best_high_coverage / len(df) * 100:.1f}%)"
         )
 
     def _compute_confidence(self, mid: float, low: float, high: float, current: float,
                              horizon: int = 7) -> str:
-        """Binary confidence: high (narrow prediction interval) or low."""
+        """Binary confidence: high (tight interval, non-trivial move) or low."""
         if mid == 0 or current == 0:
             return "low"
         range_pct = (high - low) / mid

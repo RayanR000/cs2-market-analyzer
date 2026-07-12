@@ -6,7 +6,7 @@ forecasts to the item_forecasts table.
 
 Usage:
     python scripts/forecast_prices.py          # train + predict
-    python scripts/forecast_prices.py --predict-only  # skip training, use saved models
+    python scripts/forecast_prices.py --predict-only  # use saved models (auto-retrain on drift)
     python scripts/forecast_prices.py --train-only     # train models only, skip forecasts
 """
 
@@ -62,17 +62,43 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
             logger.error("No models available for prediction.")
             return {"status": "error", "message": "No trained models"}
 
+        # Drift-triggered auto-retrain: check if any horizon has drifted.
+        # When drift is detected outside of Monday (which always retrains),
+        # we retrain immediately so predictions use a fresh model.
+        if predict_only and has_models:
+            drifted_horizons = []
+            for h in ItemForecaster.HORIZONS:
+                drift_result = forecaster.check_concept_drift(
+                    horizon=h, sliding_window=7, threshold=60.0
+                )
+                if drift_result and drift_result.get("drifted"):
+                    drifted_horizons.append(h)
+            if drifted_horizons:
+                logger.warning(
+                    f"Drift detected for horizons {drifted_horizons} — "
+                    f"triggering auto-retrain before prediction."
+                )
+                forecaster.train(max_rows=200_000)
+                has_models = True
+                try:
+                    db.close()
+                except Exception:
+                    pass
+                db = SessionLocal()
+                forecaster.db = db
+
         results = forecaster.predict()
 
         if results.empty:
             logger.warning("No forecast results generated.")
             return {"status": "empty", "forecast_count": 0}
 
-        # Map item slugs (strings from Parquet) to integer IDs from the DB
+        # Map item slugs (strings from Parquet) to integer IDs from the DB.
+        # Parquet uses items.item_id (the stable hash name) as the slug key.
         slug_rows = db.execute(
-            text("SELECT id, name FROM items WHERE is_backfilled = 1")
+            text("SELECT id, item_id FROM items WHERE is_backfilled = 1")
         ).fetchall()
-        slug_to_id = {r.name: r.id for r in slug_rows}
+        slug_to_id = {r.item_id: r.id for r in slug_rows}
         logger.info(f"Loaded {len(slug_to_id)} slug→ID mappings from DB")
 
         # Write forecasts to DB

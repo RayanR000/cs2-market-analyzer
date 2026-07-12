@@ -151,7 +151,7 @@ def run_walkforward_evaluation(max_items=500):
             mae_count = 0
             interval_hits = 0
             interval_total = 0
-            all_metrics = []
+            per_fold = []  # list of dicts: {fold_id, dir_acc, mae, int_cov, n}
 
             VAL_WINDOW_DAYS = 21
             step = 60
@@ -235,14 +235,32 @@ def run_walkforward_evaluation(max_items=500):
                 p50_ret = models[0.5]
                 p90_ret = models[0.9]
 
-                # Ensure quantile monotonicity without scrambling model identities
+                # Ensure quantile monotonicity without scrambling model identities.
+                # For crossing items, impute the average half-width from well-behaved items.
+                crossing_mask_eval = (p10_ret > p50_ret) | (p50_ret > p90_ret)
+                non_crossing_eval = ~crossing_mask_eval
                 low_ret_arr = np.minimum(p10_ret, p50_ret)
                 high_ret_arr = np.maximum(p50_ret, p90_ret)
+                if non_crossing_eval.any():
+                    avg_hw = np.mean([
+                        np.mean(p50_ret[non_crossing_eval] - p10_ret[non_crossing_eval]),
+                        np.mean(p90_ret[non_crossing_eval] - p50_ret[non_crossing_eval]),
+                    ])
+                    if avg_hw > 0:
+                        low_ret_arr[crossing_mask_eval] = p50_ret[crossing_mask_eval] - avg_hw
+                        high_ret_arr[crossing_mask_eval] = p50_ret[crossing_mask_eval] + avg_hw
+                low_ret_arr = np.minimum(low_ret_arr, p50_ret)
+                high_ret_arr = np.maximum(high_ret_arr, p50_ret)
                 mid_ret_arr = p50_ret
 
                 current_prices = val_df["price"].values
                 actual_returns = y_val.values
 
+                fold_hits = 0
+                fold_total = 0
+                fold_mae = 0.0
+                fold_int_hits = 0
+                fold_int_total = 0
                 for i in range(len(val_df)):
                     low_ret, mid_ret, high_ret = low_ret_arr[i], mid_ret_arr[i], high_ret_arr[i]
                     current_price = float(current_prices[i])
@@ -256,19 +274,35 @@ def run_walkforward_evaluation(max_items=500):
 
                     if pred_dir == actual_dir:
                         directional_hits += 1
+                        fold_hits += 1
                     directional_total += 1
+                    fold_total += 1
 
                     # MAE
                     future_price = current_price * (1 + mid_ret / 100)
-                    mae_total += abs(future_price - actual_future_price)
+                    abs_err = abs(future_price - actual_future_price)
+                    mae_total += abs_err
+                    fold_mae += abs_err
                     mae_count += 1
 
                     # Interval coverage
                     price_low = current_price * (1 + low_ret / 100)
                     price_high = current_price * (1 + high_ret / 100)
+                    fold_int_total += 1
                     interval_total += 1
                     if price_low <= actual_future_price <= price_high:
                         interval_hits += 1
+                        fold_int_hits += 1
+
+                per_fold.append({
+                    "fold": len(per_fold) + 1,
+                    "val_start": str(val_dates[0]),
+                    "val_end": str(val_dates[-1]),
+                    "dir_acc": round(fold_hits / fold_total * 100, 1) if fold_total > 0 else 0,
+                    "mae": round(fold_mae / fold_total, 4) if fold_total > 0 else 0,
+                    "int_cov": round(fold_int_hits / fold_int_total * 100, 1) if fold_int_total > 0 else 0,
+                    "n": fold_total,
+                })
 
                 if directional_total % 50000 == 0:
                     logger.info(f"      Step {window_end - split_idx}/{len(dates) - split_idx - 1}: "
@@ -280,15 +314,34 @@ def run_walkforward_evaluation(max_items=500):
                 mae = mae_total / mae_count if mae_count > 0 else 0
                 int_cov = interval_hits / interval_total * 100 if interval_total > 0 else 0
 
-                results_by_horizon[horizon] = {
+                # Per-fold stats
+                fold_accs = [f["dir_acc"] for f in per_fold]
+                baseline_2class = 50.0
+                result = {
                     "directional_accuracy": round(dir_acc, 2),
                     "mae": round(mae, 4),
                     "interval_coverage": round(int_cov, 2),
                     "sample_count": directional_total,
+                    "effective_baseline": baseline_2class,
+                    "fold_count": len(per_fold),
+                    "fold_mean_dir_acc": round(np.mean(fold_accs), 1) if fold_accs else 0,
+                    "fold_std_dir_acc": round(np.std(fold_accs), 1) if len(fold_accs) > 1 else 0,
+                    "fold_min_dir_acc": round(min(fold_accs), 1) if fold_accs else 0,
+                    "fold_max_dir_acc": round(max(fold_accs), 1) if fold_accs else 0,
+                    "per_fold": per_fold,
                 }
+                # Improve-over-baseline (2-class, since "flat" is essentially never the actual direction)
+                result["improvement_over_baseline_pp"] = round(dir_acc - baseline_2class, 1)
+
+                results_by_horizon[horizon] = result
 
                 logger.info(f"\n  === {horizon}d Results ===")
                 logger.info(f"  Directional Accuracy: {dir_acc:.1f}% ({directional_total:,} samples)")
+                logger.info(f"  Effective baseline: {baseline_2class:.0f}% (2-class: flat is never actual)")
+                logger.info(f"  Improvement: {result['improvement_over_baseline_pp']:.1f}pp")
+                logger.info(f"  Per-fold: mean={result['fold_mean_dir_acc']:.1f}% "
+                            f"sd={result['fold_std_dir_acc']:.1f}% "
+                            f"range=[{result['fold_min_dir_acc']:.1f}%, {result['fold_max_dir_acc']:.1f}%]")
                 logger.info(f"  MAE: ${mae:.2f}")
                 logger.info(f"  Interval Coverage: {int_cov:.1f}%")
 
