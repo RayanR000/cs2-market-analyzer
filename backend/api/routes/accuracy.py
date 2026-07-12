@@ -1,5 +1,5 @@
 """
-Accuracy metrics API — serves backtest results for all prediction/analysis types.
+Accuracy metrics API — serves backtest results and per-forecast outcomes.
 """
 
 from typing import Optional
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from datetime import date
 
-from database import get_db, PredictionAccuracy
+from database import get_db, PredictionAccuracy, ForecastOutcome
 
 router = APIRouter(prefix="/accuracy", tags=["accuracy"])
 
@@ -101,3 +101,99 @@ def get_accuracy_summary(
     # Return as list sorted by type
     result = sorted(summary.values(), key=lambda x: x["prediction_type"])
     return result
+
+
+# ---------------------------------------------------------------------------
+# Per-forecast outcomes
+# ---------------------------------------------------------------------------
+
+def _outcome_to_dict(o: ForecastOutcome) -> dict:
+    return {
+        "id": o.id,
+        "forecast_id": o.forecast_id,
+        "item_id": o.item_id,
+        "forecast_date": o.forecast_date.isoformat() if o.forecast_date else None,
+        "horizon_days": o.horizon_days,
+        "target_date": o.target_date.isoformat() if o.target_date else None,
+        "current_price": o.current_price,
+        "predicted_price_mid": o.predicted_price_mid,
+        "actual_price": o.actual_price,
+        "direction_predicted": o.direction_predicted,
+        "direction_actual": o.direction_actual,
+        "direction_correct": bool(o.direction_correct),
+        "in_interval": bool(o.in_interval) if o.in_interval is not None else None,
+        "abs_error": o.abs_error,
+        "pct_error": o.pct_error,
+        "model_version": o.model_version,
+        "evaluated_at": o.evaluated_at.isoformat() if o.evaluated_at else None,
+    }
+
+
+@router.get("/outcomes")
+def list_outcomes(
+    item_id: Optional[int] = Query(None),
+    horizon_days: Optional[int] = Query(None),
+    correct: Optional[bool] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Query individual forecast outcomes — was each prediction right or wrong?"""
+    q = db.query(ForecastOutcome).order_by(desc(ForecastOutcome.evaluated_at))
+    if item_id is not None:
+        q = q.filter(ForecastOutcome.item_id == item_id)
+    if horizon_days is not None:
+        q = q.filter(ForecastOutcome.horizon_days == horizon_days)
+    if correct is not None:
+        q = q.filter(ForecastOutcome.direction_correct == (1 if correct else 0))
+    rows = q.limit(limit).all()
+    return [_outcome_to_dict(r) for r in rows]
+
+
+@router.get("/outcomes/stats")
+def outcome_stats(
+    db: Session = Depends(get_db),
+):
+    """Aggregated stats from forecast outcomes — accuracy, error distribution."""
+    from sqlalchemy import func
+
+    total = db.query(func.count(ForecastOutcome.id)).scalar() or 0
+    if total == 0:
+        return {"total_outcomes": 0}
+
+    correct = db.query(func.count(ForecastOutcome.id)).filter(
+        ForecastOutcome.direction_correct == 1
+    ).scalar() or 0
+
+    avg_error = db.query(func.avg(ForecastOutcome.abs_error)).scalar() or 0
+    avg_pct = db.query(func.avg(ForecastOutcome.pct_error)).scalar() or 0
+
+    # Per-horizon breakdown
+    from sqlalchemy import text
+    per_horizon = db.execute(text("""
+        SELECT horizon_days,
+               COUNT(*) AS total,
+               SUM(direction_correct) AS correct,
+               ROUND(AVG(abs_error), 4) AS avg_abs_error,
+               ROUND(AVG(pct_error), 2) AS avg_pct_error
+        FROM forecast_outcomes
+        GROUP BY horizon_days
+        ORDER BY horizon_days
+    """)).fetchall()
+
+    return {
+        "total_outcomes": total,
+        "overall_accuracy": round(correct / total * 100, 2) if total > 0 else 0,
+        "mean_abs_error": round(avg_error, 4),
+        "mean_pct_error": round(avg_pct, 2),
+        "per_horizon": [
+            {
+                "horizon_days": r.horizon_days,
+                "total": r.total,
+                "correct": r.correct,
+                "accuracy": round(r.correct / r.total * 100, 2) if r.total > 0 else 0,
+                "avg_abs_error": r.avg_abs_error,
+                "avg_pct_error": r.avg_pct_error,
+            }
+            for r in per_horizon
+        ],
+    }

@@ -99,8 +99,52 @@ def _load_actual_prices(db, item_ids, dates):
 # 1. Forecast backtesting
 # ---------------------------------------------------------------------------
 
+def _store_forecast_outcomes(db, outcomes):
+    """Bulk insert per-forecast outcome records.
+
+    Replaces any existing outcome for the same forecast_id (so re-running
+    backtest updates rather than duplicates).
+    """
+    if not outcomes:
+        return
+    from database import ForecastOutcome
+
+    existing_ids = {
+        r[0] for r in db.query(ForecastOutcome.forecast_id)
+        .filter(ForecastOutcome.forecast_id.in_([o["forecast_id"] for o in outcomes]))
+        .all()
+    }
+
+    to_insert = []
+    to_update = []
+    for o in outcomes:
+        o["evaluated_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
+        if o["forecast_id"] in existing_ids:
+            to_update.append(o)
+        else:
+            to_insert.append(ForecastOutcome(**o))
+
+    # Update existing records
+    if to_update:
+        for o in to_update:
+            db.query(ForecastOutcome).filter(
+                ForecastOutcome.forecast_id == o["forecast_id"]
+            ).update(o)
+
+    # Insert new records
+    if to_insert:
+        db.add_all(to_insert)
+
+    db.commit()
+    logger.info(f"  Stored {len(outcomes)} forecast outcome records ({len(to_insert)} new, {len(to_update)} updated)")
+
+
 def backtest_forecasts(db, today=None):
-    """Compare mature ML forecasts against actual prices."""
+    """Compare mature ML forecasts against actual prices.
+
+    Stores both aggregate accuracy metrics (prediction_accuracy) and
+    per-forecast outcome records (forecast_outcomes).
+    """
     today = today or date.today()
     logger.info("=" * 60)
     logger.info("BACKTEST: ML Forecasts")
@@ -135,6 +179,7 @@ def backtest_forecasts(db, today=None):
         groups[key].append(r)
 
     results = []
+    all_outcomes = []
     for (horizon, model_version), forecasts in sorted(groups.items()):
         target_dates = set()
         item_ids = set()
@@ -175,19 +220,43 @@ def backtest_forecasts(db, today=None):
 
             actual_direction = "up" if actual > current else "down" if actual < current else "flat"
             predicted_direction = f.direction or "flat"
-            if predicted_direction == actual_direction:
+            direction_correct = 1 if predicted_direction == actual_direction else 0
+            if direction_correct:
                 directional_hits += 1
             directional_total += 1
 
+            in_interval = None
             if low is not None and high is not None:
-                if low <= actual <= high:
+                in_interval = 1 if low <= actual <= high else 0
+                if in_interval:
                     interval_hits += 1
                 interval_total += 1
 
             conf = f.confidence or "low"
-            if predicted_direction == actual_direction:
+            if direction_correct:
                 confidence_buckets[conf]["hits"] += 1
             confidence_buckets[conf]["total"] += 1
+
+            # Record per-forecast outcome
+            all_outcomes.append({
+                "forecast_id": f.id,
+                "item_id": f.item_id,
+                "forecast_date": f.forecast_date,
+                "horizon_days": horizon,
+                "target_date": target_date,
+                "current_price": current,
+                "predicted_price_low": low,
+                "predicted_price_mid": mid,
+                "predicted_price_high": high,
+                "actual_price": actual,
+                "direction_predicted": predicted_direction,
+                "direction_actual": actual_direction,
+                "direction_correct": direction_correct,
+                "in_interval": in_interval,
+                "abs_error": round(abs_error, 4),
+                "pct_error": round(pct_error, 2),
+                "model_version": model_version,
+            })
 
         if not errors:
             logger.info(f"  [{horizon}d / {model_version}] No valid comparisons")
@@ -235,6 +304,10 @@ def backtest_forecasts(db, today=None):
     if results:
         _upsert_accuracy(db, results)
         logger.info(f"  Stored {len(results)} forecast accuracy records")
+
+    if all_outcomes:
+        _store_forecast_outcomes(db, all_outcomes)
+
     return results
 
 
