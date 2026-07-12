@@ -1,6 +1,6 @@
 """
 LightGBM-based price forecaster for CS2 items.
-Trains quantile regression models for 7d and 30d horizons,
+Trains quantile regression models for 1d, 7d and 30d horizons,
 using price history, technical indicators, events, and item metadata.
 """
 
@@ -39,7 +39,8 @@ class ItemForecaster:
         self.model_dir = model_dir or str(Path(__file__).parent / "saved_models")
         self.models: Dict[Tuple[int, float], lgb.Booster] = {}
         self.feature_cols: List[str] = []
-        self.confidence_thresholds: Dict[str, float] = {}
+        # Per-horizon confidence thresholds: {horizon: {"high_range": ..., "high_change": ..., "high_accuracy": ...}}
+        self.confidence_thresholds: Dict[int, Dict[str, float]] = {}
         self.feature_medians: pd.Series = pd.Series(dtype=np.float64)
 
     # ------------------------------------------------------------------
@@ -795,7 +796,8 @@ class ItemForecaster:
                     "mid": price_mid,
                     "high": price_high,
                     "direction": "up" if mid_ret > 0 else "down" if mid_ret < 0 else "flat",
-                    "confidence": self._compute_confidence(price_mid, price_low, price_high, current_price),
+                    "confidence": self._compute_confidence(price_mid, price_low, price_high,
+                                                            current_price, horizon=horizon),
                 }
 
         result_df = pd.DataFrame([r for r in agg.values() if r["forecasts"]])
@@ -926,33 +928,36 @@ class ItemForecaster:
                             best_change_threshold = ct
                             best_change_acc = acc
 
-                self.confidence_thresholds = {
+                self.confidence_thresholds[horizon] = {
                     "high_range": best_high_threshold,
                     "high_change": best_change_threshold,
                     "high_accuracy": round(best_change_acc * 100, 1),
                 }
         else:
-            self.confidence_thresholds = {
+            self.confidence_thresholds[horizon] = {
                 "high_range": 0.15,
                 "high_change": 0.0,
                 "high_accuracy": 0.0,
             }
 
+        th = self.confidence_thresholds[horizon]
         logger.info(
-            f"  Calibrated (binary): high_range={self.confidence_thresholds['high_range']:.3f} "
-            f"(acc={self.confidence_thresholds['high_accuracy']:.1f}%)"
+            f"  Calibrated (binary): high_range={th['high_range']:.3f} "
+            f"(acc={th['high_accuracy']:.1f}%)"
         )
 
-    def _compute_confidence(self, mid: float, low: float, high: float, current: float) -> str:
+    def _compute_confidence(self, mid: float, low: float, high: float, current: float,
+                             horizon: int = 7) -> str:
         """Binary confidence: high (narrow prediction interval) or low."""
         if mid == 0 or current == 0:
             return "low"
         range_pct = (high - low) / mid
         change_pct = abs(mid - current) / current
 
-        # Use calibrated thresholds if available, fall back to sensible defaults
-        high_range = self.confidence_thresholds.get("high_range", 0.15)
-        high_change = self.confidence_thresholds.get("high_change", 0.0)
+        # Use per-horizon calibrated thresholds if available, fall back to sensible defaults
+        h_thresholds = self.confidence_thresholds.get(horizon, {})
+        high_range = h_thresholds.get("high_range", 0.15)
+        high_change = h_thresholds.get("high_change", 0.0)
 
         if range_pct < high_range and change_pct > high_change:
             return "high"
@@ -1046,15 +1051,19 @@ class ItemForecaster:
                 ensemble.save_model(path)
 
         # Save feature columns, calibration thresholds, and imputation medians
-        thresholds = {k: float(v) if isinstance(v, (np.floating, np.integer)) else v
-                      for k, v in self.confidence_thresholds.items()}
+        thresholds_serial = {}
+        for horizon, th in self.confidence_thresholds.items():
+            thresholds_serial[str(horizon)] = {
+                k: float(v) if isinstance(v, (np.floating, np.integer)) else v
+                for k, v in th.items()
+            }
         medians = self.feature_medians.to_dict() if not self.feature_medians.empty else {}
         medians_serial = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
                           for k, v in medians.items()}
         meta = {
             "feature_cols": self.feature_cols,
             "trained_at": str(self._now()),
-            "confidence_thresholds": thresholds,
+            "confidence_thresholds": thresholds_serial,
             "feature_medians": medians_serial,
             "n_ensembles": self.N_ENSEMBLES,
         }
@@ -1072,8 +1081,21 @@ class ItemForecaster:
         with open(meta_path) as f:
             meta = json.load(f)
         self.feature_cols = meta["feature_cols"]
-        self.confidence_thresholds = meta.get("confidence_thresholds", {})
         self.feature_medians = pd.Series(meta.get("feature_medians", {}), dtype=np.float64)
+
+        # Load per-horizon confidence thresholds (backward compat: treat flat dict as 7d)
+        raw_thresholds = meta.get("confidence_thresholds", {})
+        self.confidence_thresholds = {}
+        if raw_thresholds:
+            first_key = next(iter(raw_thresholds))
+            if isinstance(first_key, str) and first_key.lstrip("-").isdigit():
+                # New nested format: {"7": {"high_range": ..., ...}, "30": {...}}
+                for h_str, th in raw_thresholds.items():
+                    self.confidence_thresholds[int(h_str)] = th
+            else:
+                # Legacy flat format: {"high_range": ..., ...} — assign to all horizons
+                for h in self.HORIZONS:
+                    self.confidence_thresholds[h] = dict(raw_thresholds)
         n_ensembles = meta.get("n_ensembles", 1)
 
         for horizon in self.HORIZONS:
