@@ -61,13 +61,12 @@ class ItemForecaster:
             try:
                 backfilled_slugs = None
                 if backfilled_only:
-                    backfilled_slugs = [
+                    backfilled_slugs = {
                         r[0] for r in con.sql(f"""
                             SELECT DISTINCT item_slug
                             FROM read_parquet('{archive_dir}/prices-*.parquet')
-                            WHERE source = 'STEAMCOMMUNITY'
                         """).fetchall()
-                    ]
+                    }
                 rows = con.sql(f"""
                     SELECT item_slug, day, mean_price AS price, volume
                     FROM read_parquet('{archive_dir}/prices-*.parquet')
