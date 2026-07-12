@@ -153,13 +153,16 @@ def run_walkforward_evaluation(max_items=500):
             interval_total = 0
             all_metrics = []
 
+            VAL_WINDOW_DAYS = 21
             step = 60
             for window_end in range(split_idx + 1, len(dates), step):
                 train_dates = dates[:window_end]
-                val_date = dates[window_end]
+                val_dates = dates[window_end:window_end + VAL_WINDOW_DAYS]
+                if len(val_dates) < 7:
+                    continue
 
                 train_df = tdf[tdf["date"].isin(train_dates)]
-                val_df = tdf[tdf["date"] == val_date]
+                val_df = tdf[tdf["date"].isin(val_dates)]
 
                 if len(val_df) < 50:
                     continue

@@ -40,6 +40,7 @@ class ItemForecaster:
         self.models: Dict[Tuple[int, float], lgb.Booster] = {}
         self.feature_cols: List[str] = []
         self.confidence_thresholds: Dict[str, float] = {}
+        self.feature_medians: pd.Series = pd.Series(dtype=np.float64)
 
     # ------------------------------------------------------------------
     # Data fetching
@@ -141,6 +142,12 @@ class ItemForecaster:
         for lag in [1, 3, 7, 14, 30]:
             col = f"price_lag_{lag}d"
             df[f"return_{lag}d"] = (df["price"] - df[col]) / df[col].replace(0, np.nan) * 100
+
+        # Winsorize extreme returns (>500%) which are likely data artifacts
+        for lag in [1, 3, 7, 14, 30]:
+            col = f"return_{lag}d"
+            if col in df.columns:
+                df[col] = df[col].clip(-500, 500)
 
         # Rolling statistics (min_periods=1 so items with short history get partial estimates)
         for window in [7, 14, 20, 30]:
@@ -261,11 +268,21 @@ class ItemForecaster:
 
     def _add_temporal_features(self, df: pd.DataFrame) -> pd.DataFrame:
         dates = pd.to_datetime(df["date"])
-        df["day_of_week"] = dates.dt.dayofweek
-        df["month"] = dates.dt.month
+        dow = dates.dt.dayofweek
+        month = dates.dt.month
+        doy = dates.dt.dayofyear
+        df["day_of_week"] = dow
+        df["month"] = month
         df["quarter"] = dates.dt.quarter
-        df["day_of_year"] = dates.dt.dayofyear
-        df["is_weekend"] = (dates.dt.dayofweek >= 5).astype(int)
+        df["day_of_year"] = doy
+        df["is_weekend"] = (dow >= 5).astype(int)
+
+        df["dow_sin"] = np.sin(2 * np.pi * dow / 7)
+        df["dow_cos"] = np.cos(2 * np.pi * dow / 7)
+        df["month_sin"] = np.sin(2 * np.pi * month / 12)
+        df["month_cos"] = np.cos(2 * np.pi * month / 12)
+        df["doy_sin"] = np.sin(2 * np.pi * doy / 366)
+        df["doy_cos"] = np.cos(2 * np.pi * doy / 366)
         if "item_id" in df.columns:
             item_first_date = df.groupby("item_id")["date"].transform("min")
             df["item_age_days"] = (pd.to_datetime(df["date"]) - pd.to_datetime(item_first_date)).dt.days
@@ -592,20 +609,19 @@ class ItemForecaster:
 
             logger.info(f"  {horizon}d: {len(train_set)} train, {len(val_set)} val")
 
-            # Per-feature median imputation (learned from train, applied to both)
-            train_features = train_set[self.feature_cols]
-            feature_medians = train_features.median()
-            X_train = train_features.fillna(feature_medians)
+            # Replace INF with NaN before imputation (division-by-zero artifacts)
+            X_train_pre = train_set[self.feature_cols].replace([np.inf, -np.inf], np.nan)
+            feature_medians = X_train_pre.median()
+            self.feature_medians = feature_medians
+            X_train = X_train_pre.fillna(feature_medians)
             y_train = train_set[f"target_return_{horizon}d"]
 
-            X_val = val_set[self.feature_cols].fillna(feature_medians)
+            X_val = val_set[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
             y_val = val_set[f"target_return_{horizon}d"]
 
-            # Bayesian hyperparameter search via Optuna
-            logger.info(f"  Searching hyperparameters for {horizon}d (Optuna)...")
-            best_params = self._optuna_search_params(X_train, y_train, X_val, y_val)
-
             for q in self.QUANTILES:
+                logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna)...")
+                best_params = self._optuna_search_params(X_train, y_train, X_val, y_val, quantile=q)
                 logger.info(f"Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
 
                 base_params = {
@@ -700,9 +716,15 @@ class ItemForecaster:
         if item_ids:
             latest_rows = latest_rows[latest_rows["item_id"].isin(item_ids)]
 
-        # Median imputation (use predefined medians, or compute from this batch)
-        feature_medians = latest_rows[self.feature_cols].median()
-        X_batch = latest_rows[self.feature_cols].fillna(feature_medians)
+        # Replace INF with NaN (division-by-zero artifacts), then median imputation
+        latest_clean = latest_rows[self.feature_cols].replace([np.inf, -np.inf], np.nan)
+        if not self.feature_medians.empty:
+            medians_aligned = self.feature_medians.reindex(self.feature_cols)
+            medians_aligned = medians_aligned.where(medians_aligned.notna(), latest_clean.median())
+            X_batch = latest_clean.fillna(medians_aligned)
+        else:
+            feature_medians = latest_clean.median()
+            X_batch = latest_clean.fillna(feature_medians)
 
         item_id_arr = latest_rows["item_id"].to_numpy()
         current_price_arr = latest_rows["price"].to_numpy()
@@ -776,7 +798,33 @@ class ItemForecaster:
                 }
 
         result_df = pd.DataFrame([r for r in agg.values() if r["forecasts"]])
+        if not result_df.empty:
+            result_df = self._sanitize_forecasts(result_df)
         logger.info(f"  Forecasts generated for {len(result_df)} items")
+        return result_df
+
+    def _sanitize_forecasts(self, result_df: pd.DataFrame) -> pd.DataFrame:
+        for h in self.HORIZONS:
+            for key in ["low", "mid", "high"]:
+                vals = np.array([r["forecasts"].get(h, {}).get(key, np.nan)
+                                 for r in result_df.to_dict("records")])
+                mask_bad = ~np.isfinite(vals) | (vals <= 0)
+                if mask_bad.any():
+                    current_prices = result_df["current_price"].values
+                    vals[mask_bad] = current_prices[mask_bad]
+                    for i in np.where(mask_bad)[0]:
+                        cf = result_df.iloc[i]["forecasts"][h]
+                        cf[key] = float(vals[i])
+                        cf["direction"] = "flat"
+                        cf["confidence"] = "low"
+        if "volume" in result_df.columns:
+            zero_vol = result_df["volume"].fillna(0) == 0
+            if zero_vol.any():
+                for h in self.HORIZONS:
+                    for i in np.where(zero_vol.values)[0]:
+                        cf = result_df.iloc[i]["forecasts"].get(h)
+                        if cf and cf.get("confidence") == "high":
+                            cf["confidence"] = "low"
         return result_df
 
     def predict_single(self, item_id: int) -> Dict[str, Any]:
@@ -994,13 +1042,17 @@ class ItemForecaster:
                 path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
                 ensemble.save_model(path)
 
-        # Save feature columns and calibration thresholds
+        # Save feature columns, calibration thresholds, and imputation medians
         thresholds = {k: float(v) if isinstance(v, (np.floating, np.integer)) else v
                       for k, v in self.confidence_thresholds.items()}
+        medians = self.feature_medians.to_dict() if not self.feature_medians.empty else {}
+        medians_serial = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
+                          for k, v in medians.items()}
         meta = {
             "feature_cols": self.feature_cols,
             "trained_at": str(self._now()),
             "confidence_thresholds": thresholds,
+            "feature_medians": medians_serial,
             "n_ensembles": self.N_ENSEMBLES,
         }
         with open(os.path.join(self.model_dir, "meta.json"), "w") as f:
@@ -1018,6 +1070,7 @@ class ItemForecaster:
             meta = json.load(f)
         self.feature_cols = meta["feature_cols"]
         self.confidence_thresholds = meta.get("confidence_thresholds", {})
+        self.feature_medians = pd.Series(meta.get("feature_medians", {}), dtype=np.float64)
         n_ensembles = meta.get("n_ensembles", 1)
 
         for horizon in self.HORIZONS:
