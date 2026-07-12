@@ -44,6 +44,15 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
                 logger.info("No saved models found, training from scratch...")
             forecaster.train(max_rows=200_000)
             has_models = True
+            # Training takes ~10 min and Supabase may drop idle connections.
+            # Refresh the DB session before prediction.
+            logger.info("Refreshing DB connection after training...")
+            try:
+                db.close()
+            except Exception:
+                pass  # stale connection, discard silently
+            db = SessionLocal()
+            forecaster.db = db
 
         if train_only:
             logger.info("Train-only mode, skipping forecast generation.")
@@ -134,7 +143,10 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
         return {"status": "error", "message": str(e)}
 
     finally:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def main():

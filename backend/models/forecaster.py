@@ -100,14 +100,27 @@ class ItemForecaster:
         return df
 
     def fetch_events(self) -> pd.DataFrame:
-        rows = self.db.execute(text("""
-            SELECT id, type, timestamp, description
-            FROM events
-            ORDER BY timestamp
-        """)).fetchall()
+        if hasattr(self, "_events_cache") and self._events_cache is not None:
+            return self._events_cache
+        try:
+            rows = self.db.execute(text("""
+                SELECT id, type, timestamp, description
+                FROM events
+                ORDER BY timestamp
+            """)).fetchall()
+        except Exception:
+            logger.warning("  DB connection lost, reconnecting...")
+            from database import SessionLocal
+            self.db = SessionLocal()
+            rows = self.db.execute(text("""
+                SELECT id, type, timestamp, description
+                FROM events
+                ORDER BY timestamp
+            """)).fetchall()
         df = pd.DataFrame(rows, columns=["id", "type", "timestamp", "description"])
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
+        self._events_cache = df
         logger.info(f"  events: {len(df)}")
         return df
 
