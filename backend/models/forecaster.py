@@ -814,7 +814,9 @@ class ItemForecaster:
                     current_prices = result_df["current_price"].values
                     vals[mask_bad] = current_prices[mask_bad]
                     for i in np.where(mask_bad)[0]:
-                        cf = result_df.iloc[i]["forecasts"][h]
+                        cf = result_df.iloc[i]["forecasts"].get(h)
+                        if cf is None:
+                            continue
                         cf[key] = float(vals[i])
                         cf["direction"] = "flat"
                         cf["confidence"] = "low"
