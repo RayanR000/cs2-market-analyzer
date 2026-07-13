@@ -627,3 +627,73 @@ class TestModelPersistence:
         f2.load_models()
         assert f2.confidence_thresholds[3]["high_range"] == 0.15
         assert f2.confidence_thresholds[7]["high_accuracy"] == 99.7
+
+    def test_save_load_cb_models(self, forecaster, tmp_path):
+        """CatBoost models round-trip through disk."""
+        forecaster.model_dir = str(tmp_path)
+        key = (3, 0.5)
+        from catboost import CatBoostRegressor
+        model = CatBoostRegressor(
+            loss_function="Quantile:alpha=0.5",
+            iterations=10,
+            verbose=False,
+            random_seed=42,
+        )
+        X = np.random.randn(20, 2)
+        y = np.random.randn(20)
+        model.fit(X, y, verbose=False)
+        forecaster.cb_models[key] = [model]
+        forecaster.feature_cols = ["a", "b"]
+        forecaster.save_models()
+        f2 = ItemForecaster(db_session=MagicMock(), model_dir=str(tmp_path))
+        f2.load_models()
+        assert key in f2.cb_models
+        assert len(f2.cb_models[key]) == 1
+
+
+# ---------------------------------------------------------------------------
+# CatBoost integration
+# ---------------------------------------------------------------------------
+
+class TestCatBoost:
+    def test_cb_model_trains(self, forecaster):
+        """CatBoost trains without error on synthetic data."""
+        from catboost import CatBoostRegressor
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = np.random.randn(100)
+        model = CatBoostRegressor(
+            loss_function="Quantile:alpha=0.5",
+            iterations=50,
+            verbose=False,
+            random_seed=42,
+        )
+        model.fit(X, y, verbose=False)
+        preds = model.predict(X)
+        assert len(preds) == 100
+        assert np.isfinite(preds).all()
+
+    def test_cb_quantile_monotonicity(self, forecaster):
+        """CatBoost p10 < p50 < p90 predictions should hold on average."""
+        from catboost import CatBoostRegressor
+        np.random.seed(42)
+        X = np.random.randn(100, 5)
+        y = np.random.randn(100)
+        preds = {}
+        for q, alpha in [(0.1, 0.1), (0.5, 0.5), (0.9, 0.9)]:
+            model = CatBoostRegressor(
+                loss_function=f"Quantile:alpha={alpha}",
+                iterations=50,
+                verbose=False,
+                random_seed=42,
+            )
+            model.fit(X, y, verbose=False)
+            preds[q] = model.predict(X)
+        # On average, p10 < p50 < p90
+        assert np.mean(preds[0.1]) < np.mean(preds[0.5])
+        assert np.mean(preds[0.5]) < np.mean(preds[0.9])
+
+    def test_cb_models_loaded_into_forecaster(self, forecaster):
+        """Forecaster should properly report has_models with CB models."""
+        forecaster.cb_models[(7, 0.5)] = ["dummy"]
+        assert forecaster.has_models() is True

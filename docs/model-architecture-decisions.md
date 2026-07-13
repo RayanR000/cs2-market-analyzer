@@ -21,7 +21,7 @@ Predictions are averaged across seeds per quantile. p10/p90 provide the interval
 | Quantiles | 3 (p10/p50/p90) | ✅ Keep | Minimal set for point prediction + confidence interval. Dropping p50 loses predictions; adding more doesn't help much. |
 | Horizons | 4 (3d, 7d, 14d, 30d) | ✅ Keep | 3d captures short-term momentum similar to 7d; 14d is a natural midpoint between 7 and 30. 1d was rejected for being too noisy. (Note: prior accuracy estimates of 87.7%/85.9% were from the buggy target-inversion era; genuine accuracy is ~59-61% for these horizons.) |
 | Confidence | Per-horizon binary (high/low) | ✅ Keep | Each horizon calibrates its own range_pct and change_pct thresholds from validation data. Stored as nested dict in meta.json. |
-| Model family | LightGBM only | ➕ Add CatBoost | Largest remaining lift opportunity. Different algorithm = different error patterns. Ensemble averaging across families typically gives +1-3pp. |
+| Model family | LightGBM + CatBoost | ✅ Done | CatBoost added Jul 2026. 2 CB ensembles per quantile, predictions averaged with 3 LGB ensembles. Fixed params (no HP search). |
 
 ## What Not To Do
 
@@ -68,6 +68,11 @@ After training, `_calibrate_confidence()` scans the validation set per horizon t
 | 14d | ✅ Added | Natural midpoint between 7 and 30. Many CS2 trade/demand cycles run ~2 weeks. The feature set already computes 14d rolling windows. |
 | 60d | ❌ Not yet | Would require more training data. The 30d model (65.8%) benefits from the 730d training window, but 60d would need even more data and richer long-term features. |
 
-## Future Consideration (do this after CatBoost)
+## Completed (Jul 2026)
 
-- **Expanding-window CV** — train on multiple expanding windows, average predictions across folds. Reduces sensitivity to any single validation window. Would replace the current single 21-day holdout.
+- **Expanding-window CV** — implemented 2026-07-13.
+- **CatBoost ensemble** — 2 CB models per quantile, averaged with LGB. Added 2026-07-13.
+
+## Future Considerations
+
+- None currently pending.
