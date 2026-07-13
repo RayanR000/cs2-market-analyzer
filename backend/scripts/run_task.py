@@ -101,6 +101,14 @@ def run_task(task_name):
             result = run_backtest(types=["historical"])
             print(f"RESULT: {result}")
 
+        elif task_name == "event_correlation":
+            logger.info("="*60)
+            logger.info("TASK: Event Correlation Analysis")
+            logger.info("="*60)
+            from scripts.event_correlation_analysis import run_analysis
+            result = run_analysis(days_back=90)
+            print(f"RESULT: {result}")
+
         else:
             logger.error(f"Unknown task: {task_name}")
             sys.exit(1)
@@ -141,7 +149,7 @@ def run_task(task_name):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python run_task.py <task_name>")
-        print("Tasks: aggregate, priority, trends, long_term_trends (deprecated), migrate, backtest, backtest_historical")
+        print("Tasks: aggregate, priority, trends, long_term_trends (deprecated), migrate, backtest, backtest_historical, event_correlation")
         sys.exit(1)
         
     run_task(sys.argv[1])

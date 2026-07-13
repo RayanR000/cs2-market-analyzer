@@ -1,11 +1,11 @@
 name: Price Forecast
 
 on:
-  # Chain off trend analysis instead of a separate cron: forecast features
-  # come from daily_analysis, and GitHub cron delays (often 1-3h) could
-  # otherwise run the forecast before the day's analysis has been written.
+  # Chain off the aggregator update: once prices are written, run forecasts.
+  # Previously chained off Daily Trend Analysis (removed Jul 2026 — ML
+  # forecasts are now the sole signal source).
   workflow_run:
-    workflows: ["Daily Trend Analysis"]
+    workflows: ["Aggregator Market Update"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -29,8 +29,7 @@ permissions:
 
 jobs:
   forecast:
-    # Skip when the upstream trend analysis failed — its daily_analysis
-    # output is this job's feature input.
+    # Skip when the upstream aggregator failed — forecasts need fresh prices.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 120
