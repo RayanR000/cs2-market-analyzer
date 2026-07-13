@@ -7,7 +7,7 @@ on:
     # and 5 weeks of collected data — extra same-day runs always returned
     # identical prices). 23:00 leaves buffer for upstream drift and Actions
     # cron delay, keeps timestamps on the same calendar day as the prices,
-    # and runs 4h before daily trend analysis (03:00 UTC) / forecast (04:00 UTC).
+    # and leaves time for the forecast chain (runs ~01:00 UTC).
     - cron: '0 23 * * *'
   workflow_dispatch: # Allow manual trigger
 

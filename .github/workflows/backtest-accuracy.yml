@@ -26,7 +26,8 @@ permissions:
 
 jobs:
   backtest:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Run on: manual trigger, chained from forecast, or standalone cron (08:00 UTC)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
