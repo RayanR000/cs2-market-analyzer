@@ -1171,12 +1171,36 @@ class ItemForecaster:
         medians = self.feature_medians.to_dict() if not self.feature_medians.empty else {}
         medians_serial = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
                           for k, v in medians.items()}
+        # Compute feature importance for each horizon (average over quantiles/ensembles)
+        feature_importance = {}
+        for horizon in self.HORIZONS:
+            all_importances = {}
+            for q in self.QUANTILES:
+                key = (horizon, q)
+                if key not in self.models:
+                    continue
+                ensemble = self.models[key]
+                if isinstance(ensemble, list):
+                    for m in ensemble:
+                        fi = self._get_feature_importance(m)
+                        for _, row in fi.iterrows():
+                            all_importances.setdefault(row["feature"], []).append(float(row["importance"]))
+                else:
+                    fi = self._get_feature_importance(ensemble)
+                    for _, row in fi.iterrows():
+                        all_importances.setdefault(row["feature"], []).append(float(row["importance"]))
+            if all_importances:
+                avg = {f: sum(v) / len(v) for f, v in all_importances.items()}
+                sorted_fi = sorted(avg.items(), key=lambda x: x[1], reverse=True)[:20]
+                feature_importance[str(horizon)] = [{"feature": f, "importance": round(v, 4)} for f, v in sorted_fi]
+
         meta = {
             "feature_cols": self.feature_cols,
             "trained_at": str(self._now()),
             "confidence_thresholds": thresholds_serial,
             "feature_medians": medians_serial,
             "n_ensembles": self.N_ENSEMBLES,
+            "feature_importance": feature_importance,
         }
         with open(os.path.join(self.model_dir, "meta.json"), "w") as f:
             json.dump(meta, f)

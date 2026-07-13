@@ -6,15 +6,18 @@ from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 import re
 import math
+import os
+import json
 
 from database import (
     get_db, Item, PriceHistory, ItemForecast,
-    Event, EventImpact, backfilled_item_clause,
+    Event, EventImpact, EventCorrelation, backfilled_item_clause,
 )
 from api.cache import get_or_build
 from api.schemas import (
     ItemOut, PricePointOut, TrendAnalysisOut, PredictionOut,
-    SourcePriceOut, MultiSourcePricesOut, EventOut, TrendingItemOut
+    SourcePriceOut, MultiSourcePricesOut, EventOut, TrendingItemOut,
+    EventImpactOut, FeatureImportanceOut, FeatureImportanceItem,
 )
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -496,6 +499,75 @@ def get_item_events(
         .all()
     )
     return events
+
+
+@router.get("/{item_id}/event-impacts", response_model=list[EventImpactOut])
+def get_item_event_impacts(
+    item_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    item = _resolve_item(item_id, db)
+    rows = (
+        db.query(EventImpact, Event, EventCorrelation.confidence_score)
+        .join(Event, Event.id == EventImpact.event_id)
+        .outerjoin(
+            EventCorrelation,
+            (EventCorrelation.event_id == EventImpact.event_id) &
+            (EventCorrelation.item_id == EventImpact.item_id),
+        )
+        .filter(EventImpact.item_id == item.id)
+        .order_by(desc(Event.timestamp))
+        .limit(limit)
+        .all()
+    )
+    result = []
+    for impact, event, confidence in rows:
+        result.append(EventImpactOut(
+            event_id=event.id,
+            event_type=event.type,
+            event_description=event.description,
+            event_timestamp=event.timestamp,
+            price_day_before=impact.price_day_before,
+            price_day_1=impact.price_day_1,
+            price_day_3=impact.price_day_3,
+            price_day_7=impact.price_day_7,
+            impact_pct_1day=impact.impact_pct_1day,
+            impact_pct_3day=impact.impact_pct_3day,
+            impact_pct_7day=impact.impact_pct_7day,
+            peak_impact_pct=impact.peak_impact_pct,
+            peak_impact_day=impact.peak_impact_day,
+            duration_days=impact.duration_days,
+            z_score=impact.z_score,
+            confidence_score=confidence,
+        ))
+    return result
+
+
+@router.get("/{item_id}/feature-importance", response_model=FeatureImportanceOut)
+def get_item_feature_importance(
+    item_id: str,
+    db: Session = Depends(get_db),
+):
+    item = _resolve_item(item_id, db)
+    meta_path = os.path.join(os.path.dirname(__file__), "..", "..", "models", "saved_models", "meta.json")
+    import json
+    if not os.path.exists(meta_path):
+        raise HTTPException(status_code=404, detail="No trained model found")
+
+    with open(meta_path) as f:
+        meta = json.load(f)
+
+    fi_raw = meta.get("feature_importance", {})
+    horizons = {}
+    for h_str, items in fi_raw.items():
+        horizons[h_str] = [FeatureImportanceItem(**i) for i in items]
+
+    return FeatureImportanceOut(
+        item_id=item.item_id,
+        item_name=item.name,
+        horizons=horizons,
+    )
 
 
 @router.get("/{item_id}/prices", response_model=MultiSourcePricesOut)

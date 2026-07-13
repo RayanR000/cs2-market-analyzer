@@ -269,6 +269,54 @@ export async function getRecentEvents(limit = 20) {
   return response.json();
 }
 
+// Event Impacts API
+export interface EventImpact {
+  event_id: number;
+  event_type: string;
+  event_description: string;
+  event_timestamp: string;
+  price_day_before: number | null;
+  price_day_1: number | null;
+  price_day_3: number | null;
+  price_day_7: number | null;
+  impact_pct_1day: number | null;
+  impact_pct_3day: number | null;
+  impact_pct_7day: number | null;
+  peak_impact_pct: number | null;
+  peak_impact_day: number | null;
+  duration_days: number | null;
+  z_score: number | null;
+  confidence_score: number | null;
+}
+
+export async function getItemEventImpacts(itemId: string, limit = 20): Promise<EventImpact[]> {
+  const url = new URL(`${API_URL}/items/${encodeURIComponent(itemId)}/event-impacts`);
+  url.searchParams.append('limit', limit.toString());
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch event impacts');
+  return response.json();
+}
+
+// Feature Importance API
+export interface FeatureImportanceItem {
+  feature: string;
+  importance: number;
+}
+
+export interface FeatureImportance {
+  item_id: string;
+  item_name: string;
+  horizons: {
+    [horizon: string]: FeatureImportanceItem[];
+  };
+}
+
+export async function getItemFeatureImportance(itemId: string): Promise<FeatureImportance> {
+  const response = await fetch(`${API_URL}/items/${encodeURIComponent(itemId)}/feature-importance`);
+  if (!response.ok) throw new Error('Failed to fetch feature importance');
+  return response.json();
+}
+
 // Health check
 export async function healthCheck() {
   const response = await fetch(`${API_URL}/health`);

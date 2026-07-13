@@ -154,6 +154,39 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+class EventImpactOut(BaseModel):
+    event_id: int
+    event_type: str
+    event_description: str
+    event_timestamp: datetime
+    price_day_before: Optional[float] = None
+    price_day_1: Optional[float] = None
+    price_day_3: Optional[float] = None
+    price_day_7: Optional[float] = None
+    impact_pct_1day: Optional[float] = None
+    impact_pct_3day: Optional[float] = None
+    impact_pct_7day: Optional[float] = None
+    peak_impact_pct: Optional[float] = None
+    peak_impact_day: Optional[int] = None
+    duration_days: Optional[int] = None
+    z_score: Optional[float] = None
+    confidence_score: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FeatureImportanceItem(BaseModel):
+    feature: str
+    importance: float
+
+
+class FeatureImportanceOut(BaseModel):
+    item_id: str
+    item_name: str
+    horizons: dict[str, list[FeatureImportanceItem]]
+
+
 class HealthOut(BaseModel):
     status: str
     version: str

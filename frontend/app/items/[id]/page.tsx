@@ -22,9 +22,13 @@ import {
   getMultiSourcePrices,
   getPriceHistory,
   getItemVariants,
+  getItemEventImpacts,
+  getItemFeatureImportance,
   MultiSourcePrices,
   PricePoint,
   QualityVariant,
+  EventImpact,
+  FeatureImportance,
 } from '@/lib/api';
 
 interface CatalogItem {
@@ -186,6 +190,8 @@ export default function ItemDetailPage() {
   const [multiSourceData, setMultiSourceData] = useState<MultiSourcePrices | null>(null);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const [eventImpacts, setEventImpacts] = useState<EventImpact[]>([]);
+  const [featureImportance, setFeatureImportance] = useState<FeatureImportance | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -203,13 +209,15 @@ export default function ItemDetailPage() {
           : 5000;
 
       try {
-        const [itemResponse, variantsResponse, historyResponse, trendsResponse, predictionResponse, sourceResponse] = await Promise.all([
+        const [itemResponse, variantsResponse, historyResponse, trendsResponse, predictionResponse, sourceResponse, eventImpactsResponse, fiResponse] = await Promise.all([
           getItem(itemId),
           getItemVariants(itemId).catch(() => []),
           getPriceHistory(itemId, 5000, 0, 500),
           getItemTrends(itemId),
           getItemPrediction(itemId, '30_days'),
           getMultiSourcePrices(itemId, ['all'], days),
+          getItemEventImpacts(itemId).catch(() => [] as EventImpact[]),
+          getItemFeatureImportance(itemId).catch(() => null),
         ]);
 
         if (cancelled) return;
@@ -247,6 +255,8 @@ export default function ItemDetailPage() {
           confidence: predictionResponse?.confidence,
         } as PredictionResponse);
         setMultiSourceData(sourceResponse);
+        setEventImpacts(Array.isArray(eventImpactsResponse) ? eventImpactsResponse as EventImpact[] : []);
+        setFeatureImportance(fiResponse as FeatureImportance | null);
         setSelectedSources(
           Array.isArray(sourceResponse?.sources) && sourceResponse.sources.length
             ? sourceResponse.sources
@@ -577,6 +587,51 @@ export default function ItemDetailPage() {
                 )}
               </div>
             </div>
+
+            {/* Event Impacts */}
+            {eventImpacts.length > 0 && (
+              <div className="widget-block p-4">
+                <div className="text-[10px] uppercase tracking-[0.15em] text-muted mb-3 font-semibold">Event impacts</div>
+                <div className="space-y-3">
+                  {eventImpacts.slice(0, 5).map((imp) => (
+                    <div key={imp.event_id} className="text-xs">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-primary font-medium capitalize">{imp.event_type.replace('_', ' ')}</span>
+                        <span className="font-data" style={{ color: (imp.impact_pct_7day ?? 0) >= 0 ? 'var(--data-up)' : 'var(--data-down)' }}>
+                          {imp.impact_pct_7day != null ? `${imp.impact_pct_7day > 0 ? '+' : ''}${imp.impact_pct_7day.toFixed(1)}%` : '\u2014'}
+                        </span>
+                      </div>
+                      <div className="text-tertiary truncate">{imp.event_description}</div>
+                      {imp.confidence_score != null && (
+                        <div className="text-tertiary mt-0.5">
+                          Confidence: {imp.confidence_score.toFixed(2)} | Z-score: {imp.z_score?.toFixed(2) ?? '\u2014'}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Feature Importance */}
+            {featureImportance && Object.keys(featureImportance.horizons).length > 0 && (
+              <div className="widget-block p-4">
+                <div className="text-[10px] uppercase tracking-[0.15em] text-muted mb-3 font-semibold">Forecast drivers</div>
+                {Object.entries(featureImportance.horizons).map(([horizon, features]) => (
+                  <div key={horizon} className="mb-3 last:mb-0">
+                    <div className="text-[11px] font-semibold text-secondary mb-1.5 uppercase tracking-wide">{horizon}d horizon</div>
+                    <div className="space-y-1">
+                      {features.slice(0, 5).map((fi) => (
+                        <div key={fi.feature} className="flex items-center gap-2 text-xs">
+                          <div className="flex-1 truncate text-tertiary">{fi.feature.replace(/_/g, ' ')}</div>
+                          <div className="font-data text-primary w-8 text-right">{fi.importance.toFixed(0)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </motion.div>
         </div>
       </div>
