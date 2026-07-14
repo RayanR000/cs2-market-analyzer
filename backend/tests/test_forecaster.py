@@ -417,7 +417,7 @@ class TestFeaturePipeline:
 
         with patch.object(forecaster, 'fetch_price_history', mock_fetch):
             with patch.object(forecaster, 'fetch_events', mock_events):
-                df, targets = forecaster.build_training_data(days_back=200, backfilled_only=False)
+                df = forecaster.build_training_data(days_back=200, backfilled_only=False)
 
         # Check feature categories exist
         feature_set = set(forecaster.feature_cols)
@@ -428,10 +428,14 @@ class TestFeaturePipeline:
         assert any("event_decay_" in c for c in feature_set), "Missing event features"
         assert any("market_return_" in c for c in feature_set), "Missing market features"
 
-        # Check targets
+        # Check no float64 feature columns remain (memory optimization)
+        float64_cols = [c for c in forecaster.feature_cols if c in df.columns and df[c].dtype == np.float64]
+        assert len(float64_cols) == 0, f"Features still float64: {float64_cols}"
+
+        # Check prepare_targets still produces valid target columns
         for h in forecaster.HORIZONS:
-            assert h in targets, f"Missing horizon {h} in targets"
-            assert f"target_return_{h}d" in targets[h].columns
+            tdf = forecaster.prepare_targets(df, h)
+            assert f"target_return_{h}d" in tdf.columns
 
     def test_build_training_data_feature_count(self, forecaster):
         """Feature count should be reasonable (not too few, not too many)."""
@@ -459,7 +463,7 @@ class TestFeaturePipeline:
 
         with patch.object(forecaster, 'fetch_price_history', mock_fetch):
             with patch.object(forecaster, 'fetch_events', mock_events):
-                df, targets = forecaster.build_training_data(days_back=200, backfilled_only=False)
+                df = forecaster.build_training_data(days_back=200, backfilled_only=False)
 
         n_features = len(forecaster.feature_cols)
         assert 45 <= n_features <= 120, f"Feature count {n_features} outside expected range [45, 120]"

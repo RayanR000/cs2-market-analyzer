@@ -565,7 +565,7 @@ class ItemForecaster:
 
     def prepare_targets(self, df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         logger.info(f"Preparing {horizon}d targets...")
-        df = df.sort_values(["item_id", "date"]).copy()
+        df = df.sort_values(["item_id", "date"])
 
         # Date-based target lookup: find the price exactly `horizon` calendar
         # days later, rather than shifting rows. Row-based shift gives
@@ -593,7 +593,7 @@ class ItemForecaster:
     # ------------------------------------------------------------------
 
     def build_training_data(self, days_back: int = 365,
-                            backfilled_only: bool = False) -> Tuple[pd.DataFrame, Dict[int, pd.DataFrame]]:
+                            backfilled_only: bool = False) -> pd.DataFrame:
         price_df = self.fetch_price_history(days_back=days_back, backfilled_only=backfilled_only)
         events_df = self.fetch_events()
 
@@ -614,16 +614,15 @@ class ItemForecaster:
         # Prune highly correlated features to reduce noise
         self.feature_cols = self._prune_features(df)
 
-        # Prepare targets for each horizon
-        targets = {}
-        for h in self.HORIZONS:
-            tdf = self.prepare_targets(df, h)
-            targets[h] = tdf
+        # Downcast features to float32 to halve feature matrix memory
+        for col in self.feature_cols:
+            if col in df.columns and df[col].dtype == np.float64:
+                df[col] = df[col].astype(np.float32)
 
         logger.info(f"Feature matrix: {len(df):,} rows, {len(self.feature_cols)} features")
         logger.info(f"Features: {self.feature_cols}")
 
-        return df, targets
+        return df
 
     # ------------------------------------------------------------------
     # Training
@@ -640,10 +639,10 @@ class ItemForecaster:
         logger.info("TRAINING LIGHTGBM FORECASTER (ensemble, HP search, walk-forward)")
         logger.info("=" * 60)
 
-        df, targets_by_horizon = self.build_training_data(days_back=730, backfilled_only=True)
+        df = self.build_training_data(days_back=730, backfilled_only=True)
 
         for horizon in self.HORIZONS:
-            tdf = targets_by_horizon[horizon]
+            tdf = self.prepare_targets(df, horizon)
 
             # Drop NaN targets (use percentage return as primary target)
             tdf = tdf.dropna(subset=[f"target_return_{horizon}d"]).copy()
@@ -762,6 +761,10 @@ class ItemForecaster:
                     "min_dir_acc": round(min(fold_accs), 1),
                     "max_dir_acc": round(max(fold_accs), 1),
                 }
+
+            del tdf
+
+        del df
 
         self.save_models()
         logger.info("Training complete.")
