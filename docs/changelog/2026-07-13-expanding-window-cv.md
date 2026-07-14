@@ -2,7 +2,7 @@
 
 Replaced the single 21-day holdout validation in `train()` with expanding-window CV. Confidence thresholds are now calibrated on pooled out-of-fold (OOF) predictions across multiple time periods, giving more stable and representative calibration.
 
-This was the last remaining pending item from the model audit (`model-audit.md:400`).
+This was the last remaining pending item from the model audit (`docs/architecture/model.md`).
 
 ---
 

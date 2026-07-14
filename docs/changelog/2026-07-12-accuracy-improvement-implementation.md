@@ -3,7 +3,7 @@
 Date: 2026-07-12
 
 Covers three work streams:
-1. Accuracy improvements from `docs/2026-07-11-accuracy-improvement-brainstorm.md`
+1. Accuracy improvements from the brainstorm session (ideas documented and implemented here)
 2. Per-forecast outcome tracking (correct/wrong for every prediction)
 3. Next-day (1d) forecast horizon
 

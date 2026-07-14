@@ -1,7 +1,7 @@
 # Feature Engineering Deep Dive — Prediction Accuracy Improvements
 
 Date: 2026-07-14
-Extends: `2026-07-14-prediction-accuracy-improvements.md`
+Extends: `docs/research/accuracy-opportunities.md`
 
 ---
 

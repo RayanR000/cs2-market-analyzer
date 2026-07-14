@@ -118,4 +118,4 @@ New items (from the 31,908 catalog not yet tracked) should not be added to the t
 | `.github/workflows/daily-trend-analysis.yml` | Added data-archive checkout + symlink |
 | `.github/workflows/long-term-trend-analysis.yml` | Added data-archive checkout + symlink |
 | `.github/workflows/event-correlation-analysis.yml` | Added data-archive checkout + symlink |
-| `docs/2026-07-11-backfilled-item-training.md` | This file |
+| `docs/changelog/2026-07-11-backfilled-item-training.md` | This file |

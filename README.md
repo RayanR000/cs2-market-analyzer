@@ -91,11 +91,12 @@ CS2 Market Analyzer is a full-stack analytics platform that collects, validates,
 │   └── lib/              # API client, ThemeContext, UserContext
 ├── price-archive/        # Parquet price data (13 years of history)
 ├── .github/workflows/    # 4 CI/CD workflows
-├── docs/                 # Architecture decisions, changelogs, implementation notes
-├── PRODUCT.md            # Product positioning & audience
-├── DESIGN.md             # Visual direction, OKLCH palette, typography, component spec
-├── WORKFLOW_MONITORING.md # Operational guide
-└── BACKEND_REVIEW.md     # Historical code review (issues resolved Jul 2026)
+├── docs/                 # Architecture, research, changelogs, and reference docs
+│   ├── architecture/     # Data architecture, model architecture, pipeline
+│   ├── references/       # Steam API, data sources, catalog build, backfill
+│   ├── research/         # Feature engineering, accuracy opportunities
+│   ├── historical/       # Backend review, session notes, migration plans
+│   └── changelog/       # Dated execution logs and bug fixes
 ```
 
 ## Getting Started

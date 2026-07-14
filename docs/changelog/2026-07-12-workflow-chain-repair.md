@@ -7,7 +7,7 @@ workflow that was removed in a prior cleanup (rule-based trend analysis
 deleted). This broke the entire automation pipeline: the forecast never ran,
 and backtest accuracy depended on the forecast, so it never ran either.
 
-The `WORKFLOW_MONITORING.md` still documented the removed workflows and their
+The `docs/operations.md` still documented the removed workflows and their
 schedules.
 
 ## Changes
@@ -22,9 +22,9 @@ schedules.
 - Removed `price-forecast.yml`'s dependency on a non-existent workflow,
   restoring the automation chain.
 
-### P1 — Updated `WORKFLOW_MONITORING.md`
+### P1 — Updated `docs/operations.md`
 
-**File:** `WORKFLOW_MONITORING.md`
+**File:** `docs/operations.md`
 
 - Removed `daily-trend-analysis`, `long-term-trend-analysis`, and
   `event-correlation-analysis` from the workflow table (no longer exist).

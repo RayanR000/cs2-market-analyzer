@@ -1,6 +1,6 @@
 # Backend Code Review — 2026-07-02 (RESOLVED)
 
-> **Status: Historical reference.** This review was written on 2026-07-02. All Critical and High issues were fixed in the July 7-8 system overhaul. The analysis below is preserved for context but does not reflect the current codebase. See `docs/2026-07-08-database-optimization.md` and `backend/data/SESSION_NOTES_2026-07-07_08_OVERHAUL.md` for what was done and why.
+> **Status: Historical reference.** This review was written on 2026-07-02. All Critical and High issues were fixed in the July 7-8 system overhaul. The analysis below is preserved for context but does not reflect the current codebase. See `docs/changelog/2026-07-08-database-optimization.md` and `docs/historical/system-overhaul.md` for what was done and why.
 
 Read-only review of the database, collectors, analytics, scripts, and GitHub Actions workflows. Nothing has been changed. Findings are ranked by severity; the last section covers what your Steam Web API key can (and can't) be used for.
 
