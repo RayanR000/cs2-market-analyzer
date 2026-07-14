@@ -10,7 +10,6 @@ import logging
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-import catboost as cb
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
@@ -35,14 +34,13 @@ class ItemForecaster:
     ENSEMBLE_SEEDS = [42, 73, 91]
     PRUNE_CORRELATION_THRESHOLD = 0.95
     # Expanding-window cross-validation
-    CV_STEP_DAYS = 120        # Days between each fold's validation window
+    CV_STEP_DAYS = 200        # Days between each fold's validation window
     CV_MIN_TRAIN_DAYS = 200   # Minimum unique dates before first validation fold
 
     def __init__(self, db_session, model_dir: str = None):
         self.db = db_session
         self.model_dir = model_dir or str(Path(__file__).parent / "saved_models")
         self.models: Dict[Tuple[int, float], lgb.Booster] = {}
-        self.cb_models: Dict[Tuple[int, float], list] = {}
         self.feature_cols: List[str] = []
         # Per-horizon confidence thresholds: {horizon: {"high_range": ..., "high_change": ..., "high_accuracy": ...}}
         self.confidence_thresholds: Dict[int, Dict[str, float]] = {}
@@ -491,7 +489,7 @@ class ItemForecaster:
         """
         import optuna
 
-        n_trials = 30
+        n_trials = 15
 
         def objective(trial):
             params = {
@@ -734,41 +732,6 @@ class ItemForecaster:
                 fi = self._get_feature_importance(ensemble_models[0])
                 logger.info(f"  Top features: {fi['feature'].head(5).tolist()}")
 
-            # =====================================================================
-            # CatBoost training (fixed params, 2 ensembles per quantile)
-            # =====================================================================
-            logger.info(f"  Training CatBoost ensemble for {horizon}d...")
-            cb_ensemble_size = 2
-            for q in self.QUANTILES:
-                cb_models_q = []
-                alpha = q
-                for ei in range(cb_ensemble_size):
-                    params = {
-                        "loss_function": f"Quantile:alpha={alpha}",
-                        "iterations": 2000,
-                        "learning_rate": 0.03,
-                        "depth": 6,
-                        "l2_leaf_reg": 3.0,
-                        "subsample": 0.7,
-                        "random_seed": self.ENSEMBLE_SEEDS[ei],
-                        "verbose": False,
-                        "early_stopping_rounds": 50,
-                        "use_best_model": True,
-                    }
-                    model = cb.CatBoostRegressor(**params)
-                    model.fit(
-                        X_train, y_train,
-                        eval_set=(X_val, y_val),
-                        verbose=False,
-                    )
-                    cb_models_q.append(model)
-                self.cb_models[(horizon, q)] = cb_models_q
-                logger.info(
-                    f"  CatBoost {horizon}d p{int(q*100)} "
-                    f"({cb_ensemble_size} members, avg trees: "
-                    f"{np.mean([m.tree_count_ for m in cb_models_q]):.0f})"
-                )
-
             # Expanding-window CV evaluation using the best hyperparams
             oof_records, cv_metrics = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
 
@@ -903,11 +866,6 @@ class ItemForecaster:
                     else:
                         all_preds.append(ensemble.predict(X_batch))
 
-                # CatBoost predictions
-                if key in self.cb_models:
-                    for m in self.cb_models[key]:
-                        all_preds.append(m.predict(X_batch))
-
                 if all_preds:
                     preds[q] = np.mean(all_preds, axis=0)
 
@@ -1011,7 +969,7 @@ class ItemForecaster:
         return results.iloc[0].to_dict()
 
     def _get_ensemble_prediction(self, horizon, q, X):
-        """Get averaged prediction from LGB + CatBoost ensembles."""
+        """Get averaged prediction from LGB ensemble."""
         all_preds = []
         key = (horizon, q)
 
@@ -1022,10 +980,6 @@ class ItemForecaster:
                 all_preds.extend(m.predict(X) for m in ensemble)
             else:
                 all_preds.append(ensemble.predict(X))
-
-        # CatBoost
-        if key in self.cb_models:
-            all_preds.extend(m.predict(X) for m in self.cb_models[key])
 
         if not all_preds:
             return None
@@ -1098,24 +1052,7 @@ class ItemForecaster:
                 )
                 lgb_preds.append(model.predict(X_val))
 
-                # CatBoost (fixed params)
-                cb_params = {
-                    "loss_function": f"Quantile:alpha={q}",
-                    "iterations": 500,
-                    "learning_rate": 0.03,
-                    "depth": 6,
-                    "l2_leaf_reg": 3.0,
-                    "subsample": 0.7,
-                    "random_seed": 42,
-                    "verbose": False,
-                    "early_stopping_rounds": 20,
-                    "use_best_model": True,
-                }
-                cb_model = cb.CatBoostRegressor(**cb_params)
-                cb_model.fit(X_train, y_train, eval_set=(X_val, y_val), verbose=False)
-                lgb_preds.append(cb_model.predict(X_val))
-
-                pred = np.mean(lgb_preds, axis=0)
+                pred = lgb_preds[0]
                 if q == 0.5:
                     fold_p50 = pred
                 elif q == 0.1:
@@ -1441,12 +1378,6 @@ class ItemForecaster:
                 path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
                 ensemble.save_model(path)
 
-        # Save CatBoost models
-        for (horizon, q), ensemble in self.cb_models.items():
-            for ei, model in enumerate(ensemble):
-                path = os.path.join(self.model_dir, f"cb_{horizon}d_q{int(q*100)}_e{ei}.cbm")
-                model.save_model(path)
-
         # Save feature columns, calibration thresholds, and imputation medians
         thresholds_serial = {}
         for horizon, th in self.confidence_thresholds.items():
@@ -1491,7 +1422,6 @@ class ItemForecaster:
             "confidence_thresholds": thresholds_serial,
             "feature_medians": medians_serial,
             "n_ensembles": self.N_ENSEMBLES,
-            "cb_n_ensembles": 2,
             "feature_importance": feature_importance,
             "cv_results": cv_serial,
         }
@@ -1525,7 +1455,6 @@ class ItemForecaster:
                 for h in self.HORIZONS:
                     self.confidence_thresholds[h] = dict(raw_thresholds)
         n_ensembles = meta.get("n_ensembles", 1)
-        cb_n_ensembles = meta.get("cb_n_ensembles", 0)
 
         for horizon in self.HORIZONS:
             for q in self.QUANTILES:
@@ -1543,21 +1472,9 @@ class ItemForecaster:
                     if os.path.exists(path):
                         self.models[(horizon, q)] = lgb.Booster(model_file=path)
 
-                # Load CatBoost models
-                if cb_n_ensembles > 0:
-                    cb_ensemble = []
-                    for ei in range(cb_n_ensembles):
-                        path = os.path.join(self.model_dir, f"cb_{horizon}d_q{int(q*100)}_e{ei}.cbm")
-                        if os.path.exists(path):
-                            m = cb.CatBoostRegressor()
-                            m.load_model(path)
-                            cb_ensemble.append(m)
-                    if cb_ensemble:
-                        self.cb_models[(horizon, q)] = cb_ensemble
-
-        total_groups = len(self.models) + len(self.cb_models)
-        logger.info(f"Loaded {len(self.models)} LGB + {len(self.cb_models)} CB model groups from {self.model_dir}")
+        total_groups = len(self.models)
+        logger.info(f"Loaded {total_groups} model groups from {self.model_dir}")
         return total_groups > 0
 
     def has_models(self) -> bool:
-        return len(self.models) > 0 or len(self.cb_models) > 0
+        return len(self.models) > 0

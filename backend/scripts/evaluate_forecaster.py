@@ -199,7 +199,7 @@ def run_walkforward_evaluation(max_items=500):
                 y_val = val_df[f"target_return_{horizon}d"]
 
                 # Use fixed tuned params (same defaults as forecaster.py train())
-                # No grid search or ensemble in eval mode — this is a measurement run.
+                # No grid search in eval mode — this is a measurement run.
                 models = {}
                 for q in [0.1, 0.5, 0.9]:
                     params = {

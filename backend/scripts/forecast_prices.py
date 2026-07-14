@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("forecast_prices")
 
-MODEL_VERSION = "lgbm-catboost-v2"
+MODEL_VERSION = "lgbm-v2"
 
 
 def run_forecast(train_only: bool = False, predict_only: bool = False):
