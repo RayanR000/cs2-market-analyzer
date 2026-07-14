@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 from sqlalchemy import text
+from models.item_parser import parse_item_name
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,18 @@ class ItemForecaster:
 
         # Price acceleration (2nd derivative)
         df["price_accel_7d"] = df["return_7d"] - df["return_7d"].groupby(df["item_id"]).shift(7)
+
+        # Log price (scale-invariant)
+        df["price_log"] = np.log(df["price"].clip(lower=0.01))
+
+        # Price tier (categorical price level buckets)
+        price = df["price"]
+        df["price_tier"] = 0
+        df.loc[price >= 1, "price_tier"] = 1
+        df.loc[price >= 5, "price_tier"] = 2
+        df.loc[price >= 20, "price_tier"] = 3
+        df.loc[price >= 100, "price_tier"] = 4
+        df["price_tier"] = df["price_tier"].astype(int)
 
         # Log returns (stationary, scale-invariant)
         df["log_return_1d"] = np.log(df["price"] / df["price_lag_1d"].replace(0, np.nan))
@@ -376,6 +389,40 @@ class ItemForecaster:
             df[f"event_density_30d_{event_type}"] = past_30
             df[f"event_density_90d_{event_type}"] = past_90
 
+        # Add relevance-weighted event signals
+        # Different item types respond differently to each event type.
+        has_identity = all(c in df.columns for c in
+                           ["is_sticker", "is_case", "is_glove", "is_knife"])
+        if has_identity:
+            is_skin = (
+                1 - df["is_sticker"] - df["is_case"] - df["is_music_kit"]
+                - df["is_graffiti"] - df["is_charm"] - df["is_patch"]
+                - df["is_capsule"]
+            ).clip(lower=0).astype(float)
+
+            relevance_map = {
+                "major": (
+                    df["is_sticker"].astype(float) * 1.0
+                    + df["is_case"].astype(float) * 0.3
+                    + df["is_capsule"].astype(float) * 0.6
+                ),
+                "operation": (
+                    df["is_case"].astype(float) * 1.0
+                    + is_skin * 0.3
+                ),
+                "case_drop": (
+                    df["is_case"].astype(float) * 1.0
+                    + is_skin * 0.5
+                ),
+                "update": is_skin * 0.5,
+                "game_update": is_skin * 0.3,
+            }
+            for et in event_types:
+                raw_col = f"event_decay_{et}"
+                if raw_col in df.columns:
+                    weight = relevance_map.get(et, pd.Series(1.0, index=df.index))
+                    df[f"event_decay_{et}_weighted"] = df[raw_col] * weight
+
         return df
 
     def _add_cross_sectional_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -411,13 +458,133 @@ class ItemForecaster:
                 df["volume"] / df["market_volume_mean_30d"].replace(0, np.nan)
             )
 
-        # Market regime: bull/bear/range based on median 30d market return
+        # Market regime: refined 5-state regime with duration tracking
         if "market_return_30d" in df.columns:
             market_ret_median = df.groupby("date")["market_return_30d"].transform("median")
-            df["market_regime_bull"] = (market_ret_median > 5).astype(int)
-            df["market_regime_bear"] = (market_ret_median < -5).astype(int)
-            df["market_regime_range"] = ((market_ret_median >= -5) & (market_ret_median <= 5)).astype(int)
+            df["market_regime_crash"] = (market_ret_median < -10).astype(int)
+            df["market_regime_bear"] = ((market_ret_median >= -10) & (market_ret_median < -3)).astype(int)
+            df["market_regime_range"] = ((market_ret_median >= -3) & (market_ret_median <= 3)).astype(int)
+            df["market_regime_bull"] = ((market_ret_median > 3) & (market_ret_median <= 10)).astype(int)
+            df["market_regime_mania"] = (market_ret_median > 10).astype(int)
 
+            # Market regime duration: consecutive days in same regime
+            regime_cols = ["market_regime_crash", "market_regime_bear",
+                           "market_regime_range", "market_regime_bull",
+                           "market_regime_mania"]
+            combined = pd.DataFrame(index=df.index, dtype=int)
+            combined["regime_id"] = 0
+            for i, col in enumerate(regime_cols):
+                if col in df.columns:
+                    combined.loc[df[col] == 1, "regime_id"] = i + 1
+            # Count consecutive same-regime days per item
+            regime_changes = (combined["regime_id"] != combined["regime_id"].groupby(df["item_id"]).shift(1)).astype(int)
+            df["market_regime_duration_days"] = regime_changes.groupby(df["item_id"]).cumsum().groupby(
+                [df["item_id"], regime_changes.cumsum()]
+            ).cumcount() + 1
+
+        # Market return percentile vs rolling 365-day history
+        if "market_return_30d" in df.columns:
+            def _pct_rank_365(series):
+                return series.rolling(365, min_periods=30).apply(
+                    lambda x: (x.iloc[-1] > x[:-1]).sum() / max(len(x) - 1, 1),
+                    raw=False
+                )
+            df["market_return_30d_percentile"] = df.groupby("item_id")["market_return_30d"].transform(
+                lambda x: x.rolling(365, min_periods=30).apply(
+                    lambda s: (s.iloc[-1] > s[:-1]).sum() / max(len(s) - 1, 1),
+                    raw=False
+                )
+            )
+
+        return df
+
+    def _add_item_identity_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add item identity features (is_stattrak, is_knife, quality_rank, etc.).
+
+        Fetches item names from the DB and parses them into structured identity
+        features. Items not found in the DB get default (0) values.
+        """
+        logger.info("Adding item identity features...")
+        df = df.copy()
+
+        # Fetch item_id → (name, type) mapping from the DB
+        try:
+            items_rows = self.db.execute(text("""
+                SELECT item_id, name, type FROM items
+            """)).fetchall()
+            item_map = {r.item_id: r for r in items_rows}
+        except Exception:
+            logger.warning("  Could not fetch item names from DB; using default identity features")
+            identity_cols = [
+                "is_stattrak", "is_souvenir", "is_knife", "is_glove",
+                "is_sticker", "is_case", "is_capsule", "is_agent",
+                "is_music_kit", "is_graffiti", "is_charm", "is_patch",
+                "quality_rank",
+            ]
+            for col in identity_cols:
+                df[col] = 0
+            return df
+
+        # Build identity features for each unique item
+        identity_cache = {}
+        for item_id in df["item_id"].unique():
+            item_row = item_map.get(str(item_id))
+            if item_row is None:
+                identity_cache[item_id] = {
+                    "is_stattrak": 0, "is_souvenir": 0, "is_knife": 0,
+                    "is_glove": 0, "is_sticker": 0, "is_case": 0,
+                    "is_capsule": 0, "is_agent": 0, "is_music_kit": 0,
+                    "is_graffiti": 0, "is_charm": 0, "is_patch": 0,
+                    "quality_rank": 0,
+                }
+                continue
+
+            name = item_row.name
+            db_type = item_row.type
+            parsed = parse_item_name(name) if name else {}
+
+            use_type = db_type or "skin"
+            identity_cache[item_id] = {
+                "is_stattrak": int(parsed.get("is_stattrak", False)),
+                "is_souvenir": int(parsed.get("is_souvenir", False)),
+                "is_knife": int(parsed.get("is_knife", False)),
+                "is_glove": int(parsed.get("is_glove", False)),
+                "is_sticker": int(use_type == "sticker" or parsed.get("is_sticker", False)),
+                "is_case": int(use_type == "case" or parsed.get("is_case", False)),
+                "is_capsule": int(parsed.get("is_capsule", False)),
+                "is_agent": int(parsed.get("is_agent", False)),
+                "is_music_kit": int(use_type == "musickit" or parsed.get("is_music_kit", False)),
+                "is_graffiti": int(use_type == "graffiti" or parsed.get("is_graffiti", False)),
+                "is_charm": int(parsed.get("is_charm", False)),
+                "is_patch": int(parsed.get("is_patch", False)),
+                "quality_rank": int(parsed.get("quality_rank", 0)),
+            }
+
+        # Map identity features onto the dataframe
+        if not identity_cache:
+            logger.warning("  No identity features computed (empty cache)")
+            identity_cols = [
+                "is_stattrak", "is_souvenir", "is_knife", "is_glove",
+                "is_sticker", "is_case", "is_capsule", "is_agent",
+                "is_music_kit", "is_graffiti", "is_charm", "is_patch",
+                "quality_rank",
+            ]
+            for col in identity_cols:
+                df[col] = 0
+            return df
+
+        identity_df = pd.DataFrame.from_dict(identity_cache, orient="index")
+        identity_df.index.name = "item_id"
+        identity_df = identity_df.reset_index()
+
+        df = df.merge(identity_df, on="item_id", how="left")
+
+        for col in identity_cache[next(iter(identity_cache))].keys():
+            if col not in df.columns:
+                df[col] = 0
+            df[col] = df[col].fillna(0).astype(int)
+
+        logger.info("  Added item identity features")
         return df
 
     def _prune_features(self, df: pd.DataFrame) -> List[str]:
@@ -556,6 +723,7 @@ class ItemForecaster:
             daily = price_df
         df = self._compute_price_features(daily)
         df = self._add_temporal_features(df)
+        df = self._add_item_identity_features(df)
         df = self._add_event_features(df, events_df)
         return df
 
