@@ -6,23 +6,23 @@ Below are the remaining opportunities, grouped by estimated impact and effort.
 
 ---
 
-## High Impact (~3-8pp potential)
+## Completed
 
-### 1. Player count feature (Quick Win)
+### 1. Player count feature ✅
 
-CS2 player count history (10,470 rows, 2011-2026) already lives in `csmarketapi_reference.db` but is never wired into the forecaster. Player count correlates with market activity and volume.
+**Status:** Implemented and backfilled. See `docs/2026-07-15-player-count-backfill-and-ab-test.md`.
 
-**Implementation:**
-- Add `fetch_player_counts()` method to `ItemForecaster`
-- Merge player count as a daily feature in `_add_cross_sectional_features()` or `_add_item_metadata_features()`
-- No new data collection needed
+**Actual impact:** +3.0pp avg (3d: +0.4pp, 7d: 0.0pp, 14d: +3.7pp, 30d: +7.7pp)
 
-**Effort:** Low (single new feature column, data already collected)
-**Impact estimate:** +1-3pp
-
-**Already documented in:** `docs/2026-07-11-accuracy-improvement-brainstorm.md` (Item #8)
+**Key files:**
+- `scripts/backfill_player_counts_to_parquet.py` — historical DB → Parquet
+- `collectors/player_counts.py` — ongoing collection
+- `models/forecaster.py` — `_fetch_player_counts()`, `_add_player_count_features()`
+- `.github/workflows/aggregator-update.yml` — daily Parquet append
 
 ---
+
+## High Impact (~3-8pp potential)
 
 ### 2. Supply-side features (collection rarity, wear tiers)
 
