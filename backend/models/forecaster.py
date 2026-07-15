@@ -319,6 +319,62 @@ class ItemForecaster:
         logger.info(f"  item metadata: {len(df)} items loaded")
         return df
 
+    def _fetch_player_counts(self) -> pd.DataFrame:
+        if hasattr(self, "_player_counts_cache") and self._player_counts_cache is not None:
+            return self._player_counts_cache
+        archive_dir = Path(__file__).parent.parent.parent / "price-archive"
+        pc_path = archive_dir / "player-counts-*.parquet"
+        if not archive_dir.exists() or not list(archive_dir.glob("player-counts-*.parquet")):
+            logger.warning("No player-counts Parquet files found — using empty DataFrame")
+            self._player_counts_cache = pd.DataFrame(columns=["day", "mean_players", "peak_players", "reading_count"])
+            return self._player_counts_cache
+        try:
+            import duckdb
+            con = duckdb.connect()
+            rows = con.sql(f"""
+                SELECT day, mean_players, peak_players, min_players, reading_count, last_players
+                FROM read_parquet('{pc_path}')
+                ORDER BY day
+            """).fetchall()
+            con.close()
+            df = pd.DataFrame(rows, columns=["day", "mean_players", "peak_players", "min_players", "reading_count", "last_players"])
+            df["day"] = pd.to_datetime(df["day"])
+            df["date"] = df["day"].dt.date
+            logger.info(f"  player counts: {len(df)} days loaded")
+            self._player_counts_cache = df
+            return df
+        except Exception as e:
+            logger.warning(f"Failed to load player counts from Parquet: {e}")
+            self._player_counts_cache = pd.DataFrame(columns=["day", "mean_players", "peak_players", "reading_count"])
+            return self._player_counts_cache
+
+    def _add_player_count_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        pc = self._fetch_player_counts()
+        if pc.empty:
+            for col in ["players_mean", "players_peak", "players_min",
+                         "players_last", "players_readings",
+                         "players_change_1d", "players_change_7d",
+                         "players_z_score_30d", "players_ma7"]:
+                df[col] = 0.0
+            return df
+        df = df.merge(pc, on="date", how="left")
+        df["players_mean"] = df["mean_players"].fillna(0).astype(float)
+        df["players_peak"] = df["peak_players"].fillna(0).astype(float)
+        df["players_min"] = df["min_players"].fillna(0).astype(float)
+        df["players_last"] = df["last_players"].fillna(0).astype(float)
+        df["players_readings"] = df["reading_count"].fillna(0).astype(float)
+        df = df.drop(columns=["mean_players", "peak_players", "min_players",
+                              "last_players", "reading_count", "day"], errors="ignore")
+        df = df.sort_values("date")
+        df["players_change_1d"] = df["players_mean"] - df["players_mean"].shift(1)
+        df["players_change_7d"] = df["players_mean"] - df["players_mean"].shift(7)
+        df["players_ma7"] = df["players_mean"].rolling(7, min_periods=1).mean()
+        rolling_std = df["players_mean"].rolling(30, min_periods=1).std().replace(0, np.nan)
+        df["players_z_score_30d"] = ((df["players_mean"] - df["players_mean"].rolling(30, min_periods=1).mean()) / rolling_std).fillna(0)
+        df["players_mean_ratio_7d"] = (df["players_mean"] / df["players_ma7"].replace(0, np.nan)).fillna(1.0)
+        logger.info("  player count features added")
+        return df
+
     def _add_item_metadata_features(self, df: pd.DataFrame) -> pd.DataFrame:
         meta = self._fetch_item_metadata()
         if meta.empty:
@@ -801,6 +857,9 @@ class ItemForecaster:
         # Add cross-sectional (market-regime) features
         df = self._add_cross_sectional_features(df)
 
+        # Add player count features
+        df = self._add_player_count_features(df)
+
         # Define feature columns (exclude metadata and target columns)
         exclude = {"item_id", "date", "timestamp", "price", "volume",
                    "name", "release_date"}
@@ -995,6 +1054,9 @@ class ItemForecaster:
 
         # Add cross-sectional features (same as training)
         df = self._add_cross_sectional_features(df)
+
+        # Add player count features (same as training)
+        df = self._add_player_count_features(df)
 
         # Align features with training columns (add missing, drop extras)
         for col in self.feature_cols:

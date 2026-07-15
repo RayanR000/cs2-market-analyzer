@@ -67,6 +67,10 @@ def main():
         "--exchange-rates-csv",
         help="CSV of currency exchange rates (currency, rate, day)",
     )
+    parser.add_argument(
+        "--player-counts-csv",
+        help="CSV of player count readings (timestamp, players) for the day",
+    )
     args = parser.parse_args()
 
     day_start = datetime.strptime(args.date, "%Y-%m-%d")
@@ -166,6 +170,36 @@ def main():
                 print(f"Warning: exchange_rates CSV {csv_path.name} is empty")
         else:
             print(f"Warning: --exchange-rates-csv path does not exist: {csv_path} — skipping exchange-rates Parquet")
+
+    # ── Write player-counts-YYYY.parquet ────────────────────────────
+    if args.player_counts_csv:
+        csv_path = Path(args.player_counts_csv)
+        if csv_path.exists():
+            pc_df = pd.read_csv(csv_path)
+            if not pc_df.empty:
+                pc_df["day"] = pd.to_datetime(pc_df["timestamp"]).dt.date
+                pc_df["day"] = pd.to_datetime(pc_df["day"])
+                daily_stats = pc_df.groupby("day").agg(
+                    mean_players=("players", "mean"),
+                    peak_players=("players", "max"),
+                    min_players=("players", "min"),
+                    reading_count=("players", "count"),
+                    last_players=("players", "last"),
+                ).reset_index()
+                daily_stats["mean_players"] = daily_stats["mean_players"].round(0).astype(int)
+                daily_stats["peak_players"] = daily_stats["peak_players"].astype(int)
+                daily_stats["min_players"] = daily_stats["min_players"].astype(int)
+                daily_stats["last_players"] = daily_stats["last_players"].astype(int)
+                _append_parquet(out_dir / f"player-counts-{year}.parquet", daily_stats, ["day"])
+                print(
+                    f"Appended {len(daily_stats)} day(s) of player counts "
+                    f"({daily_stats['reading_count'].sum()} readings) "
+                    f"to player-counts-{year}.parquet"
+                )
+            else:
+                print(f"Warning: player-counts CSV {csv_path.name} is empty")
+        else:
+            print(f"Warning: --player-counts-csv path does not exist: {csv_path} — skipping player-counts Parquet")
 
     if not legacy_frames and snapshots_df is None:
         print(f"No data found for {args.date}")

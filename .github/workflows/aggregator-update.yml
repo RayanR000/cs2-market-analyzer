@@ -62,6 +62,24 @@ jobs:
           ref: data-archive
           path: archive
 
+      - name: Merge hourly player counts
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          ARCHIVE_CSV="archive/price-archive/player-counts/${DATE}.csv"
+          TMP_CSV="/tmp/player-counts/${DATE}.csv"
+          mkdir -p /tmp/player-counts
+          if [ -f "$ARCHIVE_CSV" ]; then
+            echo "Merging hourly player counts from archive..."
+            if [ ! -f "$TMP_CSV" ]; then
+              head -1 "$ARCHIVE_CSV" > "$TMP_CSV"
+            fi
+            tail -n +2 "$ARCHIVE_CSV" >> "$TMP_CSV"
+            sort -u -t, -k1 "$TMP_CSV" -o "$TMP_CSV"
+            echo "Merged: $(wc -l < "$TMP_CSV") readings (with header)"
+          else
+            echo "No hourly player counts found in archive"
+          fi
+
       - name: Append to Parquet archive
         working-directory: ./backend
         env:
@@ -75,6 +93,7 @@ jobs:
           --snapshot-csv /tmp/aggregator-snapshots-$(date -u +%F).csv
           --backfilled-csv /tmp/aggregator-backfilled-$(date -u +%F).csv
           --exchange-rates-csv /tmp/exchange-rates-$(date -u +%F).csv
+          --player-counts-csv /tmp/player-counts/$(date -u +%F).csv
 
       - name: Commit snapshot to data-archive
         working-directory: ./archive
@@ -82,7 +101,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add price-archive
-          git commit -m "archive: prices + exchange-rates $(date -u +%F)" || echo "nothing to commit"
+          git commit -m "archive: prices + exchange-rates + player-counts $(date -u +%F)" || echo "nothing to commit"
           git push
 
       - name: Notify on failure
