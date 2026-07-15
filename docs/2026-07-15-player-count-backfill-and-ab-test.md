@@ -8,28 +8,40 @@
 
 **Result:** 5,110 unique days of player count history (2011-11-30 to 2026-07-05) now available to the forecaster.
 
-## A/B Test: Impact on Accuracy
+## A/B Test: Initial Result
 
-Walk-forward evaluation on 100 backfilled items, comparing control (no player count features) vs treatment (all 9 player count features).
+Walk-forward evaluation on 100 backfilled items, comparing control (no player count features) vs treatment (all 10 player count features).
 
 | Horizon | Control (w/o) | Treatment (w/) | Delta |
 |---------|:------------:|:-------------:|:-----:|
-| 3d      | 63.2% (+13.2pp) | 63.6% (+13.6pp) | **+0.4pp** |
+| 3d      | 63.2% (+13.2pp) | 63.6% (+13.6pp) | +0.4pp |
 | 7d      | 63.5% (+13.5pp) | 63.5% (+13.5pp) | +0.0pp |
-| 14d     | 62.5% (+12.5pp) | 66.2% (+16.2pp) | **+3.7pp** |
-| 30d     | 63.2% (+13.2pp) | 70.9% (+20.9pp) | **+7.7pp** |
+| 14d     | 62.5% (+12.5pp) | 66.2% (+16.2pp) | +3.7pp |
+| 30d     | 63.2% (+13.2pp) | 70.9% (+20.9pp) | +7.7pp |
 | **Avg** | **63.1%** | **66.1%** | **+3.0pp** |
 
-### Interpretation
+## Permutation Test: Causality Check
 
-- Short horizons (3d, 7d) are essentially flat — market micro-structure dominates at these windows, player count adds little.
-- 14d sees solid improvement (+3.7pp), exceeding the doc's estimate of +1-3pp.
-- 30d gains +7.7pp (70.9% directional accuracy) — player count is a strong medium-term demand signal.
-- Average improvement of +3.0pp across all four horizons.
+The A/B test controls for model architecture but not for **extra model capacity** — the treatment gets 6 more features after pruning (109 vs 103), giving LightGBM more leaves to split on, which inflates validation accuracy via overfit.
 
-### Features Added
+**Method:** Train one model (with player counts), then on each validation fold, randomly shuffle the player count columns (20 permutations per fold). This breaks the temporal link between player count and price while preserving feature distribution. If real accuracy exceeds shuffled accuracy, the signal is causal.
 
-9 derived features from daily player counts:
+**Result: causal signal is ZERO across all horizons.**
+
+| Horizon | Real Acc. | Shuffled Acc. (mean) | Delta | Significant? |
+|---------|:--------:|:-------------------:|:-----:|:-----------:|
+| 3d      | 68.3%    | 68.3% ± 6.5        | +0.0pp | ❌ |
+| 7d      | 67.7%    | 67.8% ± 7.3        | -0.0pp | ❌ |
+| 14d     | 67.6%    | 67.6% ± 12.6       | -0.0pp | ❌ |
+| 30d     | 71.6%    | 71.6% ± 12.6       | -0.0pp | ❌ |
+
+Real and shuffled accuracy are **identical** to within 0.03pp. The +3pp A/B delta was entirely from extra model capacity (more features → more splits → slightly better validation accuracy by chance).
+
+**Conclusion:** Player count features have **no measurable predictive power** for item-level price direction in the current feature set. The initial estimate of +1-4pp was optimistic. The features are kept for monitoring/dashboard purposes but do not improve the model.
+
+## Features Added (non-predictive)
+
+10 derived features from daily player counts:
 - `players_mean`, `players_peak`, `players_min`, `players_last`, `players_readings` — raw daily values
 - `players_change_1d`, `players_change_7d` — day-over-day and week-over-week deltas
 - `players_ma7` — 7-day moving average
@@ -41,7 +53,8 @@ Walk-forward evaluation on 100 backfilled items, comparing control (no player co
 | Script | Purpose |
 |--------|---------|
 | `scripts/backfill_player_counts_to_parquet.py` | One-time: SQLite DB → `player-counts-*.parquet` |
-| `scripts/ab_test_player_counts.py` | Reusable A/B harness (use `--max-items` to control eval size) |
+| `scripts/ab_test_player_counts.py` | Reusable A/B harness |
+| `scripts/permutation_test_player_counts.py` | Permutation importance test |
 | `collectors/player_counts.py` | Ongoing hourly/daily collection from Steam API |
 | `.github/workflows/aggregator-update.yml` | Daily append to Parquet (via `--player-counts-csv`) |
 
@@ -49,3 +62,4 @@ Walk-forward evaluation on 100 backfilled items, comparing control (no player co
 
 - **Path mismatch in CI** — `forecaster.py` expects `price-archive/` at repo root; CI nests it under `archive/price-archive/`. This affects prediction runs (not training, which runs locally).
 - **HTTP error handling** — `fetch_current_cs2_players` raises exceptions uncaught; `collect_and_append` only handles `None` returns.
+- **Player count impact** — Permutation test shows zero causal signal. Not worth further engineering effort unless modeling approach changes (e.g., market-level instead of item-level forecasts).

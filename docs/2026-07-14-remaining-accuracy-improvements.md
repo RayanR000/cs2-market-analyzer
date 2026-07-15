@@ -12,7 +12,7 @@ Below are the remaining opportunities, grouped by estimated impact and effort.
 
 **Status:** Implemented and backfilled. See `docs/2026-07-15-player-count-backfill-and-ab-test.md`.
 
-**Actual impact:** +3.0pp avg (3d: +0.4pp, 7d: 0.0pp, 14d: +3.7pp, 30d: +7.7pp)
+**Actual impact:** **Zero** — permutation test showed the +3pp A/B delta was spurious (extra model capacity, not causal signal). See `docs/2026-07-15-player-count-backfill-and-ab-test.md#permutation-test-causality-check`.
 
 **Key files:**
 - `scripts/backfill_player_counts_to_parquet.py` — historical DB → Parquet
