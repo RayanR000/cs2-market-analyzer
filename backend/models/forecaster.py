@@ -304,6 +304,36 @@ class ItemForecaster:
 
         return df
 
+    def _fetch_item_metadata(self) -> pd.DataFrame:
+        if hasattr(self, "_item_meta_cache") and self._item_meta_cache is not None:
+            return self._item_meta_cache
+        try:
+            rows = self.db.execute(text("""
+                SELECT item_id, type FROM items
+            """)).fetchall()
+            df = pd.DataFrame(rows, columns=["item_id", "type"])
+        except Exception:
+            self._item_meta_cache = pd.DataFrame(columns=["item_id", "type"])
+            return self._item_meta_cache
+        self._item_meta_cache = df
+        logger.info(f"  item metadata: {len(df)} items loaded")
+        return df
+
+    def _add_item_metadata_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        meta = self._fetch_item_metadata()
+        if meta.empty:
+            return df
+        df = df.merge(meta, on="item_id", how="left")
+        df["type"] = df["type"].fillna("unknown")
+        type_dummies = pd.get_dummies(df["type"], prefix="item_type").astype(int)
+        for t in ["skin", "sticker", "case", "graffiti", "musickit", "unknown"]:
+            col = f"item_type_{t}"
+            if col not in type_dummies.columns:
+                type_dummies[col] = 0
+        df = pd.concat([df, type_dummies], axis=1)
+        df = df.drop(columns=["type"])
+        return df
+
     def _add_temporal_features(self, df: pd.DataFrame) -> pd.DataFrame:
         dates = pd.to_datetime(df["date"])
         dow = dates.dt.dayofweek
@@ -725,6 +755,7 @@ class ItemForecaster:
         df = self._add_temporal_features(df)
         df = self._add_item_identity_features(df)
         df = self._add_event_features(df, events_df)
+        df = self._add_item_metadata_features(df)
         return df
 
     # ------------------------------------------------------------------
