@@ -9,6 +9,7 @@ and the daily 23:00 UTC snapshot (via pipeline integration).
 
 import csv
 import os
+import sys
 import logging
 import requests
 from datetime import datetime, timezone
