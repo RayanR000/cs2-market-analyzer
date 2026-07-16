@@ -42,6 +42,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Database Migration
+        working-directory: ./backend
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          ENVIRONMENT: production
+          DEBUG: false
+        run: python scripts/run_task.py migrate
+
       - name: Run Aggregator Task
         working-directory: ./backend
         env:
