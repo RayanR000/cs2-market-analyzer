@@ -989,18 +989,18 @@ GET /items/{item_id}/social
 
 ### Feature Count Summary
 
-| Phase | New Features | Est. Impact | Status |
-|-------|-------------|-------------|--------|
-| Current | ~70 | baseline | ✅ |
-| Phase 1 (identity) | ~15 | +1-3pp | ✅ (item_metadata_features) |
-| Phase 2 (category) | ~35 | +2-5pp | ✅ (rarity kept, weapon-type removed: +0.66pp actual) |
-| Phase 3 (cross-wear) | ~10 | +2-4pp | Pending |
-| Phase 4 (supply) | ~15 | +3-6pp | Pending |
-| Phase 5 (sentiment) | ~20 | +2-5pp | Pending |
-| Phase 6 (advanced) | ~20 | +1-3pp | Pending |
-| **Total** | **~115 new** | **~5-10pp cumulative** | 2 of 6 phases done |
+| Phase | New Features | Est. Impact | Calibrated Est. | Status |
+|-------|-------------|:-----------:|:----------------:|--------|
+| Current | ~70 | baseline | baseline | ✅ |
+| Phase 1 (identity) | ~15 | +1-3pp | +0-1pp | ✅ |
+| Phase 2 (category) | ~35 | +2-5pp | **+0.66pp** actual (rarity only; weapon-type removed) | ✅ |
+| Phase 3 (cross-wear) | ~10 | +2-4pp | **1-2pp** | Pending |
+| Phase 4 (supply) | ~15 | +3-6pp | **1-3pp** | Pending |
+| Phase 5 (sentiment) | ~20 | +2-5pp | **1-3pp** | Pending |
+| Phase 6 (advanced) | ~20 | +1-3pp | **0-2pp** | Pending |
+| **Total** | **~115 new** | **~5-10pp cumulative** | **~3-7pp** | 2 of 6 phases done |
 
-**Note:** Phase 2 actual impact (+0.66pp) was below the 2-5pp estimate because existing features (cross-sectional, price technicals) already captured much of the signal. Later phases should be validated via A/B test before full integration.
+**Note:** Phase 2 delivered +0.66pp — ~20% of the 2-5pp estimate. Existing features (cross-sectional, price technicals, ~55 features) already captured most signal. The marginal gain of Phase 2 was entirely from rarity dummies (12 features); weapon_type (22 features) and cross-sectional (6 features) were pure noise and removed. Later phases should be calibrated to **30-50% of pre-estimate** for novel signal, and must be validated via A/B + permutation test before full integration.
 
 ### Validation Approach
 

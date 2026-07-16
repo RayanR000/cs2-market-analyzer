@@ -73,31 +73,22 @@ Built into `train()`: after CV, `_validate_feature_groups()` runs a fast permuta
 
 
 
-## Moderate Impact (~1-4pp potential)
+## Moderate Impact (~1-3pp potential)
 
-### 5. Multi-horizon consistent training
+### 5. Multi-source outlier voting
 
-Currently each horizon (3d, 7d, 14d, 30d) is trained independently. A single model predicting all four horizon returns simultaneously would force shared representations of market dynamics and naturally enforce consistency (e.g., 3d direction ≤ 7d direction ≤ 30d direction).
+Currently, the aggregator fetches from 7 sources and uses the values directly. Nothing prevents a stale/spoofed source from corrupting a train or inference row. Voting (e.g., median or trimmed-mean after rejecting sources more than 2 std from consensus) would reduce label noise.
 
-**Implementation:**
-- Multi-output regression target: `[target_return_3d, target_return_7d, target_return_14d, target_return_30d]`
-- Sum of quantile losses across horizons as objective
-- Or train a single model with horizon as a categorical feature
+**Why this is different from feature groups:** It's a data quality improvement, not a new feature dimension. Reducing noise in existing price features improves ALL downstream features (lagged prices, returns, rolling stats, Bollinger, RSI, MACD, volume features). This avoids the diminishing returns pattern that plagues new feature groups.
 
-**Effort:** Medium (restructure target prep, model output, and inference)
-**Impact estimate:** +2-4pp
-
-**Already documented in:** `docs/2026-07-11-accuracy-improvement-brainstorm.md` (Item #13)
-
-**Costs:** Training time increases ~4x (one model per quantile vs per horizon×quantile). Inference unchanged.
+**Effort:** Low
+**Impact estimate:** +2-4pp (keep original — not subject to diminishing returns)
 
 ---
 
+### 6. Listing count / supply depth feature
 
-
-### 6. Listing count feature
-
-Number of active Steam market listings at prediction time is a powerful short-term signal — items with few listings can spike on single buys, while oversupplied items face downward pressure.
+Number of active Steam market listings at prediction time is a genuinely novel signal — current features have zero supply-side data after weapon_type removal. Items with few listings can spike on single buys, while oversupplied items face downward pressure.
 
 **Implementation:**
 - CSMarketAPI's `/v1/items` endpoint returns `listing_count`
@@ -105,9 +96,25 @@ Number of active Steam market listings at prediction time is a powerful short-te
 - Join as a daily feature
 
 **Effort:** Medium (requires aggregator changes + new table)
-**Impact estimate:** +3-8pp (speculative, depends on data quality)
+**Impact estimate:** +1-3pp (calibrated: 30-50% of original +3-8pp estimate)
 
 **Costs:** Adds ~1-2 new columns, negligible training impact. Requires ongoing API calls during aggregator runs.
+
+---
+
+### 7. Multi-horizon consistent training
+
+Currently each horizon (3d, 7d, 14d, 30d) is trained independently. A single model predicting all four horizons simultaneously would force shared representations and naturally enforce consistency.
+
+**Implementation:**
+- Multi-output regression target: `[target_return_3d, target_return_7d, target_return_14d, target_return_30d]`
+- Sum of quantile losses across horizons
+- Or train a single model with horizon as a categorical feature
+
+**Effort:** Medium (restructure target prep, model output, inference)
+**Impact estimate:** +1-2pp (calibrated: 30-50% of original +2-4pp estimate)
+
+**Costs:** Training time increases ~4x. Inference unchanged.
 
 ---
 
@@ -115,25 +122,28 @@ Number of active Steam market listings at prediction time is a powerful short-te
 
 ## Deeper Architectural Changes (higher effort)
 
-### 7. Item-type sub-models
+### 8. Regime-switching models
 
-Instead of one-hot encoding type as a feature, train separate LightGBM models per item category (skin model, sticker model, case model, etc.). Each model would specialize in its category's dynamics.
+Separate LightGBM models for bull/bear/range regimes (detected via existing `market_regime` feature as classifier). Each model specializes in its regime's dynamics.
 
-**Pros:**
-- Captures category-specific feature interactions without global tree splits
-- Each model can have its own hyperparameters
+**Effort:** Medium
+**Impact estimate:** +2-4pp during volatile periods only; +1-2pp averaged across all time (calibrated: 30-50% of original +3-8pp)
 
-**Cons:**
-- 5x model count (180 total instead of 36)
-- Requires sufficient training data per category
-- More complex deployment
+**Costs:** 3x model count (108 total). Training time +200% on top of base ensemble.
 
-**Effort:** High (significant refactor of training/prediction pipeline)
-**Impact estimate:** +2-5pp
+---
 
-**Already documented in:** `docs/2026-07-11-accuracy-improvement-brainstorm.md` (Item #14)
+### 9. Item-type sub-models
 
-**Costs:** 5x more models = 5x training time and 5x memory for inference. Redundant for categories with few items.
+Instead of one-hot encoding type as a feature, train separate LightGBM models per item category (skin, sticker, case, etc.). Each model specializes in its category's dynamics.
+
+**Pros:** Captures category-specific interactions, custom hyperparams per category.
+**Cons:** 5x model count, needs sufficient data per category, complex deployment.
+
+**Effort:** High
+**Impact estimate:** +1-3pp (calibrated: 30-50% of original +2-5pp)
+
+**Costs:** 180 total models. 5x training time and memory.
 
 ---
 
@@ -191,116 +201,42 @@ Currently 15 Optuna trials per quantile per horizon (60 total). Increasing to 30
 
 ## Cost summary: accuracy vs training time
 
-| Improvement | Accuracy | Training time | Other costs |
-|---
-
----
-
----
-
----
-
--|:---
-
----
-
---:|:---
-
----
-
----
-
----
-
--:|---
-
----
-
----
-
----
-
--|
-| Player count | 0pp | +2-5% | API collection, Parquet storage |
-| Supply-side | +0.66pp | +5-10% | Backfill script, Parquet (109 KB) |
-| Auto-prune | Prevents overfit | +10-20% | Validation after each horizon |
-| Event decay | 0pp (reverted) | — | None (script-only) |
-| Multi-horizon | +2-4pp est. | **+300-400%** | Structural refactor |
-| Listing count | +3-8pp est. | +1-2% | New data collection pipeline |
-| Sub-models | +2-5pp est. | **+500%** | 5x model count, deployment complexity |
-| Conformal pred | Intervals only | Negligible | New calibration logic |
-| More training data | +1-2pp est. | +100% | Memory, DuckDB tuning |
-| More HP trials | +0.5-1pp est. | +200-300% | None |
+| Improvement | Accuracy | Calibrated | Training time | Other costs |
+|---|---|:---:|---|---|
+| Player count | 0pp | **0pp** ✅ tested | +2-5% | API collection, Parquet storage |
+| Supply-side | +0.66pp | **+0.66pp** actual | +5-10% | Backfill script, Parquet (109 KB) |
+| Auto-prune | Prevents overfit | **Prevents overfit** | +10-20% | Validation after each horizon |
+| Event decay | 0pp (reverted) | **0pp** ✅ tested | — | None (script-only) |
+| Multi-source outlier voting | +2-4pp | **+2-4pp** (keep) | None | Negligible |
+| Multi-horizon | +2-4pp est. | **+1-2pp** | +300-400% | Structural refactor |
+| Listing count / supply depth | +3-8pp est. | **+1-3pp** | +1-2% | New data collection pipeline |
+| Regime-switching models | +3-8pp est. | **+1-2pp** avg | +200% | 3x model count |
+| Quality spreads (cross-wear) | +2-4pp est. | **+1-2pp** | +1-2% | None |
+| Sub-models | +2-5pp est. | **+1-3pp** | +500% | 5x model count, deployment complexity |
+| Conformal pred | Intervals only | Intervals only | Negligible | New calibration logic |
+| More training data | +1-2pp est. | **+0-1pp** | +100% | Memory, DuckDB tuning |
+| More HP trials | +0.5-1pp est. | **+0.5-1pp** | +200-300% | None |
 
 Training time is roughly linear in feature count, row count, and model count. Paying the time cost is worth it when the accuracy improvement is real (supply-side: +0.66pp for +5-10% time). Features that fail validation (like player counts) get auto-pruned, so their time cost is only paid during the first training run.
 
 ## Summary priority matrix
 
-| # | Improvement | Effort | Impact | Training time penalty | Data needed? | Already noted? | Status |
-|---
+| # | Improvement | Effort | Impact | Calibrated | Training time penalty | Status |
+|---|---|:---:|---:|:---:|---|---|
+| 1 | Player count | Low | 0pp | **0pp** ✅ tested | +2-5% | **Done** |
+| 2 | Supply-side features | Medium | +0.66pp | **+0.66pp** actual | +5-10% | **Done** |
+| 3 | Auto-prune | Low | Prevents overfit | **Prevents overfit** | +10-20% | **Done** |
+| 4 | Event decay opt | Low | 0pp | **0pp** ✅ tested | None | **Done** |
+| 5 | Multi-source outlier voting | Low | +2-4pp | **+2-4pp** (keep) | None | Pending |
+| 6 | Listing count / supply depth | Medium | +3-8pp | **+1-3pp** | +1-2% | Pending |
+| 7 | Multi-horizon joint training | Medium | +2-4pp | **+1-2pp** | +300-400% | Pending |
+| 8 | Regime-switching models | Medium | +3-8pp | **+1-2pp** avg | +200% | Pending |
+| 9 | Quality spreads (cross-wear) | Medium | +2-4pp | **+1-2pp** | +1-2% | Pending |
+| 10 | Sub-models (per-category) | High | +2-5pp | **+1-3pp** | +500% | Pending |
+| 11 | Conformal prediction | Medium | Intervals only | Intervals only | Negligible | Pending |
+| 12 | More training data (730d→1460d) | Low | +1-2pp | **+0-1pp** | +100% | Pending |
+| 13 | More HP trials (15→50) | Trivial | +0.5-1pp | **+0.5-1pp** | +200-300% | Pending |
 
-|---
+**Top recommendation:** **#5 (multi-source outlier voting)** — not subject to diminishing returns. Improves quality of all existing price features.
 
----
-
----
-
----
-
--|---
-
----
-
---|:---
-
----
-
-:|:---
-
----
-
----
-
----
-
----
-
----
-
----
-
-:|:---
-
----
-
----
-
----
-
-:|:---
-
----
-
----
-
----
-
---:|:---
-
----
-
-:|
-| 1 | Player count | Low | 0pp | +2-5% | Collected | brainstorm #8 | **Done** |
-| 2 | Supply-side features | Medium | +0.66pp | +5-10% | Schema change | No | **Done** |
-| 3 | Auto-prune | Low | Prevents overfit | +10-20% | No | **No** | **Done** |
-| 4 | Event decay opt | Low | 0pp | None | No | brainstorm #7 | **Done** |
-| 5 | Multi-horizon | Medium | +2-4pp est. | +300-400% | No | brainstorm #13 | Pending |
-| 6 | Listing count | Medium | +3-8pp est. | +1-2% | New collection | **No** | Pending |
-| 7 | Sub-models | High | +2-5pp est. | +500% | No | brainstorm #14 | Pending |
-| 8 | Conformal pred | Medium | Intervals only | Negligible | No | brainstorm #12 | Pending |
-| 9 | More training data | Low | +1-2pp est. | +100% | Collected | No | Pending |
-| 10 | More HP trials | Trivial | +0.5-1pp est. | +200-300% | No | No | Pending |
-
-**Top recommendation:** **#5 (multi-horizon)** or **#6 (listing count)** — highest remaining impact opportunities now that event decay optimization (#4) is done with zero impact.
-
-**Guardrail:** Any new feature group must pass `_validate_feature_groups()` (built-in permutation test during `train()`) or it will be auto-pruned. This applies to all items above.
+**Guardrail:** Any new feature group must pass `_validate_feature_groups()` (built-in permutation test during `train()`) or it will be auto-pruned. This applies to all items above. A/B test deltas without permutation confirmation should be treated as upper bounds, not guarantees.
