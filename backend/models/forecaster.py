@@ -510,10 +510,11 @@ class ItemForecaster:
 
         try:
             rows = self.db.execute(text("""
-                SELECT ss.item_id, ss.snapshot_date AS day,
+                SELECT i.item_id, ss.snapshot_date AS date,
                        ss.sell_listings, ss.skinport_quantity
                 FROM supply_snapshots ss
-                ORDER BY ss.item_id, ss.snapshot_date
+                JOIN items i ON i.id = ss.item_id
+                ORDER BY i.item_id, ss.snapshot_date
             """)).fetchall()
             df = pd.DataFrame(rows, columns=["item_id", "date", "sell_listings", "skinport_quantity"])
             if df.empty:

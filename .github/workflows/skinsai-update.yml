@@ -1,15 +1,13 @@
-name: Aggregator Market Update
+name: SkinsAI Price Update
 
 on:
   schedule:
-    # Once daily at 23:00 UTC (7:00 PM EDT). CSGOTrader regenerates its price
-    # dumps once a day around ~21:40 UTC (verified via Last-Modified headers
-    # and 5 weeks of collected data — extra same-day runs always returned
-    # identical prices). 23:00 leaves buffer for upstream drift and Actions
-    # cron delay, keeps timestamps on the same calendar day as the prices,
-    # and leaves time for the forecast chain (runs ~01:00 UTC).
-    - cron: '0 23 * * *'
-  workflow_dispatch: # Allow manual trigger
+    # Every 6 hours. skins.ai is a free, no-key, no-cookie API with responses
+    # edge-cached ~5-60 min, so a single bulk catalog call is fast and cheap.
+    # Four runs/day capture intraday moves far better than the once-daily
+    # CSGOTrader dump, while staying well within reasonable-use bounds.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 defaults:
   run:
@@ -20,9 +18,9 @@ permissions:
   contents: write # push daily price dumps to the data-archive branch
 
 jobs:
-  collect-data:
+  collect-skinsai:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -52,43 +50,22 @@ jobs:
           DEBUG: false
         run: python scripts/run_task.py migrate
 
-      - name: Run Aggregator Task
+      - name: Run SkinsAI Collection
         working-directory: ./backend
         env:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           ENVIRONMENT: production
           DEBUG: false
         run: |
-          echo "🚀 Starting aggregator market update..."
+          echo "🚀 Starting skins.ai price collection..."
           set -o pipefail
-          python scripts/run_task.py aggregate 2>&1 | tee aggregator.log
+          python scripts/run_task.py skinsai 2>&1 | tee skinsai.log
 
-      # Snapshot-tier items keep only their latest row in Supabase, so each
-      # day's collection is dumped to the data-archive branch as the durable
-      # record of their price history.
       - name: Checkout data-archive branch
         uses: actions/checkout@v4
         with:
           ref: data-archive
           path: archive
-
-      - name: Merge hourly player counts
-        run: |
-          DATE=$(date -u +%Y-%m-%d)
-          ARCHIVE_CSV="archive/price-archive/player-counts/${DATE}.csv"
-          TMP_CSV="/tmp/player-counts/${DATE}.csv"
-          mkdir -p /tmp/player-counts
-          if [ -f "$ARCHIVE_CSV" ]; then
-            echo "Merging hourly player counts from archive..."
-            if [ ! -f "$TMP_CSV" ]; then
-              head -1 "$ARCHIVE_CSV" > "$TMP_CSV"
-            fi
-            tail -n +2 "$ARCHIVE_CSV" >> "$TMP_CSV"
-            sort -u -t, -k1 "$TMP_CSV" -o "$TMP_CSV"
-            echo "Merged: $(wc -l < "$TMP_CSV") readings (with header)"
-          else
-            echo "No hourly player counts found in archive"
-          fi
 
       - name: Append to Parquet archive
         working-directory: ./backend
@@ -100,10 +77,7 @@ jobs:
           python scripts/append_to_parquet.py
           --date $(date -u +%F)
           --out-dir ../archive
-          --snapshot-csv /tmp/aggregator-snapshots-$(date -u +%F).csv
-          --backfilled-csv /tmp/aggregator-backfilled-$(date -u +%F).csv
-          --exchange-rates-csv /tmp/exchange-rates-$(date -u +%F).csv
-          --player-counts-csv /tmp/player-counts/$(date -u +%F).csv
+          --snapshot-csv /tmp/skinsai-snapshots-$(date -u +%F).csv
 
       - name: Commit snapshot to data-archive
         working-directory: ./archive
@@ -112,7 +86,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin data-archive || true
           git add price-archive
-          git commit -m "archive: prices + exchange-rates + player-counts $(date -u +%F)" || echo "nothing to commit"
+          git commit -m "archive: skins.ai prices $(date -u +%F)" || echo "nothing to commit"
           git push
 
       - name: Notify on failure
@@ -129,10 +103,10 @@ jobs:
           Trigger: ${{ github.event_name }}" \
             --label "automation" 2>/dev/null || true
 
-      - name: Upload aggregator logs
+      - name: Upload skinsai logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aggregator-logs-${{ github.run_id }}
-          path: backend/aggregator.log
+          name: skinsai-logs-${{ github.run_id }}
+          path: backend/skinsai.log
           retention-days: 30

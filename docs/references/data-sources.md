@@ -5,6 +5,7 @@
 | Source | Type | Interval | Freshness | Auth | Status |
 |---|---|---|---|---|---|
 | CSGOTrader aggregator | JSON API | Every 6h | 24h avg of Steam sales (stale) | None | **Active (primary)** |
+| skins.ai catalog | JSON API (bulk) | Every 6h | Edge-cached ~5–60m best cross-market listing price | None | **Active (additional source)** |
 | Steam Market (scraped) | Web scrape | Daily | Live snapshot but rate-limited | Cookies (for pricehistory) | **Active (secondary)** |
 | Steam Market supply scraper | Burst scrape | Daily | Live sell_listings count (burst-limited) | None | **Active** |
 | CSFloat API | REST API | Not running | Live listings | API key not configured | **Degraded** |
@@ -40,6 +41,18 @@
 
 ### Skinport (dead)
 The Skinport direct API (`/v1/items`) is now behind Cloudflare Bot Management (403 on server-side requests). Removed from the scraper. The CSGOTrader aggregator still references Skinport data but it reads the wrong JSON keys so it contributes nothing anyway.
+
+## skins.ai (additional price source)
+
+**Added 2026-07-16.** Free, no-key, no-cookie bulk price source. Intended as a *parallel* source that flows into the Parquet archive alongside CSGOTrader — **not** a replacement.
+
+- **Source:** `skins.ai/api/item-names` (public, no auth) — one call returns the full catalog (~8,000 items: `n` name, `s` slug, `g` game, `p` best cross-market price).
+- **What it returns:** the best *listing* price across markets (cross-market), **not** the Steam sale price. Liquidity field `dvol30d` exists but no daily volume, so `volume` is written as `0` in the snapshot.
+- **Matching:** exact name → base name (wear/variant stripped) → slug fallback. Knives are listed without the `★` prefix and stickers carry their `(Holo)/(Gold)` variants, so `StatTrak`/`★`/`Souvenir` prefixes and wear suffixes are stripped before lookup.
+- **Coverage:** ~57% of the ~8.7K tracked items match (knives/stickers/cases partially covered; the free catalog is a subset). Unmatched items are skipped — CSGOTrader remains the primary for those.
+- **Storage:** collector writes a snapshot CSV (`item_slug, day, source=skinsai, price, volume`) consumed by `append_to_parquet.py` → `prices-YYYY.parquet` / `snapshots-YYYY.parquet` on the `data-archive` branch. The forecaster already includes any non-`historical_fallback` source in multi-source voting, so no forecaster change was needed.
+- **Runner:** GitHub Actions every 6h (`skinsai-update.yml`), 60-min timeout. Migrate → `run_task.py skinsai` → checkout `data-archive` → `append_to_parquet.py --snapshot-csv` → commit/push (with `pull --rebase` to avoid clashing with the aggregator workflow).
+- **Code:** `backend/collectors/skinsai_collector.py`, entry `backend/scripts/run_skinsai_collection.py`, tests `backend/tests/test_skinsai_collector.py`.
 
 ## Deduplication strategy
 - Only insert price row if value actually changed vs previous row

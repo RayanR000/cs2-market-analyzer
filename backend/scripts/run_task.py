@@ -117,6 +117,14 @@ def run_task(task_name):
             result = run_supply()
             print(f"RESULT: {result}")
 
+        elif task_name == "skinsai":
+            logger.info("="*60)
+            logger.info("TASK: skins.ai Price Collection (additional source)")
+            logger.info("="*60)
+            from scripts.run_skinsai_collection import run as run_skinsai
+            result = run_skinsai()
+            print(f"RESULT: {result}")
+
         else:
             logger.error(f"Unknown task: {task_name}")
             sys.exit(1)
@@ -157,7 +165,7 @@ def run_task(task_name):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python run_task.py <task_name>")
-        print("Tasks: aggregate, priority, trends, long_term_trends (deprecated), migrate, backtest, backtest_historical, event_correlation")
+        print("Tasks: aggregate, priority, trends, long_term_trends (deprecated), migrate, backtest, backtest_historical, event_correlation, supply_scrape, skinsai")
         sys.exit(1)
         
     run_task(sys.argv[1])
