@@ -249,6 +249,80 @@ class DataPipeline:
                             writer.writerow([slug, agg_date, d["source"], d["price"], d.get("volume", 0)])
                 logger.info("Wrote %s snapshot rows to %s (all sources)", len(rows_as_dicts), snapshot_csv_path)
 
+                # ── Append ALL raw CSGOTrader items (even those not matched to a DB Item) ──
+                # This captures every item CSGOTrader tracks, using its own key as the
+                # item_slug. DuckDB dedup on (item_slug, day, source) in append_to_parquet
+                # handles any overlap with the matched rows above.
+                from collectors.csgotrader_aggregator import _get_safe as _agg_get_safe
+
+                written = {
+                    (id_to_slug[d["item_id"]], d["source"])
+                    for d in rows_as_dicts
+                    if id_to_slug.get(d["item_id"])
+                }
+
+                raw_count = 0
+                with open(snapshot_csv_path, "a", newline="") as f:
+                    w = csv.writer(f)
+                    for src_name, src_data in aggregator._raw_sources.items():
+                        for item_key, info in src_data.items():
+                            if src_name == "steam":
+                                p24 = _agg_get_safe(info.get("last_24h"))
+                                p7 = _agg_get_safe(info.get("last_7d"))
+                                p30 = _agg_get_safe(info.get("last_30d"))
+                                p90 = _agg_get_safe(info.get("last_90d"))
+                                for label, p in [
+                                    ("aggregator_sync", p24 if p24 is not None else (p7 if p7 is not None else (p30 if p30 is not None else p90))),
+                                    ("aggregator_steam_7d", p7),
+                                    ("aggregator_steam_30d", p30),
+                                    ("aggregator_steam_90d", p90),
+                                ]:
+                                    if p is not None and p > 0 and (item_key, label) not in written:
+                                        w.writerow([item_key, agg_date, label, p, 0])
+                                        raw_count += 1
+                                continue
+
+                            if not isinstance(info, dict):
+                                p = _agg_get_safe(info)
+                                if p is not None and p > 0:
+                                    label = SOURCE_LABELS.get(src_name, f"aggregator_{src_name}")
+                                    if (item_key, label) not in written:
+                                        w.writerow([item_key, agg_date, label, p, 0])
+                                        raw_count += 1
+                                continue
+
+                            if src_name == "skinport":
+                                p = _agg_get_safe(info.get("starting_at"))
+                            elif src_name == "buff163":
+                                starting = info.get("starting_at")
+                                p = _agg_get_safe(starting.get("price") if isinstance(starting, dict) else starting)
+                                ho = info.get("highest_order")
+                                if isinstance(ho, dict):
+                                    ho_p = _agg_get_safe(ho.get("price"))
+                                    if ho_p is not None and ho_p > 0:
+                                        label = "aggregator_buff163_buy"
+                                        if (item_key, label) not in written:
+                                            w.writerow([item_key, agg_date, label, ho_p, 0])
+                                            raw_count += 1
+                            elif src_name == "csfloat":
+                                p = _agg_get_safe(info.get("price"))
+                            elif src_name == "csmoney":
+                                p = _agg_get_safe(info.get("price"))
+                            elif src_name == "csgotrader":
+                                p = _agg_get_safe(info.get("price"))
+                            elif src_name == "youpin":
+                                p = _agg_get_safe(info.get("price")) or _agg_get_safe(info)
+                            else:
+                                p = _agg_get_safe(info.get("price"))
+
+                            if p is not None and p > 0:
+                                label = SOURCE_LABELS.get(src_name, f"aggregator_{src_name}")
+                                if (item_key, label) not in written:
+                                    w.writerow([item_key, agg_date, label, p, 0])
+                                    raw_count += 1
+
+                logger.info("Appended %s raw CSGOTrader item-source pairs to snapshot CSV", raw_count)
+
                 # ── Write all sources for backfilled items to CSV (for OHLCV Parquet) ──
                 backfilled_dicts = [d for d in rows_as_dicts if d["item_id"] in hist_item_ids]
                 if backfilled_dicts:
