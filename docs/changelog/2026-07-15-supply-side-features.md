@@ -46,17 +46,20 @@ Walk-forward evaluation on 50 items, 26 expanding windows, ~27k samples per hori
 
 **Verdict:** Modest improvement, worth keeping. Impact concentrated at short horizons (3d best). Below the 3-6pp estimate — existing features already capture much of the signal.
 
+**Post-audit (Jul 16):** Permutation test split the bundle. **Rarity one-hot** showed strong causal signal (+10-12pp across all horizons). **Weapon_type one-hot** and **weapon-type cross-sectional** showed zero causal signal (≤0.05pp accuracy change when shuffled). Weapon-type features removed. Rarity kept.
+
 ## Feature Count
 
 - Control (without): 110 features
 - Treatment (with): 154 features (+44 supply-side features: 11 rarity dummies + 22 weapon_type dummies + ~11 weapon-type cross-sectional features)
+- **Post-audit (Jul 16):** weapon_type dummies (22) and weapon-type cross-sectional (6) removed. Rarity dummies (12) kept. Net: +12 features over baseline.
 
 ## Architecture
 
 The forecaster loads metadata from Parquet (`price-archive/item-metadata.parquet`) with DB fallback. Supply-side features are added in two places:
 
-1. **`_add_supply_side_features()`** — called in `engineer_features()`, adds identity features (rarity ordinal, rarity one-hot, weapon_type one-hot). Grouped under `item_identity` for permutation testing.
-2. **`_add_weapon_type_cross_sectional_features()`** — called in `build_training_data()` and `predict()`, adds per-date weapon-type group returns and item-vs-weapon-type signals. Grouped under `supply_side`. Uses `wt_` prefix to avoid feature name collisions.
+1. **`_add_supply_side_features()`** — called in `engineer_features()`, adds identity features (rarity ordinal, rarity one-hot). Weapon_type one-hot was removed Jul 16 after permutation test showed zero causal signal.
+2. **`_add_weapon_type_cross_sectional_features()`** — **Removed Jul 16**. Permutation test showed zero causal signal (shuffling changed accuracy ≤0.05pp). The +0.66pp A/B bundle delta was entirely from rarity; weapon-type features added only noise and extra model capacity.
 
 ## Remaining
 

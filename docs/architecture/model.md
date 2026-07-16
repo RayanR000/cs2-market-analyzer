@@ -19,7 +19,7 @@ Predictions are averaged across seeds per quantile. p10/p90 provide the interval
 
 ---
 
-## Feature Engineering (110+ features)
+## Feature Engineering (~116 features)
 
 ### Price Features
 Lags (1/3/7/14/30/60d), returns (winsorized ±500%), rolling stats (7/14/20/30/60d windows), log returns, autocorrelation proxies, price acceleration.
@@ -39,11 +39,10 @@ Day-of-week/month/quarter/year, sin/cos cyclic encoding, weekend flag, item age.
 ### Cross-Sectional Features
 Market return per lag, item return vs market, market volatility/volume/regime flags (bull/bear/range), item volume vs market.
 
-### Supply-Side Features (Added Jul 2026)
-Rarity ordinal and one-hot dummies (11 categories: base, consumer, industrial, milspec, restricted, classified, covert, high_grade, remarkable, exotic, extraordinary), weapon type one-hot dummies (22 categories: rifle, pistol, smg, shotgun, sniper, machinegun, knife, glove, case, sticker, graffiti, musickit, charm, agent, patch, collectible, equipment, key, pass, tool, tag, gift). Source: `price-archive/item-metadata.parquet` (8,691 items, 109 KB) with DB fallback.
+### Rarity Features (Added Jul 2026, refined Jul 2026)
+Rarity ordinal and one-hot dummies (11 categories: base, consumer, industrial, milspec, restricted, classified, covert, high_grade, remarkable, exotic, extraordinary). Source: `price-archive/item-metadata.parquet` (8,691 items, 109 KB) with DB fallback. Permutation test confirmed strong causal signal (+10-12pp across all horizons).
 
-### Weapon-Type Cross-Sectional Features (Added Jul 2026)
-Per-date weapon-type group returns, item return vs weapon-type mean, weapon-type volatility and volume signals. Parallels the market-level cross-sectional features but computed per weapon_type group. Uses `wt_` prefix to avoid collision with identity features (e.g., `wt_group_return_7d`).
+**Removed after permutation test:** weapon_type one-hot dummies (22 cols) and weapon-type cross-sectional features (6 cols) — showed zero causal signal (shuffling changed accuracy by ≤0.05pp). Player count features (10 cols) also removed; earlier permutation test showed zero causal impact.
 
 ### Feature Pruning
 Correlation-based pruning at 0.95 threshold. Applied during training, pruned feature list saved to `meta.json`.
@@ -136,7 +135,7 @@ Binary: `high` or `low`. Threshold-calibrated per horizon from CV out-of-fold pr
 | **14d** | **60.2%**            | **+10.2pp**     | 86.1%             | $0.34 |
 | **30d** | 68.1%                | +18.1pp         | 82.6%             | $0.53 |
 
-Measured via walk-forward evaluation on 50 items, 26 expanding windows (60-day steps), ~27k samples per horizon. Fixed LightGBM params (no ensemble — conservative estimate). Supply-side features enabled (rarity one-hot, weapon_type one-hot, weapon-type cross-sectional). Lift: +0.66pp avg vs control (3d: +1.92pp, 7d: -0.16pp, 14d: +0.79pp, 30d: +0.08pp).
+Measured via walk-forward evaluation on 50 items, 26 expanding windows (60-day steps), ~27k samples per horizon. Fixed LightGBM params (no ensemble — conservative estimate). Rarity features enabled. Lift from complete supply-side bundle: +0.66pp avg (3d: +1.92pp, 7d: -0.16pp, 14d: +0.79pp, 30d: +0.08pp) — later permutation testing showed signal came entirely from rarity; weapon_type and cross-sectional were dead weight and removed.
 
 ### Historical Accuracy Timeline
 
@@ -153,7 +152,7 @@ Measured via walk-forward evaluation on 50 items, 26 expanding windows (60-day s
 - Fold variance is high (30d std=12.0%, range 42.5%–91.1%)
 - Recent folds degrade during high market volatility
 - Interval coverage drops in volatile periods
-- Supply-side features have modest impact (+0.66pp avg) — existing cross-sectional features already capture much of the signal
+- Rarity features have strong causal signal (+10-12pp permutation test). Weapon-type one-hot and cross-sectional were removed — they showed zero causal signal despite the +0.66pp A/B bundle delta
 
 ---
 
@@ -195,7 +194,9 @@ Measured via walk-forward evaluation on 50 items, 26 expanding windows (60-day s
 | Cross-sectional/market-regime features | Jul 2026 | Medium |
 | Event decay weighting (not hardcoded 999) | Jul 2026 | Medium |
 | Feature pruning (correlation 0.95) | Jul 2026 | Medium |
-| Supply-side features (rarity, weapon_type, wt cross-sectional) | 2026-07-15 | Low (+0.66pp) |
+| Supply-side features (rarity one-hot) | 2026-07-15 | Low (+0.66pp bundle, refined to rarity-only Jul 16) |
+| Weapon-type features removed (22 one-hot + 6 cross-sectional) | 2026-07-16 | Zero causal signal (permutation test) |
+| Player count features removed (10 cols) | 2026-07-16 | Zero causal signal (permutation test) |
 | 3-seed ensemble per quantile | Jul 2026 | Medium |
 | Binary confidence (dropped medium bucket) | Jul 2026 | Low |
 | CatBoost ensemble tested and removed | 2026-07-13 | Low (degraded accuracy) |
@@ -222,6 +223,7 @@ Measured via walk-forward evaluation on 50 items, 26 expanding windows (60-day s
 | `backend/scripts/evaluate_forecaster.py` | 366 | Walk-forward accuracy evaluation |
 | `backend/scripts/backtest_accuracy.py` | 360 | Mature forecast backtesting |
 | `backend/scripts/backfill_supply_metadata.py` | — | Backfill supply metadata from catalog → Parquet + DB |
-| `backend/scripts/ab_test_supply_side.py` | — | A/B test: with vs without supply-side features |
+| `backend/scripts/ab_test_supply_side.py` | — | A/B test: with vs without supply-side features (archived) |
+| `backend/scripts/ab_test_player_counts.py` | — | A/B test: with vs without player count features (archived) |
 | `backend/tests/test_forecaster.py` | — | 46 unit tests |
 | `price-archive/item-metadata.parquet` | 8,691 rows | Supply metadata cache (rarity, weapon_type per item) |

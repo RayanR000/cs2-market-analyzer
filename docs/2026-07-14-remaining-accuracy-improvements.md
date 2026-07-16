@@ -6,6 +6,8 @@ Below are the remaining opportunities, grouped by estimated impact and effort.
 
 ---
 
+
+
 ## Completed
 
 ### 1. Player count feature ✅
@@ -22,6 +24,8 @@ Below are the remaining opportunities, grouped by estimated impact and effort.
 
 ---
 
+
+
 ### 2. Supply-side features (rarity, weapon_type, weapon-type cross-sectional) ✅
 
 **Status:** Implemented and A/B tested. See `docs/changelog/2026-07-15-supply-side-features.md`.
@@ -36,6 +40,8 @@ Below are the remaining opportunities, grouped by estimated impact and effort.
 
 ---
 
+
+
 ### 3. Permutation-based feature validation + auto-prune (DONE ✅)
 
 **Replaces:** the original SHAP-based elimination idea.
@@ -48,22 +54,26 @@ Built into `train()`: after CV, `_validate_feature_groups()` runs a fast permuta
 
 ---
 
-## Moderate Impact (~1-4pp potential)
 
-### 4. Event decay optimization
 
-Decay constants are hardcoded: major=60d, operation=21d, case_drop=14d, update=7d, game_update=7d. These were domain-informed but never optimized.
+### 4. Event decay optimization (DONE ✅)
 
-**Implementation:**
-- Grid search over tau values per event type on validation data
-- Or add tau as a learnable parameter
+**Status:** Implemented — coordinate-wise grid search over tau values (major=30-180, operation=7-60, case_drop=3-45, update=2-21, game_update=1-14), then validated via full walk-forward A/B.
 
-**Effort:** Low (add grid search loop in `_add_event_features`)
-**Impact estimate:** +1-2pp
+**Actual impact:** **Zero** — the walk-forward test showed the "optimal" taus (operation: 21→45) degraded accuracy by -0.57pp mean. The domain-informed defaults were already close to optimal. See `scripts/optimize_event_decay.py` and `scripts/compare_event_decay.py`.
 
-**Already documented in:** `docs/2026-07-11-accuracy-improvement-brainstorm.md` (Item #7)
+**Key changes:**
+- `models/forecaster.py` — `decay_constants` refactored from hardcoded dict inside `_add_event_features()` to instance attribute `self.event_decay_constants`, enabling easy swapping
+- `scripts/optimize_event_decay.py` — coordinate-wise tau grid search (fast single-split mode)
+- `scripts/compare_event_decay.py` — walk-forward A/B comparison harness
+
+**Costs incurred:** None (defaults unchanged, just added scripts + refactor).
 
 ---
+
+
+
+## Moderate Impact (~1-4pp potential)
 
 ### 5. Multi-horizon consistent training
 
@@ -79,7 +89,11 @@ Currently each horizon (3d, 7d, 14d, 30d) is trained independently. A single mod
 
 **Already documented in:** `docs/2026-07-11-accuracy-improvement-brainstorm.md` (Item #13)
 
+**Costs:** Training time increases ~4x (one model per quantile vs per horizon×quantile). Inference unchanged.
+
 ---
+
+
 
 ### 6. Listing count feature
 
@@ -93,7 +107,11 @@ Number of active Steam market listings at prediction time is a powerful short-te
 **Effort:** Medium (requires aggregator changes + new table)
 **Impact estimate:** +3-8pp (speculative, depends on data quality)
 
+**Costs:** Adds ~1-2 new columns, negligible training impact. Requires ongoing API calls during aggregator runs.
+
 ---
+
+
 
 ## Deeper Architectural Changes (higher effort)
 
@@ -115,7 +133,11 @@ Instead of one-hot encoding type as a feature, train separate LightGBM models pe
 
 **Already documented in:** `docs/2026-07-11-accuracy-improvement-brainstorm.md` (Item #14)
 
+**Costs:** 5x more models = 5x training time and 5x memory for inference. Redundant for categories with few items.
+
 ---
+
+
 
 ### 8. Conformal prediction
 
@@ -131,7 +153,11 @@ Replace the ad-hoc quantile monotonicity fix (`np.minimum(p10, p50)`, `np.maximu
 
 **Already documented in:** `docs/2026-07-11-accuracy-improvement-brainstorm.md` (Item #12)
 
+**Costs:** Negligible — calibration runs once per training, adds milliseconds to inference.
+
 ---
+
+
 
 ### 9. Expanded training window (730d → 1460d+)
 
@@ -144,7 +170,11 @@ Currently training on 730 days of data. The parquet archive has data back to 201
 **Effort:** Low (single parameter change)
 **Impact estimate:** +1-2pp (speculative — more data may not help if patterns have regime-shifted)
 
+**Costs:** Training time increases ~2x (more rows to process). Memory proportional to row count. May need duckdb query performance tuning.
+
 ---
+
+
 
 ### 10. Optuna trial count increase
 
@@ -153,23 +183,124 @@ Currently 15 Optuna trials per quantile per horizon (60 total). Increasing to 30
 **Effort:** Trivial (parameter change)
 **Impact estimate:** +0.5-1pp (diminishing returns)
 
+**Costs:** Training time increases proportionally (2-3x for 2-3x trials). Training already takes ~5-10 min per quantile×horizon.
+
 ---
+
+
+
+## Cost summary: accuracy vs training time
+
+| Improvement | Accuracy | Training time | Other costs |
+|---
+
+---
+
+---
+
+---
+
+-|:---
+
+---
+
+--:|:---
+
+---
+
+---
+
+---
+
+-:|---
+
+---
+
+---
+
+---
+
+-|
+| Player count | 0pp | +2-5% | API collection, Parquet storage |
+| Supply-side | +0.66pp | +5-10% | Backfill script, Parquet (109 KB) |
+| Auto-prune | Prevents overfit | +10-20% | Validation after each horizon |
+| Event decay | 0pp (reverted) | — | None (script-only) |
+| Multi-horizon | +2-4pp est. | **+300-400%** | Structural refactor |
+| Listing count | +3-8pp est. | +1-2% | New data collection pipeline |
+| Sub-models | +2-5pp est. | **+500%** | 5x model count, deployment complexity |
+| Conformal pred | Intervals only | Negligible | New calibration logic |
+| More training data | +1-2pp est. | +100% | Memory, DuckDB tuning |
+| More HP trials | +0.5-1pp est. | +200-300% | None |
+
+Training time is roughly linear in feature count, row count, and model count. Paying the time cost is worth it when the accuracy improvement is real (supply-side: +0.66pp for +5-10% time). Features that fail validation (like player counts) get auto-pruned, so their time cost is only paid during the first training run.
 
 ## Summary priority matrix
 
-| # | Improvement | Effort | Impact | Data needed? | Already noted? | Status |
-|---|-------------|--------|--------|-------------|----------------|--------|
-| 1 | Player count | Low | +1-3pp | Collected | brainstorm #8 | **Done** — zero causal impact |
-| 2 | Supply-side features | Medium | +3-6pp | Schema change | No | **Done** — +0.66pp actual |
-| 3 | Permutation-based auto-prune | Low | Prevents overfit | No | **No** | **Done** |
-| 4 | Event decay opt | Low | +1-2pp | No | brainstorm #7 | Pending |
-| 5 | Multi-horizon | Medium | +2-4pp | No | brainstorm #13 | Pending |
-| 6 | Listing count | Medium | +3-8pp | New collection | **No** | Pending |
-| 7 | Sub-models | High | +2-5pp | No | brainstorm #14 | Pending |
-| 8 | Conformal pred | Medium | Intervals only | No | brainstorm #12 | Pending |
-| 9 | More training data | Low | +1-2pp | Collected | No | Pending |
-| 10 | More HP trials | Trivial | +0.5-1pp | No | No | Pending |
+| # | Improvement | Effort | Impact | Training time penalty | Data needed? | Already noted? | Status |
+|---
 
-**Top recommendation:** **#4 (event decay optimization)** or **#5 (multi-horizon)** — highest remaining impact opportunities now that supply-side is done.
+|---
+
+---
+
+---
+
+---
+
+-|---
+
+---
+
+--|:---
+
+---
+
+:|:---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+---
+
+:|:---
+
+---
+
+---
+
+---
+
+:|:---
+
+---
+
+---
+
+---
+
+--:|:---
+
+---
+
+:|
+| 1 | Player count | Low | 0pp | +2-5% | Collected | brainstorm #8 | **Done** |
+| 2 | Supply-side features | Medium | +0.66pp | +5-10% | Schema change | No | **Done** |
+| 3 | Auto-prune | Low | Prevents overfit | +10-20% | No | **No** | **Done** |
+| 4 | Event decay opt | Low | 0pp | None | No | brainstorm #7 | **Done** |
+| 5 | Multi-horizon | Medium | +2-4pp est. | +300-400% | No | brainstorm #13 | Pending |
+| 6 | Listing count | Medium | +3-8pp est. | +1-2% | New collection | **No** | Pending |
+| 7 | Sub-models | High | +2-5pp est. | +500% | No | brainstorm #14 | Pending |
+| 8 | Conformal pred | Medium | Intervals only | Negligible | No | brainstorm #12 | Pending |
+| 9 | More training data | Low | +1-2pp est. | +100% | Collected | No | Pending |
+| 10 | More HP trials | Trivial | +0.5-1pp est. | +200-300% | No | No | Pending |
+
+**Top recommendation:** **#5 (multi-horizon)** or **#6 (listing count)** — highest remaining impact opportunities now that event decay optimization (#4) is done with zero impact.
 
 **Guardrail:** Any new feature group must pass `_validate_feature_groups()` (built-in permutation test during `train()`) or it will be auto-pruned. This applies to all items above.

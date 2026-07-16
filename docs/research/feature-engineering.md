@@ -260,6 +260,8 @@ player_count_detrended = player_count / player_count_ma_90d
 
 Implementation: Add a scheduled task (weekly) that fetches player count from the Steam API and stores it in the events table or a new `steam_metrics` table. The forecaster then joins this data by date.
 
+**Update Jul 16:** Permutation test showed **zero causal impact** for player count features (real accuracy matched shuffled accuracy to within 0.03pp across all horizons). The features were removed from the forecaster. The collector pipeline is preserved for monitoring/dashboard use but does not feed the model.
+
 ### 4.2 Tournament Calendar Features
 
 Currently, events are in the DB but only used as exponential decay of "has an event happened." Made more powerful:
@@ -930,15 +932,16 @@ GET /items/{item_id}/social
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Parse weapon from item name | ✅ Done | Via `models/steam_types.py` — extracts weapon_type from Steam `type` field |
-| weapon_return_{1/7/14/30}d | ✅ Done | `_add_weapon_type_cross_sectional_features()` in forecaster |
-| item_return_vs_weapon_{lag}d | ✅ Done | Same method |
-| weapon_volatility_30d | ✅ Done | Same method |
-| weapon_volume_mean_30d | ✅ Done | Same method |
-| item_volume_vs_weapon_30d | ✅ Done | Same method |
+| weapon_return_{1/7/14/30}d | ✅ Done → **Removed** | Permutation test showed zero causal signal (shuffling changed accuracy ≤0.05pp). Removed Jul 16. |
+| item_return_vs_weapon_{lag}d | ✅ Done → **Removed** | Same — removed with the rest of weapon-type cross-sectional |
+| weapon_volatility_30d | ✅ Done → **Removed** | Same |
+| weapon_volume_mean_30d | ✅ Done → **Removed** | Same |
+| item_volume_vs_weapon_30d | ✅ Done → **Removed** | Same |
+| Rarity one-hot (11 dummies) | ✅ Done → **Kept** | Strong causal signal verified by permutation test (+10-12pp). Rarity alone carries the signal. |
 | item_return_rank_7d (category percentile) | ❌ Not yet | Would require rank transform |
 | Leader-follower features | ❌ Not yet | Higher effort |
 | Parse skin_name from item name | ❌ Not yet | Shared utility not extracted |
-| **A/B test result** | **+0.66pp avg** | 3d: +1.92pp, 14d: +0.79pp |
+| **A/B test result** | **+0.66pp avg** | 3d: +1.92pp, 14d: +0.79pp. Later permutation test showed signal was entirely from rarity; weapon-type features added only noise. |
 
 ### Phase 3 — Quality Spread & Cross-Wear Features (2-3 days)
 
@@ -990,7 +993,7 @@ GET /items/{item_id}/social
 |-------|-------------|-------------|--------|
 | Current | ~70 | baseline | ✅ |
 | Phase 1 (identity) | ~15 | +1-3pp | ✅ (item_metadata_features) |
-| Phase 2 (category) | ~35 | +2-5pp | ✅ (supply-side: +0.66pp actual) |
+| Phase 2 (category) | ~35 | +2-5pp | ✅ (rarity kept, weapon-type removed: +0.66pp actual) |
 | Phase 3 (cross-wear) | ~10 | +2-4pp | Pending |
 | Phase 4 (supply) | ~15 | +3-6pp | Pending |
 | Phase 5 (sentiment) | ~20 | +2-5pp | Pending |

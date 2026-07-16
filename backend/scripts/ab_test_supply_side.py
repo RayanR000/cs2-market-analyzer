@@ -107,9 +107,7 @@ def run_evaluation(max_items=200, use_supply_side=True):
 
         # ── Build features ──────────────────────────────────────────
         df = forecaster.engineer_features(all_prices, events_df)
-        df = forecaster._add_weapon_type_cross_sectional_features(df)
         df = forecaster._add_cross_sectional_features(df)
-        df = forecaster._add_player_count_features(df)
 
         exclude = {"item_id", "date", "timestamp", "price", "volume",
                    "name", "release_date"}

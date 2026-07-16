@@ -37,7 +37,7 @@ The A/B test controls for model architecture but not for **extra model capacity*
 
 Real and shuffled accuracy are **identical** to within 0.03pp. The +3pp A/B delta was entirely from extra model capacity (more features → more splits → slightly better validation accuracy by chance).
 
-**Conclusion:** Player count features have **no measurable predictive power** for item-level price direction in the current feature set. The initial estimate of +1-4pp was optimistic. The features are kept for monitoring/dashboard purposes but do not improve the model.
+**Conclusion:** Player count features have **no measurable predictive power** for item-level price direction in the current feature set. The initial estimate of +1-4pp was optimistic. The features were **removed** from the forecaster (Jul 16). The collector pipeline is preserved for monitoring/dashboard purposes but does not feed the model.
 
 ## Features Added (non-predictive)
 

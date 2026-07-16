@@ -100,9 +100,6 @@ def run_evaluation(max_items=200, use_player_counts=True):
         df = forecaster.engineer_features(all_prices, events_df)
         df = forecaster._add_cross_sectional_features(df)
 
-        if use_player_counts:
-            df = forecaster._add_player_count_features(df)
-
         exclude = {"item_id", "date", "timestamp", "price", "volume",
                    "name", "release_date"}
         feature_cols = [c for c in df.columns if c not in exclude

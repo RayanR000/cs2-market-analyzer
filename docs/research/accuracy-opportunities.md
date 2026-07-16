@@ -96,8 +96,8 @@ Date: 2026-07-14
 
 ## Priority Order
 
-1. **⚠️ Completed: Supply-side features** — rarity + weapon_type + weapon-type cross-sectional. Actual impact +0.66pp avg (below 3-6pp estimate).
-2. **⚠️ Completed: Player count** — zero causal impact (permutation test).
+1. **⚠️ Completed: Supply-side features** — rarity one-hot kept (+10-12pp causal signal via permutation test). Weapon_type one-hot (22 cols) and weapon-type cross-sectional (6 cols) removed — permutation test showed zero causal signal (shuffled accuracy within 0.05pp of real). Bundle A/B test showed +0.66pp avg which was entirely from rarity.
+2. **⚠️ Completed: Player count** — **Removed**. Zero causal impact confirmed by permutation test (real = shuffled to within 0.03pp). Collector pipeline preserved for monitoring only.
 3. **🔥 Top remaining: Event decay optimization** + **Multi-horizon joint training** — moderate effort, 2-4pp potential each.
 4. **Listing volume / supply depth** — new external data collection needed.
 5. **Regime-switching models / per-cluster models** — moderate-to-high effort, 3-8pp potential.

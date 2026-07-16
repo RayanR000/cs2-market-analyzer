@@ -27,19 +27,9 @@ def _feature_group(name: str) -> str:
                                          "price_accel_", "autocorr_", "support_",
                                          "volume_", "vol_price_")):
         return "price_technicals"
-    if name.startswith("players_"):
-        return "player_counts"
     if name.startswith("supply_"):
         return "supply_depth"
-    # Cross-sectional supply-side features (check before identity to avoid
-    # prefix collision — e.g., "weapon_type_group_return_7d" starts with
-    # "weapon_type_" but belongs to supply_side, not item_identity).
-    if any(name.startswith(p) for p in ("wt_group_return_", "wt_volatility_", "wt_volume_",
-                                         "item_return_vs_weapon_type_",
-                                         "item_volume_vs_weapon_type_",
-                                         "rarity_market_regime_", "quality_rarity_")):
-        return "supply_side"
-    if any(name.startswith(p) for p in ("is_", "quality_rank", "rarity_", "weapon_type_")):
+    if any(name.startswith(p) for p in ("is_", "quality_rank", "rarity_")):
         return "item_identity"
     if name.startswith("type_"):
         return "item_metadata"
@@ -83,6 +73,14 @@ class ItemForecaster:
         self.feature_medians: pd.Series = pd.Series(dtype=np.float64)
         # Expanding-window CV results per horizon: {horizon: {fold_count, fold_accs, per_fold, ...}}
         self.cv_results: Dict[int, Dict] = {}
+        # Event decay constants (grid-searchable per event type)
+        self.event_decay_constants: Dict[str, float] = {
+            "major": 60,
+            "operation": 21,
+            "case_drop": 14,
+            "update": 7,
+            "game_update": 7,
+        }
 
     # ------------------------------------------------------------------
     # Data fetching
@@ -390,10 +388,11 @@ class ItemForecaster:
         return df
 
     def _add_supply_side_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add supply-side features: rarity flags, weapon type flags,
-        and weapon-type cross-sectional features.
+        """Add supply-side features: rarity ordinal and one-hot dummies.
 
-        Estimated impact: +3-6pp directional accuracy.
+        Permutation test confirmed strong causal signal (+10-12pp across all
+        horizons) from rarity features. Weapon-type one-hot and cross-sectional
+        features were removed — they showed zero causal signal.
         """
         logger.info("Adding supply-side features...")
         df = df.copy()
@@ -404,7 +403,6 @@ class ItemForecaster:
 
         df = df.merge(meta, on="item_id", how="left")
 
-        # ── Identity features (static per item) ──
         # Rarity ordinal (NaN → 0 for missing)
         df["rarity_ordinal"] = df["rarity_rank"].fillna(0).astype(int)
 
@@ -416,113 +414,9 @@ class ItemForecaster:
             col = f"rarity_{cat}"
             df[col] = ((df["rarity"] == cat).astype(int))
 
-        # Weapon type one-hot dummies
-        weapon_cats = ["rifle", "pistol", "smg", "shotgun", "sniper",
-                       "machinegun", "knife", "glove", "case",
-                       "sticker", "graffiti", "musickit", "charm",
-                       "agent", "patch", "collectible", "equipment",
-                       "key", "pass", "tool", "tag", "gift"]
-        for cat in weapon_cats:
-            col = f"weapon_type_{cat}"
-            df[col] = ((df["weapon_type"] == cat).astype(int))
-
         return df
 
-    def _add_weapon_type_cross_sectional_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add weapon-type group cross-sectional features.
 
-        These parallel the market-level cross-sectional features but are
-        computed per weapon_type group (rifle, pistol, smg, etc.).
-        """
-        logger.info("Adding weapon-type cross-sectional features...")
-        df = df.copy()
-
-        if "weapon_type" not in df.columns:
-            logger.warning("  weapon_type not available; skipping cross-sectional features")
-            return df
-
-        # Compute per-date per-weapon-type aggregates
-        for lag in [1, 7, 14, 30]:
-            ret_col = f"return_{lag}d"
-            if ret_col not in df.columns:
-                continue
-            group_col = f"wt_group_return_{lag}d"
-            df[group_col] = df.groupby(["date", "weapon_type"])[ret_col].transform("mean")
-            df[f"item_return_vs_weapon_type_{lag}d"] = df[ret_col] - df[group_col]
-
-        # Weapon-type volatility
-        if "price_std_30d" in df.columns:
-            df["wt_volatility_30d"] = df.groupby(["date", "weapon_type"])["price_std_30d"].transform("mean")
-
-        # Weapon-type volume
-        if "volume" in df.columns and df["volume"].notna().any():
-            daily_vol = df.groupby(["date", "weapon_type"])["volume"].mean().reset_index()
-            daily_vol = daily_vol.sort_values(["weapon_type", "date"])
-            daily_vol["wt_volume_30d"] = daily_vol.groupby("weapon_type")["volume"].transform(
-                lambda x: x.rolling(30, min_periods=1).mean()
-            )
-            df = df.merge(
-                daily_vol[["date", "weapon_type", "wt_volume_30d"]],
-                on=["date", "weapon_type"], how="left"
-            )
-
-        return df
-
-    def _fetch_player_counts(self) -> pd.DataFrame:
-        if hasattr(self, "_player_counts_cache") and self._player_counts_cache is not None:
-            return self._player_counts_cache
-        archive_dir = Path(__file__).parent.parent.parent / "price-archive"
-        pc_path = archive_dir / "player-counts-*.parquet"
-        if not archive_dir.exists() or not list(archive_dir.glob("player-counts-*.parquet")):
-            logger.warning("No player-counts Parquet files found — using empty DataFrame")
-            self._player_counts_cache = pd.DataFrame(columns=["day", "mean_players", "peak_players", "reading_count"])
-            return self._player_counts_cache
-        try:
-            import duckdb
-            con = duckdb.connect()
-            rows = con.sql(f"""
-                SELECT day, mean_players, peak_players, min_players, reading_count, last_players
-                FROM read_parquet('{pc_path}')
-                ORDER BY day
-            """).fetchall()
-            con.close()
-            df = pd.DataFrame(rows, columns=["day", "mean_players", "peak_players", "min_players", "reading_count", "last_players"])
-            df["day"] = pd.to_datetime(df["day"])
-            df["date"] = df["day"].dt.date
-            logger.info(f"  player counts: {len(df)} days loaded")
-            self._player_counts_cache = df
-            return df
-        except Exception as e:
-            logger.warning(f"Failed to load player counts from Parquet: {e}")
-            self._player_counts_cache = pd.DataFrame(columns=["day", "mean_players", "peak_players", "reading_count"])
-            return self._player_counts_cache
-
-    def _add_player_count_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        pc = self._fetch_player_counts()
-        if pc.empty:
-            for col in ["players_mean", "players_peak", "players_min",
-                         "players_last", "players_readings",
-                         "players_change_1d", "players_change_7d",
-                         "players_z_score_30d", "players_ma7"]:
-                df[col] = 0.0
-            return df
-        df = df.merge(pc, on="date", how="left")
-        df["players_mean"] = df["mean_players"].fillna(0).astype(float)
-        df["players_peak"] = df["peak_players"].fillna(0).astype(float)
-        df["players_min"] = df["min_players"].fillna(0).astype(float)
-        df["players_last"] = df["last_players"].fillna(0).astype(float)
-        df["players_readings"] = df["reading_count"].fillna(0).astype(float)
-        df = df.drop(columns=["mean_players", "peak_players", "min_players",
-                              "last_players", "reading_count", "day"], errors="ignore")
-        df = df.sort_values("date")
-        df["players_change_1d"] = df["players_mean"] - df["players_mean"].shift(1)
-        df["players_change_7d"] = df["players_mean"] - df["players_mean"].shift(7)
-        df["players_ma7"] = df["players_mean"].rolling(7, min_periods=1).mean()
-        rolling_std = df["players_mean"].rolling(30, min_periods=1).std().replace(0, np.nan)
-        df["players_z_score_30d"] = ((df["players_mean"] - df["players_mean"].rolling(30, min_periods=1).mean()) / rolling_std).fillna(0)
-        df["players_mean_ratio_7d"] = (df["players_mean"] / df["players_ma7"].replace(0, np.nan)).fillna(1.0)
-        logger.info("  player count features added")
-        return df
 
     # ── Supply-depth features (sell_listings, skinport_quantity) ──────
 
@@ -663,14 +557,7 @@ class ItemForecaster:
     def _add_event_features(self, df: pd.DataFrame, events_df: pd.DataFrame) -> pd.DataFrame:
         event_types = ["major", "operation", "case_drop", "update", "game_update"]
 
-        # Decay constants: days until ~37% effect remaining (learnable per type)
-        decay_constants = {
-            "major": 60,
-            "operation": 21,
-            "case_drop": 14,
-            "update": 7,
-            "game_update": 7,
-        }
+        decay_constants = self.event_decay_constants
 
         if events_df.empty:
             for event_type in event_types:
@@ -1175,13 +1062,7 @@ class ItemForecaster:
         df = self.engineer_features(price_df, events_df)
 
         # Add cross-sectional (market-regime) features
-        # Add weapon-type cross-sectional features (supply-side group)
-        df = self._add_weapon_type_cross_sectional_features(df)
-
         df = self._add_cross_sectional_features(df)
-
-        # Add player count features
-        df = self._add_player_count_features(df)
 
         # Add supply depth features (sell_listings, skinport_quantity)
         df = self._add_supply_depth_features(df)
@@ -1419,14 +1300,8 @@ class ItemForecaster:
 
         df = self.engineer_features(price_df, events_df)
 
-        # Add weapon-type cross-sectional features (same as training)
-        df = self._add_weapon_type_cross_sectional_features(df)
-
         # Add cross-sectional features (same as training)
         df = self._add_cross_sectional_features(df)
-
-        # Add player count features (same as training)
-        df = self._add_player_count_features(df)
 
         # Add supply depth features (same as training)
         df = self._add_supply_depth_features(df)

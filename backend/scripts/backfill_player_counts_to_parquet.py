@@ -128,27 +128,6 @@ def backfill_from_postgres():
         return False
 
 
-def verify():
-    """Quick sanity check that the forecaster can load the data."""
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from models.forecaster import ItemForecaster
-    from database import SessionLocal
-
-    db = SessionLocal()
-    try:
-        fc = ItemForecaster(db_session=db)
-        pc = fc._fetch_player_counts()
-        print(f"\nVerification: forecaster loaded {len(pc)} days of player counts")
-        if not pc.empty:
-            print(f"  Columns: {list(pc.columns)}")
-            print(f"  Range: {pc['day'].min()} to {pc['day'].max()}")
-            print(f"  Mean players: {pc['mean_players'].mean():.0f}")
-        else:
-            print("  WARNING: empty DataFrame — forecaster will zero-fill features!")
-    finally:
-        db.close()
-
-
 if __name__ == "__main__":
     print("=" * 60)
     print("PLAYER COUNT BACKFILL — SQLite → Parquet")
@@ -157,4 +136,3 @@ if __name__ == "__main__":
     if not success:
         print("Trying Postgres fallback...")
         backfill_from_postgres()
-    verify()

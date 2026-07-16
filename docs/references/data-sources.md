@@ -14,6 +14,8 @@
 | cs2.sh archive | API stub | N/A | Not implemented | CS2SH_API_KEY | **Stub** |
 | Steam Announcements | Stub | N/A | Not implemented | None | **Stub** |
 | Synthetic demo | Generated | Dev only | Fake | None | **Dev only** |
+| Steam `priceoverview` | Undocumented endpoint | Per-item | 24h sales volume, lowest/median price | None | **Not integrated** |
+| CSMarketCap API | GraphQL + REST | Bulk (all items in 1 call) | Trade volume (24h/7d/30d/90d), listings, buy orders | JWT token | **Not integrated** ($9.99/mo) |
 
 ## CSGOTrader Accuracy Issues
 
@@ -54,7 +56,31 @@ The Skinport direct API (`/v1/items`) is now behind Cloudflare Bot Management (4
 - Tag each price with its source marketplace
 - Skinport JSON parsing reads wrong keys (`last_24h`/`price` vs actual `starting_at`/`suggested_price`) — but Skinport is dead anyway
 
-### Quality gaps
+## Volume Data Status (audited 2026-07-16)
+
+The Parquet archive contains **404,563 price rows with non-zero volume** from the `STEAMCOMMUNITY` source (Jan–Mar 2026 historical backfill). **Every aggregator source records `volume=0`** — the daily pipeline never collects trade volume.
+
+| Time Period | Volume Source | Status |
+|---|---|---|
+| Jan–Mar 2026 | STEAMCOMMUNITY (Steam backfill) | ✅ Non-zero volume available |
+| Apr–Jun 2026 | (gap) | ❌ No volume data |
+| Jul 2026 onward | All aggregator sources | ❌ All zeros |
+| CSMarketAPI backfill DB | `csmarketapi.db` | ❌ Not present on disk |
+
+### Volume data sources evaluated (2026-07-16)
+
+| Source | Cost | Bulk? | Trade Volume Fields | Coverage |
+|--------|:----:|:-----:|:-------------------|:--------:|
+| Steam `priceoverview` | Free | No (per-item) | 24h sales count | All Steam items |
+| CSMarketCap API (Standard) | **$9.99/mo** | ✅ 1 call = all items | `last_24h/7d/30d/90d`, `avg_daily_volume` | All Steam items |
+| SteamWebAPI Item Small | €15/mo | ✅ 1 call = all items | `sold24h/7d/30d/90d` | All Steam items |
+| CS2Cap Pro | $79/mo | ✅ batch (1K items) | `sales_1d/7d/30d` | All items, 40+ markets |
+| Pricempire Standard | $99.90/mo | No (per-item) | trade count metas | All items |
+| cs2.sh Developer | $75/mo | ✅ bulk endpoint | ask_volume (listing count, not trade vol) | 6 markets |
+
+**Verdict:** No free source provides bulk trade volume data. CSMarketCap API at $9.99/mo is the cheapest option — one API call daily returns trade volume for every item.
+
+## Quality gaps
 - Wire `data_validation.py` checks into the pipeline
 - Add stale-data detection (compare timestamps)
 - Stop creating fake flat-line data via historical fallback
