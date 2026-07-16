@@ -2,22 +2,31 @@
 
 **Last updated: 2026-07-16**
 
-## Current State
+## Current State (corrected 2026-07-16)
 
-The Parquet archive has **404,563 price rows with non-zero volume** from the `STEAMCOMMUNITY` source (Jan–Mar 2026 historical Steam backfill). **July 2026 has all zeros** — the daily aggregator (`CSGOTraderAggregator`) only collects prices, **not** volume.
+Volume **is** in the Parquet archive, and it is **not** limited to a 90-day window.
+
+- **Coverage:** 9,833,838 rows (**88.65%** of all 11,092,908 price rows) carry non-zero `volume`, spanning **2013-08-14 → 2026-03-29** across **5,542 unique items**.
+- **Source label:** tagged **`aggregator_sync`** in the archive (legacy scripts/backfill DB call it `STEAMCOMMUNITY` — same data).
+- **Origin:** Steam price-history backfill (`scripts/backfill_ssr_history.py` → `steamcommunity.com/market/pricehistory/`); merged via `append_to_parquet.py`.
+- **Per-year:** 2013–2025 ~100% volume-populated; 2026 partial (24.3%).
 
 | Time Period | Data | Status |
 |---|---|---|
-| Jan–Mar 2026 | 404,563 rows with non-zero STEAMCOMMUNITY volume | ✅ Historical |
-| Apr–Jun 2026 | No volume data (gap) | ❌ Missing |
-| Jul 2026 onward | All aggregator sources = volume=0 | ❌ Zeros |
-| CSMarketAPI backfill DB | `csmarketapi.db` — not present on disk | ❌ Missing |
+| 2013 → 2025 | `aggregator_sync` Steam backfill, full years | ✅ Non-zero volume |
+| Jan–Mar 2026 | `aggregator_sync` | ✅ Partial (24% of 2026 rows) |
+| Apr 2026+ (live aggregator) | csgotrader / skinport / etc. | ❌ `volume=0` |
+| CSMarketAPI backfill DB | `csmarketapi.db` | ❌ Not present on disk |
 
-The CSMarketAPI backfill database (`runtime/csmarketapi.db`) that would have OHLCV sales history for 4,940 items across 7 markets does not exist on the current machine (it was in `.gitignore` and likely lived on a different runner or was cleaned up).
+The CSMarketAPI backfill database (`runtime/csmarketapi.db`) that would have OHLCV sales history for ~4,940 items across 7 markets does not exist on the current machine (it was in `.gitignore` and likely lived on a different runner or was cleaned up).
 
 The supply scraper collects `sell_listings` (active listings) but this is **not** trade volume — it's supply-side only.
 
-The forecaster already has volume features (`volume_lag_1d`, `volume_mean_7d`, `volume_zscore_30d`, etc.), but they receive zero for recent days, degrading 7d and 14d window features.
+### Does volume improve predictions? — No (verified 2026-07-16)
+
+Tested on the volume-rich window (2023–2025, 4.47M samples with `volume>0`): every volume feature correlates with next-day and 7-day forward returns at **|r| < 0.002** (noise). Volume also fails to predict move *magnitude*. The only real predictive signal is **price momentum** (`corr(return_7d, fwd_return_7d) = +0.0796`).
+
+**Implication:** volume features will **not** improve forecast accuracy. Volume's value is **data quality / confidence** (the `detect_market_manipulation` filter and `volume_price_conf` liquidity weighting), not prediction. The forecaster's volume features are only "zeroed" for the ~34K items that lack backfill volume — and even where present they add no predictive lift.
 
 ## Requirements
 
@@ -113,12 +122,13 @@ The forecaster already has volume features (`volume_lag_1d`, `volume_mean_7d`, `
 - For actual trade volume: `POST /v1/archive/steam` (daily purchase vol since 2013) — Scale plan ($200/mo)
 - Does not provide daily trade volume data on the Developer plan
 
-## Verdict
+## Verdict (corrected 2026-07-16)
 
-**No free source provides bulk trade volume data.** Every option that has reliable trade volume charges for API access.
+A free, bulk trade-volume source **already exists inside the archive** — the Steam price-history backfill (`aggregator_sync`) — covering 5,542 items from 2013–2026. Every *external* option that has reliable, fresh trade volume still charges for API access, but that is now a **coverage/freshness** question, not a "we have no volume at all" problem.
 
 | Source | Cost | Bulk? | Trade Volume Fields | Daily Coverage for 5.5K items |
 |--------|:----:|:-----:|:-------------------|:------------------------------|
+| **Steam price-history backfill (already in archive)** | Free | n/a (historical) | daily trade volume | 5,542 items, 2013–2026 |
 | Steam `priceoverview` | Free | ❌ per-item | 24h sales count | ~600 items/hr (too slow) |
 | CSMarketCap API | **$9.99/mo** | ✅ 1 call | `last_24h/7d/30d/90d` | ✅ All items, 1 call |
 | SteamWebAPI Item Small | €15/mo | ✅ 1 call | `sold24h/7d/30d/90d` | ✅ All items, 1 call |
@@ -129,10 +139,8 @@ The forecaster already has volume features (`volume_lag_1d`, `volume_mean_7d`, `
 
 ## Recommendation
 
-**CSMarketCap API at $9.99/mo** is the cheapest option discovered:
-- One API call per day returns trade volume (`last_24h/7d/30d/90d`) for every item
-- Also returns listing stats and buy order data at no extra cost
-- 10K requests/month = 1 call/day for 333 days = essentially unlimited for this use case
-- Has an official TypeScript SDK with auto token refresh
+**Volume sourcing is not justified by prediction accuracy.** The data shows volume features add no predictive lift (|r| < 0.002 with forward returns). Before paying for any volume API:
 
-If even $9.99/mo is a blocker, the fallback is to accept the volume gap. As the previous research noted, the volume zeros mainly affect 7d/14d window features; 30d/60d features still have signal from Jan–Mar data, and LightGBM handles NaN/zeros gracefully.
+1. **Use what's already in the archive.** The `aggregator_sync` Steam backfill already provides free, multi-year trade volume for 5,542 items.
+2. **Only consider a paid source (CSMarketCap $9.99/mo / SteamWebAPI €15/mo) if the goal is broader *coverage* (the ~34K items without backfill) or *fresh* daily volume for liquidity/confidence weighting — not better forecasts.**
+3. The earlier "volume zeros degrade 7d/14d features" concern is moot: those features are driven by *price*, and volume's role is data-quality, not prediction. LightGBM handles the missing volume gracefully.
