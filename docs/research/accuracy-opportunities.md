@@ -29,6 +29,9 @@ Date: 2026-07-14
 | Post-spike mean reversion speed | How quickly items revert after volume spikes | 2-3pp | 0-1pp | Low |
 | Listing density (spread between min ask and max bid if available) | Market depth signal | 2-4pp | 1-2pp | High |
 
+> ⚠️ **CRITICAL DISTINCTION — "listing volume" ≠ "trade volume".**
+> The supply-depth features above (active *sell_listings* count, listing density, supply-to-volume ratio) are **supply-side** signals and are the genuinely novel remaining input. They are **NOT** the same as **trade volume** (units *sold*), which was audited on 2026-07-16 and found to add **ZERO predictive lift** — every trade-volume feature correlates with forward returns at **|r| < 0.002** (statistical noise). See `docs/research/volume-data.md:25-29` and `docs/references/data-sources.md:75-83`. Trade volume's only value in this stack is confidence/liquidity weighting, never forecasting. If a future contributor reads "listing volume" and adds *sales* volume, that is the mistake to avoid — use `sell_listings` from the `supply_scraper` / `supply_snapshots` table, not traded-volume.
+
 ---
 
 ## 2. Model Architecture
@@ -101,7 +104,7 @@ Date: 2026-07-14
 3. **✅ Completed: Event decay optimization** — **0pp**. Coordinate-wise tau grid search found defaults were already optimal. Walk-forward A/B: "optimal" taus degraded by -0.57pp.
 4. **✅ Completed: Auto-prune (permutation-based feature validation)** — prevents overfit by removing feature groups that fail permutation test.
 5. **✅ Completed: Multi-source outlier voting** — **0pp on training, essential for inference**. 99.6% of training data is single-source STEAMCOMMUNITY backfill; voting only affects 0.4% of rows. At inference, 96.4% of items see >0.5% price correction on current_price. See `docs/2026-07-14-remaining-accuracy-improvements.md` for full analysis.
-6. **🔥 Listing volume / supply depth** — highest remaining ROI. New external data collection. Novel signal (current features have zero supply-side data).
+6. **🔥 Supply depth (active `sell_listings` count)** — highest remaining ROI. New external data collection via `supply_scraper` → `supply_snapshots`. **Supply-side signal, NOT trade/sales volume** (trade volume was audited as 0pp predictive — see warning in §1). Novel signal (current features have zero supply-side data).
 7. **Regime-switching models** — moderate effort, 2-4pp during volatile periods (lower averaged).
 8. **Multi-horizon joint training** — moderate effort, 1-2pp potential.
 9. **Quality spread / cross-wear features** — genuinely new signal, 1-2pp potential.
@@ -112,6 +115,7 @@ Date: 2026-07-14
 ## Notes
 
 - CatBoost was tested and removed (Jul 2026) — degraded accuracy by 18-20pp — do not revisit
+- **Do NOT add trade/sales volume as a predictive feature** — audited 2026-07-16, |r| < 0.002 with forward returns (0pp). Use *supply depth* (`sell_listings`) if adding a volume-like signal; see warning in §1.
 - Trend analyzer was deprecated and removed (Jul 2026)
 - Grid search replaced by Optuna Bayesian (Jul 2026)
 - Model version is `lgbm-v2`; any architecture change should increment to `lgbm-v3`
