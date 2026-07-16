@@ -19,6 +19,7 @@ data-archive branch:
 Supabase (~70 MB):
   └─ items (+ is_backfilled flag)
   └─ price_history           — Last 7 days of aggregator snapshots
+  └─ supply_snapshots        — Daily Steam sell_listings (supply scraper)
   └─ daily_analysis
   └─ item_forecasts
   └─ events / event_impacts / event_correlations
@@ -47,12 +48,13 @@ API serving:
 |-------|------|------|--------|
 | `items` | ~2 MB | 5,525 | Static |
 | `price_history` | ~1 MB | few hundred | 7-day rolling |
+| `supply_snapshots` | ~2 MB | 35,037 | 35K rows/day (7 MB/day) |
 | `daily_analysis` | ~1.8 MB | 4,313 | UPSERT, bounded |
 | `item_forecasts` | ~8.4 MB | 10,970 | UPSERT, bounded |
 | `event_correlations` | ~17 MB | 67,211 | Weekly rebuild |
 | `event_impacts` | ~15 MB | 67,211 | Weekly rebuild |
 | Others | ~11 MB | — | Static |
-| **Total** | **~66 MB** | | |
+| **Total** | **~68 MB** | | |
 
 ### Performance
 

@@ -14,6 +14,7 @@ The backend runs entirely on GitHub Actions scheduled workflows. All workflows h
 
 | Workflow | Schedule | Purpose | Writes to |
 |----------|----------|---------|-----------|
+| `supply-scraper` | 22:00 UTC daily | Steam sell_listings supply snapshots | `supply_snapshots` |
 | `aggregator-update` | 23:00 UTC daily | Full item data collection from CSGOTrader (7 sources) | Parquet (`data-archive` branch), `price_history` (snapshot only), `collection_runs` |
 | `price-forecast` | Chained off aggregator | ML price predictions (full retrain Mondays) | `item_forecasts` |
 | `backtest-accuracy` | Chained off forecast + 08:00 UTC Mon-Sat | Evaluate forecast accuracy, detect concept drift | `prediction_accuracy`, `forecast_outcomes`, `accuracy_alerts` |
@@ -22,6 +23,8 @@ The backend runs entirely on GitHub Actions scheduled workflows. All workflows h
 ### Data flow
 
 ```
+22:00  Supply Scraper → Steam burst scrape → supply_snapshots (sell_listings)
+
 23:00  Aggregator → prices → CSV → Parquet (data-archive branch)
                                   → chart_points (daily closes for API serving)
         └─▶ Price Forecast (chained) → Parquet (all-time) → item_forecasts
