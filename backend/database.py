@@ -316,6 +316,29 @@ class AccuracyAlert(Base):
     )
 
 
+class SupplySnapshot(Base):
+    """Daily snapshot of supply-side data (listing counts).
+
+    Captures sell_listings from Steam Market and quantity from Skinport
+    once per day. Used by the forecaster to compute supply-depth features
+    like `sell_listings_log`, `supply_change_7d`, and `supply_to_volume_ratio`.
+
+    Only the most recent snapshot per item is kept (upserted by date).
+    """
+    __tablename__ = "supply_snapshots"
+
+    item_id = Column(Integer, ForeignKey("items.id"), primary_key=True)
+    snapshot_date = Column(Date, primary_key=True)
+    sell_listings = Column(Integer, nullable=True)
+    skinport_quantity = Column(Integer, nullable=True)
+    source = Column(String(50), default="steam_burst")  # steam_burst, skinport
+    created_at = Column(DateTime, default=utcnow_naive)
+
+    __table_args__ = (
+        Index('idx_supply_item_date', 'item_id', 'snapshot_date'),
+    )
+
+
 class EventCorrelation(Base):
     """Event correlation model - causal analysis with statistical rigor"""
     __tablename__ = "event_correlations"

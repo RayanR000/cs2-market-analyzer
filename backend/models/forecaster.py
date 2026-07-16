@@ -10,7 +10,7 @@ import logging
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 from sqlalchemy import text
@@ -29,6 +29,8 @@ def _feature_group(name: str) -> str:
         return "price_technicals"
     if name.startswith("players_"):
         return "player_counts"
+    if name.startswith("supply_"):
+        return "supply_depth"
     # Cross-sectional supply-side features (check before identity to avoid
     # prefix collision — e.g., "weapon_type_group_return_7d" starts with
     # "weapon_type_" but belongs to supply_side, not item_identity).
@@ -520,6 +522,103 @@ class ItemForecaster:
         df["players_z_score_30d"] = ((df["players_mean"] - df["players_mean"].rolling(30, min_periods=1).mean()) / rolling_std).fillna(0)
         df["players_mean_ratio_7d"] = (df["players_mean"] / df["players_ma7"].replace(0, np.nan)).fillna(1.0)
         logger.info("  player count features added")
+        return df
+
+    # ── Supply-depth features (sell_listings, skinport_quantity) ──────
+
+    def _fetch_supply_snapshots(self) -> pd.DataFrame:
+        """Load daily supply snapshots from DB.
+
+        Returns DataFrame with columns:
+          item_id, date, sell_listings, skinport_quantity
+        """
+        if hasattr(self, "_supply_snap_cache") and self._supply_snap_cache is not None:
+            return self._supply_snap_cache
+
+        try:
+            rows = self.db.execute(text("""
+                SELECT ss.item_id, ss.snapshot_date AS day,
+                       ss.sell_listings, ss.skinport_quantity
+                FROM supply_snapshots ss
+                ORDER BY ss.item_id, ss.snapshot_date
+            """)).fetchall()
+            df = pd.DataFrame(rows, columns=["item_id", "date", "sell_listings", "skinport_quantity"])
+            if df.empty:
+                logger.info("  supply snapshots: empty")
+                self._supply_snap_cache = df
+                return df
+            df["date"] = pd.to_datetime(df["date"]).dt.date
+            df["sell_listings"] = df["sell_listings"].fillna(0).astype(int)
+            df["skinport_quantity"] = df["skinport_quantity"].fillna(0).astype(int)
+            logger.info(f"  supply snapshots: {len(df):,} rows, {df.item_id.nunique():,} items")
+            self._supply_snap_cache = df
+            return df
+        except Exception as e:
+            logger.warning(f"  Failed to load supply snapshots: {e}")
+            self._supply_snap_cache = pd.DataFrame()
+            return self._supply_snap_cache
+
+    def _add_supply_depth_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add supply-depth features: listing count, change, ratio.
+
+        Uses steam sell_listings as the primary signal, with
+        skinport_quantity as a secondary source where available.
+
+        Features:
+          supply_listings_log        — log(1 + sell_listings)
+          supply_listings_zscore     — z-score vs item's own history
+          supply_change_7d           — % change in sell_listings (7d)
+          supply_skinport_qty_log    — log(1 + skinport_quantity)
+          supply_to_volume_ratio     — sell_listings / (volume_30d + 1)
+        """
+        snap = self._fetch_supply_snapshots()
+        if snap.empty:
+            for col in ["supply_listings_log", "supply_listings_zscore",
+                        "supply_change_7d", "supply_skinport_qty_log",
+                        "supply_to_volume_ratio"]:
+                df[col] = 0.0
+            return df
+
+        df = df.merge(snap, on=["item_id", "date"], how="left")
+        df["sell_listings"] = df["sell_listings"].fillna(0).astype(int)
+        df["skinport_quantity"] = df["skinport_quantity"].fillna(0).astype(int)
+
+        # Log transform (scale-invariant, handles right skew)
+        df["supply_listings_log"] = np.log1p(df["sell_listings"]).astype(np.float32)
+        df["supply_skinport_qty_log"] = np.log1p(df["skinport_quantity"]).astype(np.float32)
+
+        # Z-score vs item's own history (30d rolling)
+        df = df.sort_values(["item_id", "date"])
+        grouped = df.groupby("item_id")["sell_listings"]
+        rolling_mean = grouped.transform(lambda x: x.rolling(30, min_periods=1).mean())
+        rolling_std = grouped.transform(lambda x: x.rolling(30, min_periods=1).std().replace(0, np.nan))
+        df["supply_listings_zscore"] = (
+            (df["sell_listings"] - rolling_mean) / rolling_std
+        ).fillna(0).astype(np.float32)
+
+        # 7-day change in listing count
+        df["supply_change_7d"] = (
+            (df["sell_listings"] - grouped.shift(7))
+            / grouped.shift(7).replace(0, np.nan) * 100
+        ).fillna(0).astype(np.float32)
+
+        # Supply-to-volume ratio: listings / trailing 30d volume
+        vol_col = None
+        for candidate in ["volume_30d", "volume_mean_30d", "volume"]:
+            if candidate in df.columns:
+                vol_col = candidate
+                break
+        if vol_col:
+            df["supply_to_volume_ratio"] = (
+                df["sell_listings"] / (df[vol_col].fillna(0).replace(0, 1) + 1)
+            ).astype(np.float32)
+        else:
+            df["supply_to_volume_ratio"] = 0.0
+
+        # Drop intermediate raw columns
+        df = df.drop(columns=["sell_listings", "skinport_quantity"], errors="ignore")
+
+        logger.info("  supply depth features added")
         return df
 
     def _add_item_metadata_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -1084,6 +1183,9 @@ class ItemForecaster:
         # Add player count features
         df = self._add_player_count_features(df)
 
+        # Add supply depth features (sell_listings, skinport_quantity)
+        df = self._add_supply_depth_features(df)
+
         # Define feature columns (exclude metadata and target columns)
         exclude = {"item_id", "date", "timestamp", "price", "volume",
                    "name", "release_date"}
@@ -1325,6 +1427,9 @@ class ItemForecaster:
 
         # Add player count features (same as training)
         df = self._add_player_count_features(df)
+
+        # Add supply depth features (same as training)
+        df = self._add_supply_depth_features(df)
 
         # Align features with training columns (add missing, drop extras)
         for col in self.feature_cols:

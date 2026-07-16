@@ -109,6 +109,14 @@ def run_task(task_name):
             result = run_analysis(days_back=90)
             print(f"RESULT: {result}")
 
+        elif task_name == "supply_scrape":
+            logger.info("="*60)
+            logger.info("TASK: Supply Scraper (Steam sell_listings)")
+            logger.info("="*60)
+            from scripts.run_supply_scraper import run as run_supply
+            result = run_supply()
+            print(f"RESULT: {result}")
+
         else:
             logger.error(f"Unknown task: {task_name}")
             sys.exit(1)
