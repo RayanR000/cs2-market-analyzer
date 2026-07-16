@@ -1,5 +1,12 @@
 # Training Window Audit — 2026-07-16
 
+> ✅ **RESOLVED (2026-07-16).** All proposed fixes implemented. See
+> `docs/changelog/2026-07-16-training-window-fix-and-speedups.md`. The
+> `train_set.tail()` truncation was replaced with a pre-feature-engineering
+> stratified subsample (`_stratified_item_subsample`) that preserves the full
+> 730-day window, `predict()` was reconciled to 730d, regression tests were
+> added, and the workflow timeout was bumped to 180 min.
+
 ## Context
 
 The forecaster claims to train on **730 days** of price history with expanding-window cross-validation, retraining weekly on Mondays. The parquet archive holds 9.9M rows across 8,691 items spanning 2013–2026.
@@ -72,6 +79,9 @@ The expensive step (`engineer_features`) operates on **all 2.9M voted rows** bef
 `train()` uses `days_back=730` but `predict()` uses `days_back=365` (`backend/models/forecaster.py:1365`). Benign for inference (features only need 60d lookback), but inconsistent.
 
 ## Proposed Fix
+
+> ✅ Implemented as described below (Approach A: item-stratified subsample).
+> Fix #7 (verify `supply_snapshots` populated) remains an operational check.
 
 ### Root cause
 

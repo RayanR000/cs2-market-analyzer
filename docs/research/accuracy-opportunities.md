@@ -5,12 +5,12 @@ Date: 2026-07-14
 ## Current Architecture
 
 - **Model**: LightGBM quantile regression — 4 horizons (3d, 7d, 14d, 30d) × 3 quantiles (p10, p50, p90) × 3 ensemble seeds = 36 models
-- **HP Optimization**: Optuna Bayesian (15 trials per quantile), expanding-window CV
+- **HP Optimization**: Optuna Bayesian (8 trials per quantile — reduced from 15 for speed, ~0pp accuracy impact; see `docs/changelog/2026-07-16-training-window-fix-and-speedups.md`), expanding-window CV
 - **Feature count**: ~45-120 after correlation pruning (threshold 0.95)
 - **Feature categories**: Price technicals (lags, rolling stats, Bollinger, RSI, MACD, support/resistance, volume), temporal (cyclic time features), events (5 types with exponential decay), cross-sectional (market returns, regime flags)
 - **Drift threshold**: 60% directional accuracy on 7-day sliding window
 - **Confidence calibration**: 80% target accuracy, min 5% coverage
-- **Training data**: 730 days backfilled from Parquet archive (2013-2026), max 200K rows
+- **Training data**: 730 days backfilled from Parquet archive (2013-2026). Row count is bounded by a pre-feature-engineering item-stratified subsample (`max_feature_rows=500K`) that preserves the full 730-day calendar window; a post-split safety cap (`max_rows`, default 600K) samples randomly rather than truncating recent data. (Previously a `tail(200K)` cap silently truncated training to ~51 days — fixed 2026-07-16, see `docs/2026-07-16-training-window-audit.md`.)
 - **Retrain schedule**: Full retrain Mondays, predict other days, auto-retrain on drift
 
 ---
@@ -53,7 +53,7 @@ Date: 2026-07-14
 
 | Change | Impact | Calibrated | Effort |
 |--------|--------|------------|--------|
-| Increase Optuna trials from 15 to 50-100 | 2-5pp | 0.5-1pp | Low (compute only) |
+| Increase Optuna trials from 8 (current) to 50-100 | 2-5pp | 0.5-1pp | Low (compute only) — note: reduced 15→8 on 2026-07-16 for speed at ~0pp cost |
 | Per-cluster models — cluster items by volatility/volume/liquidity, train specialized models | 3-8pp | 1-3pp | Medium |
 | Time-decayed loss weighting (weight = α^(days_ago), α=0.99) | 2-4pp | 1-2pp | Low |
 | Adversarial validation between train and serving data | Better drift detection | Low | Medium |

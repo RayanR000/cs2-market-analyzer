@@ -200,7 +200,7 @@ Currently training on 730 days of data. The parquet archive has data back to 201
 
 ### 10. Optuna trial count increase
 
-Currently 15 Optuna trials per quantile per horizon (60 total). Increasing to 30-50 trials would find better hyperparameters, especially for the larger search space.
+Currently **8** Optuna trials per quantile per horizon (reduced from 15 on 2026-07-16 for training speed at ~0pp accuracy cost — see `docs/changelog/2026-07-16-training-window-fix-and-speedups.md`). Increasing to 30-50 trials would find better hyperparameters, especially for the larger search space.
 
 **Effort:** Trivial (parameter change)
 **Impact estimate:** +0.5-1pp (diminishing returns)
