@@ -1134,9 +1134,64 @@ class ItemForecaster:
     # Build training dataset
     # ------------------------------------------------------------------
 
+    def _stratified_item_subsample(self, price_df: pd.DataFrame,
+                                   max_rows: int, seed: int = 42) -> pd.DataFrame:
+        """Subsample whole-item histories to bound the row count *before*
+        feature engineering, while preserving per-item time-series continuity
+        and the full calendar window.
+
+        The old approach capped rows via ``train_set.tail(max_rows)`` *after*
+        feature engineering. As the archive grew, that kept only the most
+        recent ~51 calendar days (dropping 93% of voted rows) which silently
+        disabled expanding-window CV and made the weekly retrain OOM because
+        ``engineer_features`` still ran on all ~2.9M rows.
+
+        This selects entire item histories (not individual rows) so lag/rolling
+        features stay valid, stratified by rarity so rare items (knives, gloves)
+        are retained proportionally, and keeps every calendar date intact so CV
+        has enough distinct dates.
+        """
+        total_rows = len(price_df)
+        if total_rows <= max_rows or "item_id" not in price_df.columns:
+            return price_df
+
+        rows_per_item = price_df.groupby("item_id").size()
+        n_items = len(rows_per_item)
+        avg_rows = total_rows / max(n_items, 1)
+        target_items = max(1, int(max_rows / max(avg_rows, 1.0)))
+        if target_items >= n_items:
+            return price_df
+
+        meta = self._fetch_supply_metadata()
+        rarity_map = {}
+        if meta is not None and not meta.empty and "rarity" in meta.columns:
+            rarity_map = dict(zip(meta["item_id"], meta["rarity"].fillna("unknown")))
+
+        items = pd.DataFrame({"item_id": rows_per_item.index})
+        items["rarity"] = items["item_id"].map(rarity_map).fillna("unknown")
+
+        rng = np.random.RandomState(seed)
+        selected: List = []
+        for _rarity, group in items.groupby("rarity"):
+            frac = len(group) / n_items
+            k = min(len(group), max(1, int(round(target_items * frac))))
+            selected.extend(group["item_id"].sample(n=k, random_state=rng).tolist())
+
+        selected_set = set(selected)
+        out = price_df[price_df["item_id"].isin(selected_set)].copy()
+        logger.info(
+            f"  Stratified subsample: {len(selected_set):,}/{n_items:,} items, "
+            f"{len(out):,}/{total_rows:,} rows (budget {max_rows:,}); "
+            f"full calendar window preserved"
+        )
+        return out
+
     def build_training_data(self, days_back: int = 365,
-                            backfilled_only: bool = False) -> pd.DataFrame:
+                            backfilled_only: bool = False,
+                            max_feature_rows: int = 500_000) -> pd.DataFrame:
         price_df = self.fetch_price_history(days_back=days_back, backfilled_only=backfilled_only)
+        if max_feature_rows:
+            price_df = self._stratified_item_subsample(price_df, max_feature_rows)
         events_df = self.fetch_events()
 
         df = self.engineer_features(price_df, events_df)
@@ -1179,7 +1234,7 @@ class ItemForecaster:
         fi = fi.sort_values("importance", ascending=False).head(20)
         return fi
 
-    def train(self, max_rows: int = 200_000):
+    def train(self, max_rows: int = 600_000):
         logger.info("=" * 60)
         logger.info("TRAINING LIGHTGBM FORECASTER (ensemble, HP search, walk-forward)")
         logger.info("=" * 60)
@@ -1204,9 +1259,13 @@ class ItemForecaster:
                 train_set = tdf[pd.to_datetime(tdf["date"]) < split_date]
                 val_set = tdf[pd.to_datetime(tdf["date"]) >= split_date]
 
-                # Cap training size (keep most recent data)
+                # Safety guard only: the calendar window is already bounded by
+                # the stratified item subsample in build_training_data(). Sample
+                # randomly (never tail()) so we don't truncate the calendar
+                # window, which would silently disable expanding-window CV.
                 if len(train_set) > max_rows:
-                    train_set = train_set.tail(max_rows)
+                    train_set = train_set.sample(
+                        n=max_rows, random_state=42).sort_values("date")
 
                 if len(val_set) < 100:
                     logger.warning(f"  Validation set for {horizon}d has only {len(val_set)} rows; "
@@ -1362,7 +1421,7 @@ class ItemForecaster:
     def predict(self, item_ids: List[int] = None) -> pd.DataFrame:
         logger.info("Generating forecasts...")
 
-        price_df = self.fetch_price_history(days_back=365, backfilled_only=True)
+        price_df = self.fetch_price_history(days_back=730, backfilled_only=True)
 
         # Skip items without a real recent series: snapshot-tier items keep
         # only a single latest row, and a "forecast" from one data point is

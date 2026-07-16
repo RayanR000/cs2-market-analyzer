@@ -634,6 +634,71 @@ class TestModelPersistence:
 
 
 # ---------------------------------------------------------------------------
+# Training Window / Subsampling (regression tests for the 2026-07-16 audit)
+# ---------------------------------------------------------------------------
+
+
+class TestTrainingWindow:
+    @pytest.fixture
+    def wide_price_df(self):
+        """200 items × 250 days — big enough to trigger subsampling."""
+        rows = []
+        base = date(2025, 1, 1)
+        for item_id in range(200):
+            for day_offset in range(250):
+                rows.append({
+                    "item_id": f"item_{item_id}",
+                    "date": base + timedelta(days=day_offset),
+                    "price": 10.0 + item_id,
+                    "volume": 100,
+                })
+        return pd.DataFrame(rows)
+
+    def test_subsample_bounds_rows_and_preserves_calendar(self, forecaster, wide_price_df):
+        """Subsampling must cut rows but keep the full calendar window intact
+        so expanding-window CV still has enough distinct dates."""
+        forecaster._supply_meta_cache = pd.DataFrame(
+            columns=["item_id", "rarity", "rarity_rank", "weapon_type"])
+
+        dates_before = wide_price_df["date"].nunique()
+        out = forecaster._stratified_item_subsample(wide_price_df, max_rows=10_000)
+
+        assert len(out) < len(wide_price_df)
+        assert len(out) <= len(wide_price_df)
+        assert out["date"].nunique() == dates_before  # full window preserved
+        assert out["date"].min() == wide_price_df["date"].min()
+        assert out["date"].max() == wide_price_df["date"].max()
+
+    def test_subsample_keeps_full_item_history(self, forecaster, wide_price_df):
+        """Whole item histories are kept (not individual rows) so lag/rolling
+        features stay valid."""
+        forecaster._supply_meta_cache = pd.DataFrame(
+            columns=["item_id", "rarity", "rarity_rank", "weapon_type"])
+        out = forecaster._stratified_item_subsample(wide_price_df, max_rows=10_000)
+        counts = out.groupby("item_id").size()
+        assert (counts == 250).all()  # every kept item has its full history
+
+    def test_subsample_noop_when_under_budget(self, forecaster, wide_price_df):
+        out = forecaster._stratified_item_subsample(wide_price_df, max_rows=10_000_000)
+        assert len(out) == len(wide_price_df)
+
+    def test_cv_produces_at_least_two_folds(self, forecaster):
+        """Regression: with a full-length window, expanding-window CV must
+        produce >= 2 folds (the audit found 51 days → zero folds)."""
+        base = date(2025, 1, 1)
+        sorted_dates = [base + timedelta(days=i) for i in range(500)]
+        folds = forecaster._compute_cv_splits(sorted_dates)
+        assert len(folds) >= 2
+
+    def test_cv_skipped_with_truncated_window(self, forecaster):
+        """Documents the failure mode: a 51-day window yields zero folds."""
+        base = date(2025, 1, 1)
+        sorted_dates = [base + timedelta(days=i) for i in range(51)]
+        folds = forecaster._compute_cv_splits(sorted_dates)
+        assert len(folds) == 0
+
+
+# ---------------------------------------------------------------------------
 # Player Count Features
 # ---------------------------------------------------------------------------
 
