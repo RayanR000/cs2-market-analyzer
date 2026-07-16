@@ -91,12 +91,19 @@ class CSGOTraderAggregator:
         if not CSGOTraderAggregator._is_sticker_name(name):
             return [name]
         candidates = [name]
+
         stripped_variant = re.sub(
             r"\s*\((Holo|Glitter|Gold|Foil|Paper)\)(?=\s*\|)",
             "", name, flags=re.IGNORECASE,
         )
         if stripped_variant != name:
             candidates.append(stripped_variant)
+
+        if name.lower().startswith("sticker slab | "):
+            as_sticker = "Sticker | " + name[len("Sticker Slab | "):]
+            if as_sticker not in candidates:
+                candidates.append(as_sticker)
+
         return list(dict.fromkeys(candidate.strip() for candidate in candidates if candidate.strip()))
 
     @staticmethod
@@ -118,6 +125,10 @@ class CSGOTraderAggregator:
         ).strip()
         if stripped_souvenir != name and stripped_souvenir not in candidates:
             candidates.append(stripped_souvenir)
+
+        holofoil_fixed = name.replace("(Holo/Foil)", "(Holo-Foil)")
+        if holofoil_fixed != name and holofoil_fixed not in candidates:
+            candidates.append(holofoil_fixed)
 
         return list(dict.fromkeys(candidate.strip() for candidate in candidates if candidate.strip()))
 
