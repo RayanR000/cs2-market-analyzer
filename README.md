@@ -31,7 +31,7 @@
 
 ## Overview
 
-CS2 Market Analyzer is a full-stack analytics platform that collects, validates, and visualizes Counter-Strike 2 skin market data. A daily pipeline pulls multi-source prices from CSGOTrader (Steam, Skinport, Buff163, CSFloat, CSMoney, Youpin), writes them to a Parquet archive, and serves them through a FastAPI REST API to the Next.js frontend. ML price forecasts (LightGBM) replace traditional trend analysis for all signal generation.
+CS2 Market Analyzer is a full-stack analytics platform that collects, validates, and visualizes Counter-Strike 2 skin market data. A daily pipeline pulls multi-source prices from CSGOTrader (Steam, Skinport, Buff163, CSFloat, CSMoney, Youpin), writes them to a Parquet archive, and serves them through a FastAPI REST API to the Next.js frontend. ML price forecasts (LightGBM quantile ensembles) replace traditional trend analysis for all signal generation.
 
 ```
 ┌──────────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -48,14 +48,17 @@ CS2 Market Analyzer is a full-stack analytics platform that collects, validates,
 
 - **Multi-Source Collection** — daily aggregator fetches prices from 7 market sources (Steam, Skinport, Buff163, CSFloat, CSMoney, CSGOTrader, Youpin)
 - **Parquet Price Archive** — complete historical price data from 2013 onward, queryable via DuckDB
-- **ML Price Forecasts** — LightGBM quantile regression with 7-day and 30-day horizons, full retrain weekly
+- **ML Price Forecasts** — LightGBM quantile regression (q10/q50/q90) across 3, 7, 14, and 30-day horizons, trained as a 9-member diversified ensemble with walk-forward validation and Optuna hyperparameter tuning over a 1460-day window
 - **Forecast Accuracy Tracking** — automated daily backtesting with MAE, MAPE, directional accuracy, and concept drift alerts
+- **Model Explainability** — per-item feature importance exposes which signals drive each forecast
+- **Event Impact Analysis** — quantifies how market events (operations, cases, pro matches) move individual item prices
+- **Player Count & Supply Signals** — Steam player counts and listing supply depth are collected and fed into forecasts as market-regime features
 - **Technical Signals** — SMA, Bollinger Bands, RSI, MACD, support/resistance computed per item
 - **Market Opportunities** — undervalued, overheated, and momentum signals derived from ML forecasts
 - **Quality Variant Grouping** — items grouped by base name with all wear levels and special variants
 - **Interactive Dashboard** — responsive charts, grouped market views, item detail with multi-source pricing
 - **Steam Authentication** — OpenID login with session management
-- **Scheduled Automation** — daily collection + forecast + backtest via GitHub Actions
+- **Scheduled Automation** — collection, forecast, backtest, event correlation, player-count, and supply scraping via GitHub Actions
 
 ## Stack
 
@@ -64,9 +67,9 @@ CS2 Market Analyzer is a full-stack analytics platform that collects, validates,
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, Framer Motion |
 | **Backend** | Python 3.11, FastAPI, SQLAlchemy, Alembic, Pydantic Settings |
 | **Data** | PostgreSQL / Supabase, DuckDB, Parquet, Pandas, NumPy, SciPy |
-| **ML** | LightGBM, Optuna (hyperparameter tuning) |
+| **ML** | LightGBM, Optuna (hyperparameter tuning, 20 trials) |
 | **Storage** | Git LFS / data-archive branch for Parquet price archive |
-| **Automation** | GitHub Actions (4 scheduled workflows) |
+| **Automation** | GitHub Actions (7 workflows) |
 
 ## Repository Structure
 
@@ -78,10 +81,10 @@ CS2 Market Analyzer is a full-stack analytics platform that collects, validates,
 │   │   ├── cache.py      # In-process TTL cache
 │   │   └── schemas.py    # Pydantic response models
 │   ├── collectors/       # CSGOTrader aggregator (7 sources), pipeline orchestration
-│   ├── models/           # SQLAlchemy ORM models, LightGBM forecaster + saved models
+│   ├── models/           # SQLAlchemy ORM models + LightGBM forecaster (models retrained on schedule, not committed)
 │   ├── migrations/       # Alembic migration scripts
 │   ├── scripts/          # Task runners, backtest, forecast, Parquet export
-│   ├── tests/            # pytest suite (78+ tests)
+│   ├── tests/            # pytest suite (118 tests)
 │   ├── main.py           # FastAPI app entry point
 │   ├── config.py         # Pydantic settings
 │   └── database.py       # All SQLAlchemy models + session management
@@ -214,10 +217,12 @@ npm run lint    # Run ESLint
 | GET | `/items/{id}` | Item details |
 | GET | `/items/{id}/price-history` | Price history (SMA included) |
 | GET | `/items/{id}/trends` | Technical signals (RSI, Bollinger, MACD, support/resistance) |
-| GET | `/items/{id}/prediction` | ML price forecast (7d or 30d) |
+| GET | `/items/{id}/prediction` | ML price forecast (3d, 7d, 14d, or 30d) |
 | GET | `/items/{id}/variants` | Quality variants grouped by base name |
 | GET | `/items/{id}/prices` | Multi-source price data |
 | GET | `/items/{id}/events` | Market events affecting item |
+| GET | `/items/{id}/event-impacts` | Quantified price impact of market events |
+| GET | `/items/{id}/feature-importance` | Per-item forecast feature importance |
 | GET | `/market/summary` | Grouped market view (paginated, cached) |
 | GET | `/opportunities/` | All market opportunities |
 | GET | `/opportunities/undervalued` | Undervalued items |
@@ -241,6 +246,8 @@ npm run lint    # Run ESLint
 ```bash
 cd backend && source venv/bin/activate && pytest
 ```
+
+> 118 tests across collection, forecasting, backtesting, and API layers.
 
 ### Pre-commit Checks
 
@@ -274,22 +281,28 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ### Scheduled Workflows
 
-Four GitHub Actions workflows handle recurring operations:
+Seven GitHub Actions workflows handle recurring operations:
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
 | `aggregator-update` | Daily 23:00 UTC | Multi-source price collection + Parquet archive commit |
+| `supply-scraper` | Daily 22:00 UTC | Listing supply-depth collection per item |
+| `player-count-hourly` | Every 2h | Steam player-count tracking as a market-regime signal |
 | `price-forecast` | Chained off aggregator | LightGBM predictions (predict-only Tue–Sun, full retrain Mon) |
-| `backtest-accuracy` | Chained off forecast + cron 08:00 UTC | Daily forecast accuracy evaluation |
+| `backtest-accuracy` | Chained off forecast + cron 08:00 UTC (Mon–Sat) | Daily forecast accuracy evaluation |
+| `event-correlation-analysis` | Weekly Sun 04:00 UTC | Quantifies market-event price impacts |
 | `discover-new-items` | Manual dispatch only | Steam item discovery (disabled — catalog is curated via backfill) |
 
 ### Data Flow
 
 ```
+22:00  Supply Scraper → listing supply depth → Supabase
 23:00  Aggregator → 7 source prices → CSV → Parquet (data-archive branch)
-                                         → Supabase (aggregator_sync only)
-Chained  Forecast → LightGBM → item_forecasts table
+                                        → Supabase (aggregator_sync only)
+Every 2h  Player Count → Steam active players → Supabase
+Chained  Forecast → LightGBM ensemble → item_forecasts table
 Chained  Backtest → accuracy tracking → prediction_accuracy + forecast_outcomes
+Weekly   Event Correlation → event-impact analysis
 ```
 
 ### Database
