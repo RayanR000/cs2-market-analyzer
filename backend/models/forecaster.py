@@ -55,12 +55,10 @@ class ItemForecaster:
     # A relative split stays valid as data accumulates (a fixed date would
     # eventually leave the validation set covering all new data).
     VALIDATION_WINDOW_DAYS = 21
-    N_ENSEMBLES = 9
-    # Distinct bagging seeds give each member a different row bootstrap; the
-    # matching feature_fraction spread (below) adds column-subsampling
-    # variation so members diversify along BOTH axes, not just row bagging.
-    ENSEMBLE_SEEDS = [42, 73, 91, 13, 57, 128, 256, 7, 33]
-    ENSEMBLE_FEATURE_FRACTIONS = [0.6, 0.65, 0.7, 0.7, 0.75, 0.8, 0.8, 0.85, 0.9]
+    N_ENSEMBLES = 6
+    ENSEMBLE_SEEDS = [42, 73, 91, 13, 57, 128]
+    ENSEMBLE_FEATURE_FRACTIONS = [0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
+    MAX_BIN = 63
     # Weight given to the previous day's forecast when smoothing/blending
     # current predictions to reduce daily direction flip-flopping.
     FORECAST_BLEND_WEIGHT = 0.15
@@ -75,6 +73,7 @@ class ItemForecaster:
         self.models: Dict[Tuple[int, float], lgb.Booster] = {}
         self.feature_cols: List[str] = []
         self.prune_failed_groups = prune_failed_groups
+        self.tuned_params: Dict[int, Dict[float, Dict[str, Any]]] = {}
         # Per-horizon confidence thresholds: {horizon: {"high_range": ..., "high_change": ..., "high_accuracy": ...}}
         self.confidence_thresholds: Dict[int, Dict[str, float]] = {}
         self.feature_medians: pd.Series = pd.Series(dtype=np.float64)
@@ -1048,12 +1047,13 @@ class ItemForecaster:
         # Build the binned Dataset once and reuse across all trials. Only tree
         # params (num_leaves, learning_rate, ...) vary between trials; the data
         # and its binning (max_bin) are constant, so there's no need to re-bin.
-        ds_params = {"max_bin": 127}
+        ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
         dtrain = lgb.Dataset(X_train, y_train, params=ds_params)
         dval = lgb.Dataset(X_val, y_val, reference=dtrain, params=ds_params)
 
         def objective(trial):
             params = {
+                "feature_pre_filter": False,
                 "objective": "quantile",
                 "alpha": quantile,
                 "metric": "quantile",
@@ -1061,7 +1061,7 @@ class ItemForecaster:
                 "verbosity": -1,
                 "n_jobs": -1,
                 "random_state": 42,
-                "max_bin": 127,
+                "max_bin": self.MAX_BIN,
                 "num_leaves": trial.suggest_int("num_leaves", 15, 63, step=8),
                 "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.08, log=True),
                 "lambda_l1": trial.suggest_float("lambda_l1", 0.0, 2.0, step=0.5),
@@ -1208,8 +1208,8 @@ class ItemForecaster:
         return out
 
     def build_training_data(self, days_back: int = 365,
-                            backfilled_only: bool = False,
-                            max_feature_rows: int = 700_000) -> pd.DataFrame:
+                             backfilled_only: bool = False,
+                             max_feature_rows: int = 400_000) -> pd.DataFrame:
         price_df = self.fetch_price_history(days_back=days_back, backfilled_only=backfilled_only)
         if max_feature_rows:
             price_df = self._stratified_item_subsample(price_df, max_feature_rows)
@@ -1312,44 +1312,60 @@ class ItemForecaster:
                 # all quantiles and ensemble members. X/y and binning are
                 # identical for every quantile (only the objective's alpha
                 # changes), so rebuilding per fit just re-bins the same matrix.
-                ds_params = {"max_bin": 127}
+                ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
                 dtrain = lgb.Dataset(X_train, y_train, params=ds_params)
                 dval = lgb.Dataset(X_val, y_val, reference=dtrain, params=ds_params)
 
                 per_quantile_params = {}
-                for q in self.QUANTILES:
-                    logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna)...")
-                    best_params = self._optuna_search_params(X_train, y_train, X_val, y_val, quantile=q)
-                    logger.info(f"Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
+                cached_hp = self.tuned_params.get(horizon, {})
+                reuse_hp = (os.environ.get("FORCE_HP_SEARCH") != "1"
+                            and all(q in cached_hp for q in self.QUANTILES))
+                if reuse_hp:
+                    logger.info(f"  Reusing cached HP for {horizon}d (Optuna skipped)...")
+                    for q in self.QUANTILES:
+                        bp = dict(cached_hp[q])
+                        bp["max_bin"] = self.MAX_BIN
+                        bp["feature_pre_filter"] = False
+                        per_quantile_params[q] = bp
+                else:
+                    for q in self.QUANTILES:
+                        logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna)...")
+                        best_params = self._optuna_search_params(X_train, y_train, X_val, y_val, quantile=q)
 
-                    base_params = {
-                        "objective": "quantile",
-                        "alpha": q,
-                        "metric": "quantile",
-                        "boosting_type": "gbdt",
-                        "min_gain_to_split": 0.1,
-                        "feature_fraction": 0.7,
-                        "bagging_fraction": 0.7,
-                        "bagging_freq": 5,
-                        "max_bin": 127,
-                        "verbosity": -1,
-                        "n_jobs": -1,
+                        base_params = {
+                            "feature_pre_filter": False,
+                            "objective": "quantile",
+                            "alpha": q,
+                            "metric": "quantile",
+                            "boosting_type": "gbdt",
+                            "min_gain_to_split": 0.1,
+                            "feature_fraction": 0.7,
+                            "bagging_fraction": 0.7,
+                            "bagging_freq": 5,
+                            "max_bin": self.MAX_BIN,
+                            "verbosity": -1,
+                            "n_jobs": -1,
+                        }
+                        # Merge Optuna results into base params
+                        if best_params:
+                            for k in ("num_leaves", "learning_rate", "lambda_l1", "lambda_l2",
+                                      "max_depth", "min_data_in_leaf"):
+                                if k in best_params:
+                                    base_params[k] = best_params[k]
+                        else:
+                            base_params["num_leaves"] = 31
+                            base_params["learning_rate"] = 0.03
+                            base_params["lambda_l1"] = 0.5
+                            base_params["lambda_l2"] = 0.5
+                            base_params["max_depth"] = 5
+                            base_params["min_data_in_leaf"] = 15
+
+                        per_quantile_params[q] = dict(base_params)
+                    self.tuned_params[horizon] = {
+                        q: dict(per_quantile_params[q]) for q in self.QUANTILES
                     }
-                    # Merge Optuna results into base params
-                    if best_params:
-                        for k in ("num_leaves", "learning_rate", "lambda_l1", "lambda_l2",
-                                  "max_depth", "min_data_in_leaf"):
-                            if k in best_params:
-                                base_params[k] = best_params[k]
-                    else:
-                        base_params["num_leaves"] = 31
-                        base_params["learning_rate"] = 0.03
-                        base_params["lambda_l1"] = 0.5
-                        base_params["lambda_l2"] = 0.5
-                        base_params["max_depth"] = 5
-                        base_params["min_data_in_leaf"] = 15
 
-                    per_quantile_params[q] = dict(base_params)
+                    logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
 
                     ensemble_models = []
                     for ei in range(self.N_ENSEMBLES):
@@ -1372,7 +1388,11 @@ class ItemForecaster:
                     logger.info(f"  Top features: {fi['feature'].head(5).tolist()}")
 
                 # Expanding-window CV evaluation using the best hyperparams
-                oof_records, cv_metrics = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
+                if os.environ.get("SKIP_CV") == "1":
+                    logger.info(f"  CV skipped (SKIP_CV=1); calibrating from single holdout")
+                    oof_records, cv_metrics = [], []
+                else:
+                    oof_records, cv_metrics = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
 
                 # Calibrate confidence thresholds on pooled OOF predictions from CV
                 # (more robust than a single 21-day holdout)
@@ -1386,21 +1406,21 @@ class ItemForecaster:
                     self._calibrate_confidence(horizon=horizon, X_val=X_val, y_val=y_val, val_set=val_set)
 
                 # Log CV fold-level metrics
+                fold_accs = [m["directional_accuracy"] for m in cv_metrics]
+                mean_acc = float(np.mean(fold_accs)) if fold_accs else float("nan")
+                std_acc = float(np.std(fold_accs)) if len(fold_accs) > 1 else 0.0
                 if cv_metrics:
-                    fold_accs = [m["directional_accuracy"] for m in cv_metrics]
-                    mean_acc = np.mean(fold_accs)
-                    std_acc = np.std(fold_accs)
                     logger.info(f"  CV ({len(cv_metrics)} folds): "
                                 f"mean={mean_acc:.1f}% sd={std_acc:.1f}% "
                                 f"range=[{min(fold_accs):.1f}%, {max(fold_accs):.1f}%]")
-                    self.cv_results[horizon] = {
-                        "fold_count": len(cv_metrics),
-                        "per_fold": cv_metrics,
-                        "mean_dir_acc": round(mean_acc, 1),
-                        "std_dir_acc": round(std_acc, 1) if len(fold_accs) > 1 else 0,
-                        "min_dir_acc": round(min(fold_accs), 1),
-                        "max_dir_acc": round(max(fold_accs), 1),
-                    }
+                self.cv_results[horizon] = {
+                    "fold_count": len(cv_metrics),
+                    "per_fold": cv_metrics,
+                    "mean_dir_acc": round(mean_acc, 1) if fold_accs else 0,
+                    "std_dir_acc": round(std_acc, 1) if len(fold_accs) > 1 else 0,
+                    "min_dir_acc": round(min(fold_accs), 1) if fold_accs else 0,
+                    "max_dir_acc": round(max(fold_accs), 1) if fold_accs else 0,
+                }
 
                 # Validate feature groups: permutation test on the held-out set
                 need_retrain = False
@@ -1802,7 +1822,7 @@ class ItemForecaster:
             y_val = val_df[f"target_return_{horizon}d"]
 
             # Build the fold's binned Dataset once; reuse across all quantiles.
-            ds_params = {"max_bin": 127}
+            ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
             dtrain = lgb.Dataset(X_train, y_train, params=ds_params)
             dval = lgb.Dataset(X_val, y_val, reference=dtrain, params=ds_params)
 
@@ -2190,6 +2210,12 @@ class ItemForecaster:
         for h_str, cvdata in self.cv_results.items():
             cv_serial[str(h_str)] = cvdata
 
+        # Serialize tuned per-quantile hyperparameters so subsequent retrains
+        # can reuse them and skip the Optuna search (Tier-1 speedup).
+        tuned_serial = {}
+        for h, qd in self.tuned_params.items():
+            tuned_serial[str(h)] = {str(q): dict(params) for q, params in qd.items()}
+
         meta = {
             "feature_cols": self.feature_cols,
             "trained_at": str(self._now()),
@@ -2201,6 +2227,7 @@ class ItemForecaster:
             "training_window_days": 1460,
             "feature_importance": feature_importance,
             "cv_results": cv_serial,
+            "tuned_params": tuned_serial,
         }
         def _json_default(o):
             if isinstance(o, np.bool_):
@@ -2232,6 +2259,22 @@ class ItemForecaster:
             return False
         self.feature_cols = meta["feature_cols"]
         self.feature_medians = pd.Series(meta.get("feature_medians", {}), dtype=np.float64)
+
+        # Restore cached tuned hyperparameters (skips Optuna on retrain when present).
+        self.tuned_params = {}
+        raw_tp = meta.get("tuned_params", {})
+        for h_str, qd in raw_tp.items():
+            try:
+                h = int(h_str)
+            except (ValueError, TypeError):
+                continue
+            self.tuned_params[h] = {}
+            for q_str, params in qd.items():
+                try:
+                    q = float(q_str)
+                except (ValueError, TypeError):
+                    continue
+                self.tuned_params[h][q] = params
 
         # Load per-horizon confidence thresholds (backward compat: treat flat dict as 7d)
         raw_thresholds = meta.get("confidence_thresholds", {})

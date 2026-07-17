@@ -11,10 +11,13 @@ Usage:
 """
 
 import sys
+import os
+import json
 import math
 import logging
 from pathlib import Path
 from datetime import datetime, date, timezone
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -31,20 +34,98 @@ logger = logging.getLogger("forecast_prices")
 MODEL_VERSION = "lgbm-v3"
 
 
+def _model_age_days(forecaster) -> Optional[int]:
+    """Days since the currently saved model was trained, or None if unknown."""
+    meta_path = os.path.join(forecaster.model_dir, "meta.json")
+    if not os.path.exists(meta_path):
+        return None
+    try:
+        with open(meta_path) as f:
+            meta = json.load(f)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    trained_at = meta.get("trained_at")
+    if not trained_at:
+        return None
+    try:
+        trained = datetime.fromisoformat(trained_at)
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - trained).days
+
+
+def _drift_detected(forecaster) -> bool:
+    """Return True if any horizon currently shows concept drift."""
+    for h in ItemForecaster.HORIZONS:
+        try:
+            drift_result = forecaster.check_concept_drift(
+                horizon=h, sliding_window=7, threshold=60.0
+            )
+        except Exception:
+            continue
+        if drift_result and drift_result.get("drifted"):
+            return True
+    return False
+
+
 def run_forecast(train_only: bool = False, predict_only: bool = False):
     db = SessionLocal()
     try:
         forecaster = ItemForecaster(db_session=db)
         has_models = forecaster.load_models()
 
-        if not predict_only:
+        force_retrain = os.environ.get("FORCE_RETRAIN") == "1"
+        retrain_interval = int(os.environ.get("RETRAIN_INTERVAL_DAYS", "14"))
+
+        # Decide whether a (re)train is actually needed.
+        #   --train-only: always train (explicit user action).
+        #   full mode (e.g. Monday): train only if no model, forced, the model
+        #     is stale (>= RETRAIN_INTERVAL_DAYS old), or drift was detected.
+        #   predict-only: train only if drift is detected (existing behavior).
+        do_train = False
+        if train_only:
+            do_train = True
+        elif not predict_only:
+            if not has_models:
+                logger.info("No saved models found, training from scratch...")
+                do_train = True
+            elif force_retrain:
+                logger.info("FORCE_RETRAIN set, retraining...")
+                do_train = True
+            else:
+                age = _model_age_days(forecaster)
+                drifted = _drift_detected(forecaster)
+                if age is None or age >= retrain_interval or drifted:
+                    reason = ("model stale" if (age is not None and age >= retrain_interval)
+                              else "drift" if drifted else "unknown age")
+                    logger.info(f"Retraining ({reason}): age={age}, interval={retrain_interval}d")
+                    do_train = True
+                else:
+                    logger.info(
+                        f"Skipping retrain: model {age}d old (<{retrain_interval}d) "
+                        f"and no drift detected"
+                    )
+        elif predict_only and has_models:
+            drifted_horizons = []
+            for h in ItemForecaster.HORIZONS:
+                drift_result = forecaster.check_concept_drift(
+                    horizon=h, sliding_window=7, threshold=60.0
+                )
+                if drift_result and drift_result.get("drifted"):
+                    drifted_horizons.append(h)
+            if drifted_horizons:
+                logger.warning(
+                    f"Drift detected for horizons {drifted_horizons} — "
+                    f"triggering auto-retrain before prediction."
+                )
+                do_train = True
+
+        if do_train:
             if has_models:
                 logger.info("Saved models found, retraining...")
-            else:
-                logger.info("No saved models found, training from scratch...")
             forecaster.train(max_rows=700_000)
             has_models = True
-            # Training takes ~10 min and Supabase may drop idle connections.
+            # Training can take a while and Supabase may drop idle connections.
             # Refresh the DB session before prediction.
             logger.info("Refreshing DB connection after training...")
             try:
@@ -61,31 +142,6 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
         if not has_models:
             logger.error("No models available for prediction.")
             return {"status": "error", "message": "No trained models"}
-
-        # Drift-triggered auto-retrain: check if any horizon has drifted.
-        # When drift is detected outside of Monday (which always retrains),
-        # we retrain immediately so predictions use a fresh model.
-        if predict_only and has_models:
-            drifted_horizons = []
-            for h in ItemForecaster.HORIZONS:
-                drift_result = forecaster.check_concept_drift(
-                    horizon=h, sliding_window=7, threshold=60.0
-                )
-                if drift_result and drift_result.get("drifted"):
-                    drifted_horizons.append(h)
-            if drifted_horizons:
-                logger.warning(
-                    f"Drift detected for horizons {drifted_horizons} — "
-                    f"triggering auto-retrain before prediction."
-                )
-                forecaster.train(max_rows=700_000)
-                has_models = True
-                try:
-                    db.close()
-                except Exception:
-                    pass
-                db = SessionLocal()
-                forecaster.db = db
 
         results = forecaster.predict()
 

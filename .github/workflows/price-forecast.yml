@@ -82,6 +82,7 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           ENVIRONMENT: production
           DEBUG: false
+          SKIP_CV: "1"
         run: |
           echo "🔮 Mode: ${{ steps.mode.outputs.mode }}"
           set -o pipefail

@@ -632,6 +632,26 @@ class TestModelPersistence:
         assert f2.confidence_thresholds[3]["high_range"] == 0.15
         assert f2.confidence_thresholds[7]["high_accuracy"] == 99.7
 
+    def test_tuned_params_roundtrip(self, forecaster, tmp_path):
+        """Cached tuned HP must survive save/load so retrains can skip Optuna."""
+        forecaster.model_dir = str(tmp_path)
+        forecaster.feature_cols = ["a", "b"]
+        forecaster.confidence_thresholds = {}
+        forecaster.tuned_params = {
+            7: {0.5: {"objective": "quantile", "alpha": 0.5, "max_bin": 63,
+                      "num_leaves": 31, "learning_rate": 0.03}},
+            30: {0.9: {"objective": "quantile", "alpha": 0.9, "max_bin": 63,
+                       "num_leaves": 23, "learning_rate": 0.05}},
+        }
+        forecaster.save_models()
+        f2 = ItemForecaster(db_session=MagicMock(), model_dir=str(tmp_path))
+        # load_models returns False (no model .txt files) but still restores meta.
+        f2.load_models()
+        assert 7 in f2.tuned_params and 30 in f2.tuned_params
+        assert 0.5 in f2.tuned_params[7] and 0.9 in f2.tuned_params[30]
+        assert f2.tuned_params[7][0.5]["learning_rate"] == 0.03
+        assert f2.tuned_params[30][0.9]["num_leaves"] == 23
+
 
 # ---------------------------------------------------------------------------
 # Training Window / Subsampling (regression tests for the 2026-07-16 audit)
@@ -710,13 +730,14 @@ class TestTrainingWindow:
 
 class TestForecastBlending:
     def test_ensemble_constants(self, forecaster):
-        """Ensemble expansion must use 9 diversified members."""
-        assert forecaster.N_ENSEMBLES == 9
-        assert len(forecaster.ENSEMBLE_SEEDS) == 9
-        assert len(forecaster.ENSEMBLE_FEATURE_FRACTIONS) == 9
+        """Ensemble must use 6 diversified members (Tier-1 speedup)."""
+        assert forecaster.N_ENSEMBLES == 6
+        assert len(forecaster.ENSEMBLE_SEEDS) == 6
+        assert len(forecaster.ENSEMBLE_FEATURE_FRACTIONS) == 6
         # Fractions should span a diversification range (not all identical).
         assert len(set(forecaster.ENSEMBLE_FEATURE_FRACTIONS)) > 1
         assert 0.0 < forecaster.FORECAST_BLEND_WEIGHT < 1.0
+        assert forecaster.MAX_BIN == 63
 
     def test_prior_forecast_empty_when_no_rows(self, forecaster):
         forecaster.db = MagicMock()
