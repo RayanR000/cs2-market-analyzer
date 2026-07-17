@@ -59,35 +59,68 @@ def _upsert_accuracy(db, rows):
 
 
 def _load_actual_prices(db, item_ids, dates):
-    """Load actual prices from price_history, averaged to daily closes."""
+    """Load actual prices from Parquet files (DuckDB).
+
+    The DB price_history table only holds live aggregator data (recent dates).
+    For full historical backtesting we read directly from the Parquet archive.
+    """
     if not item_ids or not dates:
         return {}
 
-    min_date = min(dates)
-    max_date = max(dates)
+    logger.info("  Loading actual prices from Parquet archive...")
+    archive_dir = Path(__file__).parent.parent.parent / "price-archive"
+    if not archive_dir.exists():
+        logger.warning("  No price-archive directory found")
+        return {}
 
-    from database import PriceHistory
-    from datetime import datetime as dt
+    import duckdb
 
-    start_dt = dt.combine(min_date, dt.min.time())
-    end_dt = dt.combine(max_date, dt.max.time())
+    # Build item_id (int) -> slug (str) mapping from DB
+    slug_rows = db.execute(
+        text("SELECT id, item_id FROM items")
+    ).fetchall()
+    id_to_slug = {r.id: r.item_id for r in slug_rows}
+    slug_to_id = {s: i for i, s in id_to_slug.items()}
 
-    rows = db.query(
-        PriceHistory.item_id,
-        PriceHistory.timestamp,
-        PriceHistory.price,
-    ).filter(
-        PriceHistory.item_id.in_(list(item_ids)),
-        PriceHistory.timestamp >= start_dt,
-        PriceHistory.timestamp <= end_dt,
-    ).order_by(PriceHistory.item_id, PriceHistory.timestamp).all()
+    # Map the requested item_ids to slugs
+    target_slugs = [id_to_slug.get(iid) for iid in item_ids if id_to_slug.get(iid)]
+    if not target_slugs:
+        logger.warning("  No slug mappings found for requested item IDs")
+        return {}
 
-    by_key = defaultdict(list)
-    for r in rows:
-        day = r.timestamp.date()
-        by_key[(r.item_id, day)].append(r.price)
+    date_strs = sorted({d.isoformat() if isinstance(d, date) else str(d)[:10] for d in dates})
 
-    return {k: sum(v) / len(v) for k, v in by_key.items()}
+    con = duckdb.connect()
+    try:
+        pq_files = sorted([str(p) for p in archive_dir.glob("prices-*.parquet")])
+        pq_queries = []
+        for pqf in pq_files:
+            cols = con.sql(f"DESCRIBE SELECT * FROM read_parquet('{pqf}')").fetchall()
+            col_names = {r[0] for r in cols}
+            pq_queries.append(f"SELECT item_slug, CAST(day AS DATE) AS day, mean_price FROM read_parquet('{pqf}')")
+        union_sql = " UNION ALL BY NAME ".join(pq_queries)
+
+        # Load all data matching our slugs and dates into a temp table
+        slug_list = ", ".join(f"'{s.replace(chr(39), chr(39)+chr(39))}'" for s in target_slugs)
+        date_list = ", ".join(f"'{d}'" for d in date_strs)
+        rows = con.sql(f"""
+            SELECT item_slug, day, mean_price
+            FROM ({union_sql})
+            WHERE item_slug IN ({slug_list})
+              AND CAST(day AS DATE) IN ({date_list})
+        """).fetchall()
+
+        by_key = {}
+        for slug, day_val, price in rows:
+            item_id = slug_to_id.get(slug)
+            if item_id is not None:
+                if price is not None:
+                    by_key[(item_id, day_val)] = float(price)
+
+        logger.info(f"  Loaded {len(by_key)} actual price points from Parquet")
+        return by_key
+    finally:
+        con.close()
 
 
 # ---------------------------------------------------------------------------

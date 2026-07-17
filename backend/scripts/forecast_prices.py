@@ -158,7 +158,8 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
         logger.info(f"Loaded {len(slug_to_id)} slug→ID mappings from DB")
 
         # Write forecasts to DB
-        today = date.today()
+        override = os.environ.get("FORECAST_DATE_OVERRIDE")
+        today = date.fromisoformat(override) if override else date.today()
         forecast_rows = []
         for _, row in results.iterrows():
             slug = str(row["item_id"])
