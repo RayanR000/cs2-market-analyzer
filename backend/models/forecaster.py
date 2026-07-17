@@ -116,9 +116,17 @@ class ItemForecaster:
                 """, params=[cutoff]).fetchall()
                 if backfilled_slugs is not None:
                     rows = [r for r in rows if r[0] in backfilled_slugs]
-                df = pd.DataFrame(rows, columns=["item_id", "timestamp", "price", "volume", "source"])
+                # Column order MUST match the SELECT above
+                # (item_slug, day, source, mean_price, volume).
+                df = pd.DataFrame(rows, columns=["item_id", "timestamp", "source", "price", "volume"])
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 df["date"] = df["timestamp"].dt.date
+                # Some Parquet years store mean_price/volume as VARCHAR; the
+                # glob union then coerces the whole column to string. Force
+                # numeric so multi-source voting (np.median) works.
+                df["price"] = pd.to_numeric(df["price"], errors="coerce")
+                df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
+                df = df.dropna(subset=["price"])
                 n_before = len(df)
                 n_sources_before = df["source"].nunique() if "source" in df.columns else 1
                 df = self._apply_multi_source_voting(df)
@@ -981,11 +989,11 @@ class ItemForecaster:
 
             mean_shuf = np.mean(shuffled_accs)
             drop_pp = base_acc - mean_shuf
-            passed = drop_pp >= min_drop_pp
+            passed = bool(drop_pp >= min_drop_pp)
             results[group] = {
-                "drop_pp": round(drop_pp, 2),
-                "base_acc": round(base_acc, 2),
-                "shuffled_acc": round(mean_shuf, 2),
+                "drop_pp": round(float(drop_pp), 2),
+                "base_acc": round(float(base_acc), 2),
+                "shuffled_acc": round(float(mean_shuf), 2),
                 "passed": passed,
                 "feature_count": len(idxs),
                 "features": groups[group],
@@ -2093,8 +2101,19 @@ class ItemForecaster:
             "feature_importance": feature_importance,
             "cv_results": cv_serial,
         }
+        def _json_default(o):
+            if isinstance(o, np.bool_):
+                return bool(o)
+            if isinstance(o, np.integer):
+                return int(o)
+            if isinstance(o, np.floating):
+                return float(o)
+            if isinstance(o, np.ndarray):
+                return o.tolist()
+            return str(o)
+
         with open(os.path.join(self.model_dir, "meta.json"), "w") as f:
-            json.dump(meta, f)
+            json.dump(meta, f, default=_json_default)
 
         logger.info(f"Models saved to {self.model_dir}")
 
@@ -2104,8 +2123,12 @@ class ItemForecaster:
             logger.warning(f"No saved models found in {self.model_dir}")
             return False
 
-        with open(meta_path) as f:
-            meta = json.load(f)
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Corrupt meta.json ({e}); ignoring saved models and retraining.")
+            return False
         self.feature_cols = meta["feature_cols"]
         self.feature_medians = pd.Series(meta.get("feature_medians", {}), dtype=np.float64)
 
