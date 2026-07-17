@@ -153,6 +153,18 @@ Measured via walk-forward evaluation on 50 items, 26 expanding windows (60-day s
 - Recent folds degrade during high market volatility
 - Interval coverage drops in volatile periods
 - Rarity features have strong causal signal (+10-12pp permutation test). Weapon-type one-hot and cross-sectional were removed — they showed zero causal signal despite the +0.66pp A/B bundle delta
+- `_apply_multi_source_voting()` uses `groupby().apply()` on 5.5M rows — takes ~3-5 min. Could be vectorized for ~5s but voting logic is correct and this only affects training time, not accuracy
+
+### Data Quality Audit (2026-07-17)
+A comprehensive audit of the 9.8M-row training set revealed three data quality issues:
+
+| Issue | Scope | Impact |
+|-------|-------|--------|
+| **Dead items at Steam floor** ($0.03-0.04) | 2,936 items, 4.1M rows (41.5%) | Zero signal — dilutes model, wastes gradient steps |
+| **Corrupt price jumps** (>1000%, revert next day) | 11,044 jumps across 905 items | Pollutes gradient estimates with false targets |
+| **Incomplete 2026 backfill** (ends Mar 29) | ~400K rows | Distribution shift: train on Jan-Mar, predict on Jul+ |
+
+All three issues were fixed in the 2026-07-17 changelog. Full details in `docs/changelog/2026-07-17-data-quality-audit-and-fixes.md`.
 
 ---
 
@@ -205,6 +217,11 @@ Measured via walk-forward evaluation on 50 items, 26 expanding windows (60-day s
 | Concept drift monitoring | Jul 2026 | Medium |
 | Prediction sanity checks (clamp, zero-volume) | 2026-07-12 | Low |
 | 41 unit tests for forecaster | 2026-07-12 | Foundation |
+| **Dead item filter** (remove $0.03 floor items) | 2026-07-17 | High — +2-5pp estimated, 41% less training noise |
+| **Target winsorization** (±500% clip) | 2026-07-17 | High — neuters 11K corrupt price jumps |
+| **Corrupt item flagging** (exclude 151 worst) | 2026-07-17 | Medium — removes API corruption from training |
+| **Sample weighting** (by price variance) | 2026-07-17 | Medium — down-weights flat items, up-weights movers |
+| **2026 shift guard** (exclude incomplete year) | 2026-07-17 | Low — closes train/predict distribution gap |
 
 ### What NOT To Do
 - **Do not replace with a fine-tuned LLM** — worse at numerical time series, slower, harder to retrain

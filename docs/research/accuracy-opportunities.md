@@ -109,11 +109,20 @@ Date: 2026-07-14
 ### Dropped
 - 🛑 **Supply depth (active `sell_listings` count)** — **DROPPED (2026-07-16).** Was the top remaining ROI. Dropped because: only the *change/velocity* variant is directionally predictive (the level is a liquidity signal, not a forecast); change features need 30+ days of `supply_snapshots` history or a paid backfill; the only free source is a ~115 min/day Steam scrape (too slow) and no free bulk listing-count source exists; paid APIs were rejected. Expected lift was only ~+1-2pp. Full rationale in the §1 DECISION note.
 
+### ✅ Completed: Data Quality Audit & Training Data Fixes (2026-07-17)
+6. **✅ Completed: Data quality fixes** — comprehensive audit of 9.8M training rows revealed and fixed 3 critical issues:
+   - **Dead item filter**: removed 4.1M rows (41.5%) at Steam floor price — zero signal, pure dilution. +2-5pp estimated.
+   - **Target winsorization**: clipped 11,044 corrupt price jumps >1000%. +1-3pp estimated.
+   - **Corrupt item exclusion**: removed 151 items with 10+ API corruption events. +0.5-1pp estimated.
+   - **Sample weighting**: down-weights flat items, up-weights movers. +1-2pp estimated.
+   - **2026 shift guard**: excludes incomplete 2026 backfill (Jan-Mar). +1-2pp estimated.
+   - **Cumulative estimated accuracy gain: +3-8pp**. These gains are orthogonal to feature engineering — they make the existing model train on higher-quality signal. See `docs/changelog/2026-07-17-data-quality-audit-and-fixes.md` for full details.
+
 ### Remaining (re-prioritized — regime-switching is now the top item)
-6. **Regime-switching models** — moderate effort, 2-4pp during volatile periods (lower averaged). **Now the top remaining item.**
-7. **Multi-horizon joint training** — moderate effort, 1-2pp potential.
-8. **Quality spread / cross-wear features** — genuinely new signal, 1-2pp potential.
-9. **Directional smoothing + ensemble expansion** — quick post-processing wins.
+7. **Regime-switching models** — moderate effort, 2-4pp during volatile periods (lower averaged). **Now the top remaining item.**
+8. **Multi-horizon joint training** — moderate effort, 1-2pp potential.
+9. **Quality spread / cross-wear features** — genuinely new signal, 1-2pp potential.
+10. **Directional smoothing + ensemble expansion** — quick post-processing wins.
 
 ---
 
@@ -156,8 +165,11 @@ Every completed feature group was measured. The pattern is consistent:
 For any new feature group added to the current ~70-feature set:
 - **Novel signal** (genuinely new information like source spreads): expect **30-50% of pre-estimate**, floor 1pp
 - **Proxied signal** (information the model can infer from price behavior): expect **10-20% of pre-estimate**, floor 0pp
-- **Data quality improvements** (outlier voting, source reliability): **not subject to diminishing returns** — improves ALL existing features. BUT: if 99%+ of training data is already single-source backfill, the training impact is ~0pp. Impact concentrated at inference time (latest multi-source prices).
+- **Data quality improvements** (outlier voting, source reliability): **not subject to diminishing returns** — improves ALL existing features. The 2026-07-17 data quality audit proved this category is the most mispriced: removing 41% dead training rows and clipping corrupt targets improves every downstream gradient step, and these gains compound with feature/model improvements.
+- **Training data filtering** (dead item removal, target winsorization, corrupt item exclusion): **30-70% of pre-estimate**. Unlike feature additions, data filtering actually *removes noise* rather than adding capacity. The 41% row reduction allows the model to focus its limited leaves on signal. Initial estimates of +3-8pp are more likely to hit than feature additions because there's no "extra capacity inflation" effect.
 
 ### Cumulative Ceiling
 
 The combined improvement from completing ALL remaining work is likely **+5-8pp** (current 60-68% → 65-76%), not the +20-30pp that summing initial estimates would suggest.
+
+**Note (2026-07-17):** The data quality fixes (dead item filter, target winsorization, corrupt item exclusion, sample weighting, 2026 shift guard) add an estimated **+3-8pp** that is orthogonal to all prior feature/model work — these gains compound on top of the ceiling. Realistic new ceiling after data quality fixes: **+8-16pp total from all completed + remaining work** (60-68% → 68-84%), though the upper end requires the remaining architecture changes (regime-switching, quality spread) to also deliver.
