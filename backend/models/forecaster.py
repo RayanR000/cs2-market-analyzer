@@ -1422,6 +1422,20 @@ class ItemForecaster:
                             pre_count = len(self.feature_cols)
                             self.feature_cols = [c for c in self.feature_cols
                                                   if c not in failed_cols]
+                            # Safety net: if all features were pruned, fall
+                            # back to a minimal core set so LightGBM doesn't
+                            # crash with 0 columns.
+                            if not self.feature_cols and pre_count > 0:
+                                safe = ["price_log", "price_lag_1d", "price_lag_3d",
+                                        "price_return_1d", "price_return_3d",
+                                        "price_return_7d", "price_std_7d"]
+                                self.feature_cols = [c for c in safe if c in tdf.columns]
+                                if not self.feature_cols:
+                                    self.feature_cols = tdf.select_dtypes(include=[np.number]).columns[:1].tolist()
+                                logger.warning(
+                                    f"  All features pruned — falling back to "
+                                    f"{len(self.feature_cols)} core features as safety net"
+                                )
                             logger.warning(
                                 f"  Pruned {len(failed_cols)} features from non-causal groups "
                                 f"{failed} ({pre_count} -> {len(self.feature_cols)}). Retraining."

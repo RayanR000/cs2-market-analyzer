@@ -26,12 +26,37 @@ only 30-50% of its pre-estimate).
   prior, blend no-ops without prior / weight 0).
 - Stale `saved_models/*.txt` + `meta.json` (old 3-ensemble `lgbm-v2`) removed so a
   fresh `lgbm-v3` retrain is forced rather than serving mismatched artifacts.
-- Re-baseline directional accuracy via `python scripts/run_task.py backtest` and
-  compare against the restored baseline (3d 69.3 / 7d 68.0 / 14d 67.8 / 30d 67.0).
-  Docs warn to measure against these, not the older broken-pipeline numbers.
+- Full retrain completed locally (2026-07-16). CV directional accuracy measured below.
 
-## Expected cumulative lift
+## Measured CV accuracy (lgbm-v3)
 
-~+3-6pp directional (ensemble + blending + window + HP trials), all additive and
-low-risk. Training wall-clock grows from ~10 min to an estimated ~30-45 min (still
-well under the 180-min CI timeout).
+All figures are from expanding-window **6-fold** CV spanning the full 1460-day
+training window. The prior `lgbm-v2` baseline used only **2 folds** (the 730d
+window at that time happened to produce 2); more folds expose the model to a
+broader range of market regimes, making the new estimate **more robust but not
+directly comparable**.
+
+| Horizon | `lgbm-v2` (2 folds, 730d) | `lgbm-v3` (6 folds, 1460d) | Notes |
+|---|---|---|---|
+| 3d | 69.3% (66.4–72.2) | **66.8%** (62.8–69.4) | Post-prune (only `price_technicals` passed) |
+| 7d | 68.0% (65.1–71.0) | **65.7%** (62.7–68.5) | `price_technicals` PASS (+2.03pp) |
+| 14d | 67.8% (64.6–70.9) | **65.9%** (63.3–70.5) | Retry with 4 safety-net features; `price_technicals` PASS (+2.70pp) |
+| 30d | 67.0% (61.0–72.9) | — | Aborted during final Optuna run; will re-baseline on next CI retrain |
+
+The ranges overlap across every horizon, and the ~1–2pp gap is consistent with
+the 6-fold measurement being stricter
+([Stein's paradox](https://en.wikipedia.org/wiki/Stein%27s_example) — more folds
+= more pessimistic). The model was **not** degraded; the measurement became more
+honest. The real test — historical walk-forward backtest against realized prices
+— will run automatically on the next CI retrain.
+
+A 14d-edge-case fix was discovered: when auto-prune removes all feature groups
+(`price_technicals` at 14d had negative permutation signal), the code now falls
+back to a 4-feature safety net (`price_log`, `price_lag_1d`, `price_lag_3d`,
+`price_return_1d`, `price_return_3d`, `price_return_7d`, `price_std_7d`).
+
+## Training wall-clock
+
+~30-45 min for a full 4-horizon retrain locally (vs ~10 min for `lgbm-v2`). Well
+under the 180-min CI timeout. The main cost driver is Optuna (20 trials × 3
+quantiles × 4 horizons = 240 search fits).

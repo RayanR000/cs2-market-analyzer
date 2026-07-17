@@ -13,7 +13,7 @@ Single `ItemForecaster` containing **36 LightGBM models** for quantile regressio
 
 Predictions are averaged across seeds per quantile. p10/p90 provide the interval, p50 is the point prediction.
 
-**Model version:** `lgbm-v2`
+**Model version:** `lgbm-v3` (since 2026-07-16; was `lgbm-v2`) — 9-ensemble, 1460d window, 20 HP trials, forecast blending
 **Last trained:** 2026-07-13 (full retrain)
 **Files:** 36 `lgb_*.txt` + `meta.json` in `backend/models/saved_models/`
 
