@@ -2,11 +2,12 @@ name: Aggregator Market Update
 
 on:
   schedule:
-    # Once daily at 02:00 UTC (9:00 PM EST). CSGOTrader regenerates its price
+    # Once daily at 01:00 UTC (9:00 PM EDT). CSGOTrader regenerates its price
     # dumps once a day around ~21:40 UTC (verified via Last-Modified headers
     # and 5 weeks of collected data — extra same-day runs always returned
-    # identical prices).
-    - cron: '0 2 * * *'
+    # identical prices). Note: cron is fixed UTC, so this lands at 8PM EST
+    # during standard time (winter).
+    - cron: '0 1 * * *'
   workflow_dispatch: # Allow manual trigger
 
 defaults:
