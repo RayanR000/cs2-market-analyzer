@@ -119,6 +119,7 @@ Date: 2026-07-14
 
 ## Notes
 
+- **Baseline restored (2026-07-16):** the first trustworthy CV numbers are 3d 69.3% / 7d 68.0% / 14d 67.8% / 30d 67.0% directional. Earlier 60–68% figures came from a broken pipeline — training was truncated to ~51 days (fixed) AND `fetch_price_history` had mislabeled its columns so the model read source-name strings as prices (fixed). See `docs/changelog/2026-07-16-training-window-fix-and-speedups.md` Parts 1 & 3. Re-measure any future improvement against the restored baseline, not the old numbers.
 - CatBoost was tested and removed (Jul 2026) — degraded accuracy by 18-20pp — do not revisit
 - **Do NOT add trade/sales volume as a predictive feature** — audited 2026-07-16, |r| < 0.002 with forward returns (0pp). Supply depth (`sell_listings`) was also evaluated and **dropped (2026-07-16)** as an accuracy improvement (see §1 DECISION): only its change/velocity variant is mechanistically predictive but requires 30+ days of history or a paid backfill, which was not pursued.
 - Trend analyzer was deprecated and removed (Jul 2026)

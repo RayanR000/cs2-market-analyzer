@@ -6,6 +6,13 @@
 > stratified subsample (`_stratified_item_subsample`) that preserves the full
 > 730-day window, `predict()` was reconciled to 730d, regression tests were
 > added, and the workflow timeout was bumped to 180 min.
+>
+> ⚠️ **The first real retrain also uncovered a separate CRITICAL bug:**
+> `fetch_price_history` mislabeled its DataFrame columns, so the model was
+> reading source-name strings (e.g. `STEAMCOMMUNITY`) as prices — training and
+> `predict()` ran on garbage since the multi-source voting commit. Fixed in the
+> same batch (changelog Part 3.1). This, not just the truncation, is why the
+> weekly retrain "kept failing."
 
 ## Context
 

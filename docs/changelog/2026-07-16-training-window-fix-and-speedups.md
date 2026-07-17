@@ -66,3 +66,96 @@ trials is the biggest single lever.
 
 - All 46 `test_forecaster.py` tests pass.
 - Recommend timing one horizon before a full retrain to confirm the speedup.
+
+---
+
+## Part 3 — Bugs found during the first real retrain (2026-07-16)
+
+Running the first full `--train-only` against the local Parquet archive surfaced
+several **pre-existing** bugs (unrelated to Parts 1–2) that had silently broken
+training and production inference. All are fixed in `models/forecaster.py`.
+
+### 3.1 — Price/source column mislabeling (CRITICAL)
+
+`fetch_price_history()` builds its DataFrame from a DuckDB query whose column
+order is `(item_slug, day, source, mean_price AS price, volume)`, but the
+DataFrame was constructed with `columns=["item_id", "timestamp", "price",
+"volume", "source"]`. The names were **shifted by one** from `source` onward:
+
+| SELECT position | Actual data | Was named |
+|---|---|---|
+| 2 | `source` (e.g. `STEAMCOMMUNITY`) | `price` |
+| 3 | `mean_price` | `volume` |
+| 4 | `volume` | `source` |
+
+So the model trained on — and `predict()` served from — **source name strings in
+the `price` column**. This first surfaced as a `np.median` `TypeError` in
+`_apply_multi_source_voting` (median of strings), which is why the weekly retrain
+"kept failing." Introduced by the multi-source voting commit (`e5f4eb0`).
+
+**Impact:** every forecast since that commit was trained on and generated from
+garbage prices. Fixing this is the single most important change in this batch.
+
+**Fix:** column order aligned to the SELECT
+(`["item_id", "timestamp", "source", "price", "volume"]`).
+
+### 3.2 — VARCHAR price/volume coercion
+
+Some Parquet years store `mean_price`/`volume` as `VARCHAR`; the glob union then
+coerces the whole column to string. Added `pd.to_numeric(..., errors="coerce")`
+for `price`/`volume` and a `dropna(subset=["price"])`.
+
+### 3.3 — `meta.json` not JSON-serializable
+
+The permutation-test results stored `numpy.bool_`/`numpy.float64` in
+`cv_results`, so `json.dump` raised `Object of type bool is not JSON
+serializable` **after** all model `.txt` files were written — leaving a valid
+model set with no metadata. Fixed by casting `passed`/`drop_pp`/`base_acc`/
+`shuffled_acc` to native types at the source and adding a `default=` handler to
+`json.dump` (covers `np.bool_`, `np.integer`, `np.floating`, `np.ndarray`).
+
+### 3.4 — `load_models()` hard-failed on corrupt `meta.json`
+
+A truncated/corrupt `meta.json` (e.g. from the 3.3 crash) made startup raise
+`JSONDecodeError` and abort the entire run. Now caught → logs a warning and
+returns `False` (retrain from scratch) instead of crashing.
+
+### 3.5 — Operational: `optuna` missing from venv
+
+`optuna>=3.6.0` is in `requirements.txt` but was absent from the local venv;
+installed. (CI installs from `requirements.txt`, so this was local-only.)
+
+---
+
+## Verified end-to-end retrain (2026-07-16)
+
+First successful full retrain on the corrected pipeline:
+
+- Voted 2.96M → 2.91M rows; **stratified subsample to 504K rows / 1,495 items with the full 730-day calendar preserved** (was silently ~51 days)
+- Feature matrix bounded at 504K rows (not the 2.9M that OOM'd)
+- **Expanding-window CV produces 2 folds/horizon** (was zero)
+- Peak memory ~6.3 GB during voting, ~3 GB after subsample
+- Wall-clock **~10 min** for a full 4-horizon retrain locally (bundle A active)
+- `meta.json` saves; 12 model groups load cleanly
+
+### Re-baselined accuracy (CV directional, post auto-prune)
+
+| Horizon | Folds | Mean | Range |
+|---|---|---|---|
+| 3d | 2 | 69.3% | 66.4–72.2% |
+| 7d | 2 | 68.0% | 65.1–71.0% |
+| 14d | 2 | 67.8% | 64.6–70.9% |
+| 30d | 2 | 67.0% | 61.0–72.9% |
+
+These are the first trustworthy cross-validated numbers; prior 60–68% figures
+came from the broken pipeline. Auto-prune reduced 124 → ~43 features
+(only `price_technicals` passed the permutation test at 3d).
+
+### Committed
+
+`a13d01e` — code fixes + all 12 retrained model groups + `meta.json`.
+
+### Follow-ups
+
+- Watch CI memory: voting peaks ~6.3 GB against the 7 GB `ubuntu-latest` limit.
+- `scripts/forecast_prices.py` still passes `max_rows=200_000` (final per-horizon fits sample ~200K of ~490K available rows).
