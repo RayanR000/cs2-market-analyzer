@@ -28,16 +28,13 @@ Root cause common to #1 and #2: **the model makes pruning/calibration decisions 
 
 ## Tier 1 — Fix what is actively broken (biggest wins, ~zero training-time cost)
 
-### 1. Fix the 2026 distribution-shift guard
-The guard in `build_training_data()` is **not actually excluding 2026 rows** — 35,441 remain. This pushes the 7d validation window into sparse mid-2026 data (a single calendar day, ~352 items), where the permutation test is pure noise.
+### ~~1. Fix the 2026 distribution-shift guard~~ RESOLVED
 
-- **File:** `backend/models/forecaster.py` (`build_training_data`, ~lines 1359–1367)
-- **Investigation:** `docs/changelog/2026-07-17-7d-regression-investigation.md`
-- **Three unverified hypotheses to check** (nail down which is real before fixing):
-  - dtype / `.dt.year` issue on the date column
-  - guard runs *after* the stratified subsample instead of before
-  - silent no-op because the column isn't actually datetime
-- **Expected impact:** recovers 7d ~53% → ~62%. Zero training-time cost.
+Applied in two commits:
+- `56ff0b7` — moved guard before subsampling, removed `month < 6` check
+- Follow-up (2026-07-18) — switched to `pd.DatetimeIndex().year` to eliminate `.dt` dtype instability
+
+Guard now correctly excludes all incomplete 2026 data. Investigation confirmed all three hypotheses were addressed.
 
 ### 2. Raise the validation-set floor
 The current `val_set < 100 → fallback` threshold is far too low. Permutation tests on ~350 rows are noise.

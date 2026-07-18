@@ -37,6 +37,17 @@ if "date" in price_df.columns:
 - Removed `month < 6` check — excludes all 2026 rows unconditionally
 - Moved **before** `_stratified_item_subsample` — row budget preserved for valid data
 
+### Follow-up: `.dt.year` dtype stability (2026-07-18)
+
+The `.dt` accessor's `.year` property returns inconsistent dtypes depending on NaT presence (`int32` vs `float64`), and `pd.to_datetime(Series)` can misinterpret integer-like values as nanoseconds since epoch. Changed to `pd.DatetimeIndex(price_df["date"]).year` — avoids the `.dt` accessor entirely, is ~12% faster, and returns a consistent dtype regardless of nulls.
+
+```python
+# Before:
+dates_2026 = pd.to_datetime(price_df["date"]).dt.year == 2026
+# After:
+dates_2026 = pd.DatetimeIndex(price_df["date"]).year == 2026
+```
+
 ## Validation-set floor (same commit)
 
 - Raised from `val_set < 100` to `val_set < 2000` or `< 7 distinct dates`

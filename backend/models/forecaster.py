@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 RNG = np.random.RandomState(42)
 
 
+def _gpu_available() -> bool:
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["nvidia-smi"], capture_output=True, text=True, timeout=5
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
 def _feature_group(name: str) -> str:
     if any(name.startswith(p) for p in ("price_", "return_", "log_return_", "bb_",
                                          "rsi_", "macd_", "vol_", "trend_",
@@ -1426,7 +1437,7 @@ class ItemForecaster:
         # mid-2026 data (~352 items, single calendar day) where permutation
         # tests produce pure noise.
         if "date" in price_df.columns:
-            dates_2026 = pd.to_datetime(price_df["date"]).dt.year == 2026
+            dates_2026 = pd.DatetimeIndex(price_df["date"]).year == 2026
             n_2026 = dates_2026.sum()
             if n_2026 > 0:
                 price_df = price_df[~dates_2026].copy()
@@ -1678,13 +1689,16 @@ class ItemForecaster:
                         bp = dict(cached_hp[q])
                         bp["max_bin"] = self.MAX_BIN
                         bp["feature_pre_filter"] = False
+                        bp["device"] = "cuda" if _gpu_available() else "cpu"
                         per_quantile_params[q] = bp
                 else:
                     for q in self.QUANTILES:
                         logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna)...")
                         best_params = self._optuna_search_params(X_train, y_train, X_val, y_val, quantile=q)
 
+                        device = "cuda" if _gpu_available() else "cpu"
                         base_params = {
+                            "device": device,
                             "feature_pre_filter": False,
                             "objective": "quantile",
                             "alpha": q,

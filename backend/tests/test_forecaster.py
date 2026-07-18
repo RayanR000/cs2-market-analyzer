@@ -805,7 +805,7 @@ class TestTrainingWindow:
 
         # Apply the exact guard from build_training_data
         if "date" in df.columns:
-            dates_2026 = pd.to_datetime(df["date"]).dt.year == 2026
+            dates_2026 = pd.DatetimeIndex(df["date"]).year == 2026
             n_2026 = dates_2026.sum()
             if n_2026 > 0:
                 df = df[~dates_2026].copy()
@@ -833,7 +833,7 @@ class TestTrainingWindow:
         n_before = len(df)
 
         if "date" in df.columns:
-            dates_2026 = pd.to_datetime(df["date"]).dt.year == 2026
+            dates_2026 = pd.DatetimeIndex(df["date"]).year == 2026
             n_2026 = dates_2026.sum()
             if n_2026 > 0:
                 df = df[~dates_2026].copy()
