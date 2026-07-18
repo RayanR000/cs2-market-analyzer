@@ -55,6 +55,9 @@ class ItemForecaster:
     # A relative split stays valid as data accumulates (a fixed date would
     # eventually leave the validation set covering all new data).
     VALIDATION_WINDOW_DAYS = 21
+    REGIMES = ["bear", "range", "bull"]
+    REGIME_RETURN_THRESHOLD_BEAR = -3.0   # market_return_30d < -3% → bear
+    REGIME_RETURN_THRESHOLD_BULL = 3.0    # market_return_30d > 3% → bull
     N_ENSEMBLES = 6
     ENSEMBLE_SEEDS = [42, 73, 91, 13, 57, 128]
     ENSEMBLE_FEATURE_FRACTIONS = [0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
@@ -71,6 +74,8 @@ class ItemForecaster:
         self.db = db_session
         self.model_dir = model_dir or str(Path(__file__).parent / "saved_models")
         self.models: Dict[Tuple[int, float], lgb.Booster] = {}
+        self.regime_models: Dict[Tuple[str, int, float], list] = {}
+        self.regime_feature_cols: Dict[Tuple[int, str], List[str]] = {}
         self.feature_cols: List[str] = []
         self.prune_failed_groups = prune_failed_groups
         self.tuned_params: Dict[int, Dict[float, Dict[str, Any]]] = {}
@@ -88,6 +93,51 @@ class ItemForecaster:
             "update": 7,
             "game_update": 7,
         }
+
+    # ------------------------------------------------------------------
+    # Regime switching
+    # ------------------------------------------------------------------
+
+    def _assign_regime_label(self, market_return_30d: float) -> str:
+        """Assign a regime label based on market_return_30d.
+
+        Thresholds:
+          bear:  market_return_30d < -3%
+          range: -3% <= market_return_30d <= 3%
+          bull:  market_return_30d > 3%
+        """
+        if market_return_30d < self.REGIME_RETURN_THRESHOLD_BEAR:
+            return "bear"
+        elif market_return_30d <= self.REGIME_RETURN_THRESHOLD_BULL:
+            return "range"
+        else:
+            return "bull"
+
+    def _assign_regime_labels(self, df: pd.DataFrame) -> pd.Series:
+        """Assign a regime label to each row based on market_return_30d.
+
+        Returns a Series of regime strings ("bear", "range", "bull")
+        indexed like df. Rows without market_return_30d get "range".
+        """
+        if "market_return_30d" not in df.columns:
+            return pd.Series("range", index=df.index)
+        labels = df["market_return_30d"].apply(
+            lambda x: self._assign_regime_label(x) if pd.notna(x) else "range"
+        )
+        return labels
+
+    def _detect_current_regime(self, df: pd.DataFrame) -> str:
+        """Detect the current market regime from the latest engineered data.
+
+        Uses the most recent row's market_return_30d (if available).
+        Falls back to 'range' when undetermined.
+        """
+        if "market_return_30d" not in df.columns:
+            return "range"
+        latest_rets = df["market_return_30d"].dropna()
+        if latest_rets.empty:
+            return "range"
+        return self._assign_regime_label(latest_rets.iloc[-1])
 
     # ------------------------------------------------------------------
     # Data fetching
@@ -1465,6 +1515,9 @@ class ItemForecaster:
             tdf = tdf.dropna(subset=[f"target_return_{horizon}d"]).copy()
             tdf = tdf.sort_values("date")
 
+            # Assign regime labels for regime-switching training
+            tdf["_regime"] = self._assign_regime_labels(tdf)
+
             for attempt in range(2):
                 if attempt == 1:
                     logger.info(f"  Retry {horizon}d — pruned feature groups")
@@ -1600,6 +1653,60 @@ class ItemForecaster:
                     _ens_elapsed = (datetime.now() - _ens_start).total_seconds()
                     fi = self._get_feature_importance(ensemble_models[0])
                     logger.info(f"  Done in {_ens_elapsed:.0f}s — Top features: {fi['feature'].head(5).tolist()}")
+
+                # Train regime-specific models (separate from global)
+                for regime in self.REGIMES:
+                    if regime == "global":
+                        continue
+                    r_train = train_set[train_set["_regime"] == regime]
+                    r_val = val_set[val_set["_regime"] == regime]
+                    MIN_REGIME_TRAIN = 500
+                    MIN_REGIME_VAL = 50
+                    if len(r_train) < MIN_REGIME_TRAIN or len(r_val) < MIN_REGIME_VAL:
+                        logger.info(f"  Skipping {regime} regime ({len(r_train)} train, {len(r_val)} val — "
+                                    f"below minimum)")
+                        continue
+
+                    # Use global HP params (reuse Optuna results from global)
+                    r_X_train = r_train[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
+                    r_y_train = r_train[f"target_return_{horizon}d"]
+                    r_X_val = r_val[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
+                    r_y_val = r_val[f"target_return_{horizon}d"]
+
+                    r_train_weights = self._compute_sample_weights(r_train, horizon)
+                    r_val_weights = self._compute_sample_weights(r_val, horizon)
+
+                    r_ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
+                    r_dtrain_kw = dict(params=r_ds_params)
+                    if r_train_weights is not None:
+                        r_dtrain_kw["weight"] = r_train_weights
+                    r_dval_kw = dict(params=r_ds_params)
+                    if r_val_weights is not None:
+                        r_dval_kw["weight"] = r_val_weights
+                    r_dtrain = lgb.Dataset(r_X_train, r_y_train, **r_dtrain_kw)
+                    r_dval = lgb.Dataset(r_X_val, r_y_val, reference=r_dtrain, **r_dval_kw)
+
+                    logger.info(f"  Training {regime} regime models ({horizon}d, "
+                                f"{len(r_train):,} train, {len(r_val):,} val)...")
+                    for q in self.QUANTILES:
+                        pq = per_quantile_params[q]
+                        r_ensemble = []
+                        for ei in range(self.N_ENSEMBLES):
+                            params = pq.copy()
+                            params["random_state"] = self.ENSEMBLE_SEEDS[ei]
+                            params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
+                            model = lgb.train(
+                                params, r_dtrain,
+                                num_boost_round=1000,
+                                valid_sets=[r_dval],
+                                callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)]
+                            )
+                            r_ensemble.append(model)
+                        self.regime_models[(regime, horizon, q)] = r_ensemble
+
+                    self.regime_feature_cols[(horizon, regime)] = list(self.feature_cols)
+                    logger.info(f"  {regime} regime models for {horizon}d done "
+                                f"({len(r_train)} train, {len(r_val)} val)")
 
                 # Expanding-window CV evaluation using the best hyperparams
                 if os.environ.get("SKIP_CV") == "1":
@@ -1876,6 +1983,21 @@ class ItemForecaster:
         current_price_arr = latest_rows["price"].to_numpy()
         generated_at = self._now()
 
+        # Detect current market regime for regime-aware model selection
+        current_regime = self._detect_current_regime(df)
+        has_regime_models = any(r == current_regime for r, _, _ in self.regime_models)
+        if current_regime in self.REGIMES:
+            if has_regime_models:
+                logger.info(f"  Current market regime: {current_regime} (using regime models)")
+            else:
+                logger.info(f"  Current market regime: {current_regime} (no regime models trained, using global)")
+        else:
+            logger.info(f"  Current market regime: {current_regime} (using global models)")
+
+        # Track regime vs global model usage for diagnostics
+        regime_count = 0
+        global_count = 0
+
         # One row per item, filled in horizon by horizon.
         agg = {
             iid: {
@@ -1894,15 +2016,28 @@ class ItemForecaster:
             for q in self.QUANTILES:
                 all_preds = []
 
-                # LGB predictions (use horizon-specific features)
-                key = (horizon, q)
-                if key in self.models:
-                    ensemble = self.models[key]
+                # Prefer regime-specific model, fall back to global
+                regime_key = (current_regime, horizon, q)
+                use_regime = (current_regime in self.REGIMES
+                              and regime_key in self.regime_models)
+                if use_regime:
+                    ensemble = self.regime_models[regime_key]
                     if isinstance(ensemble, list):
                         for m in ensemble:
                             all_preds.append(m.predict(X_horizon))
                     else:
                         all_preds.append(ensemble.predict(X_horizon))
+                    regime_count += 1
+                else:
+                    key = (horizon, q)
+                    if key in self.models:
+                        ensemble = self.models[key]
+                        if isinstance(ensemble, list):
+                            for m in ensemble:
+                                all_preds.append(m.predict(X_horizon))
+                        else:
+                            all_preds.append(ensemble.predict(X_horizon))
+                        global_count += 1
 
                 if all_preds:
                     preds[q] = np.mean(all_preds, axis=0)
@@ -1979,6 +2114,14 @@ class ItemForecaster:
         result_df = pd.DataFrame([r for r in agg.values() if r["forecasts"]])
         if not result_df.empty:
             result_df = self._sanitize_forecasts(result_df)
+
+        total_used = regime_count + global_count
+        if total_used > 0:
+            pct = regime_count / total_used * 100
+            logger.info(f"  Regime model usage: {regime_count}/{total_used} "
+                        f"({pct:.1f}%) regime, {global_count}/{total_used} "
+                        f"({100-pct:.1f}%) global")
+
         logger.info(f"  Forecasts generated for {len(result_df)} items")
         return result_df
 
@@ -2442,6 +2585,22 @@ class ItemForecaster:
                 path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
                 ensemble.save_model(path)
 
+        # Save regime-specific models
+        for (regime, horizon, q), ensemble in self.regime_models.items():
+            if isinstance(ensemble, list):
+                for ei, model in enumerate(ensemble):
+                    path = os.path.join(
+                        self.model_dir,
+                        f"lgb_{horizon}d_q{int(q*100)}_{regime}_e{ei}.txt"
+                    )
+                    model.save_model(path)
+            else:
+                path = os.path.join(
+                    self.model_dir,
+                    f"lgb_{horizon}d_q{int(q*100)}_{regime}.txt"
+                )
+                ensemble.save_model(path)
+
         # Save feature columns, calibration thresholds, and imputation medians
         thresholds_serial = {}
         for horizon, th in self.confidence_thresholds.items():
@@ -2486,11 +2645,23 @@ class ItemForecaster:
         for h, qd in self.tuned_params.items():
             tuned_serial[str(h)] = {str(q): dict(params) for q, params in qd.items()}
 
+        # Serialize regime feature cols: {"horizon_regime": [cols]}
+        regime_cols_serial = {}
+        for (h, regime), cols in self.regime_feature_cols.items():
+            regime_cols_serial[f"{h}_{regime}"] = cols
+
+        # Track which regimes actually have trained models
+        trained_regimes = list(set(reg for (reg, h, q) in self.regime_models.keys()))
+
         meta = {
             "feature_cols": self.feature_cols,
             "horizon_feature_cols": {
                 str(h): cols for h, cols in self.horizon_feature_cols.items()
             },
+            "regime_feature_cols": regime_cols_serial,
+            "trained_regimes": trained_regimes,
+            "regime_threshold_bear": self.REGIME_RETURN_THRESHOLD_BEAR,
+            "regime_threshold_bull": self.REGIME_RETURN_THRESHOLD_BULL,
             "trained_at": str(self._now()),
             "confidence_thresholds": thresholds_serial,
             "feature_medians": medians_serial,
@@ -2580,6 +2751,34 @@ class ItemForecaster:
                     if os.path.exists(path):
                         self.models[(horizon, q)] = lgb.Booster(model_file=path)
 
+        # Load regime-specific models
+        trained_regimes = meta.get("trained_regimes", [])
+        raw_regime_fc = meta.get("regime_feature_cols", {})
+        self.regime_feature_cols = {}
+        for key_str, cols in raw_regime_fc.items():
+            parts = key_str.rsplit("_", 1)
+            if len(parts) == 2:
+                try:
+                    h = int(parts[0])
+                    regime = parts[1]
+                    self.regime_feature_cols[(h, regime)] = cols
+                except ValueError:
+                    continue
+
+        for regime in trained_regimes:
+            for horizon in self.HORIZONS:
+                for q in self.QUANTILES:
+                    ensemble = []
+                    for ei in range(n_ensembles):
+                        path = os.path.join(
+                            self.model_dir,
+                            f"lgb_{horizon}d_q{int(q*100)}_{regime}_e{ei}.txt"
+                        )
+                        if os.path.exists(path):
+                            ensemble.append(lgb.Booster(model_file=path))
+                    if ensemble:
+                        self.regime_models[(regime, horizon, q)] = ensemble
+
         # Build per-horizon feature sets from the loaded models.
         # Each model internally stores the feature names it was trained with.
         self.horizon_feature_cols = {}
@@ -2589,8 +2788,13 @@ class ItemForecaster:
             model = ensemble[0] if isinstance(ensemble, list) else ensemble
             self.horizon_feature_cols[horizon] = model.feature_name()
 
-        total_groups = len(self.models)
-        logger.info(f"Loaded {total_groups} model groups from {self.model_dir}")
+        total_groups = len(self.models) + len(self.regime_models)
+        if self.regime_models:
+            regimes_found = set(r for (r, h, q) in self.regime_models.keys())
+            logger.info(f"Loaded {len(self.models)} global + {len(self.regime_models)} regime "
+                        f"model groups ({regimes_found}) from {self.model_dir}")
+        else:
+            logger.info(f"Loaded {total_groups} model groups from {self.model_dir}")
         return total_groups > 0
 
     def has_models(self) -> bool:

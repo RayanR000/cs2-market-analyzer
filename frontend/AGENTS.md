@@ -58,5 +58,5 @@ It connects to Supabase (production DB) and serves all data endpoints:
 
 The frontend fetches from `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:8000`).
 
-The `daily_analysis` table in production is missing the `updated_at` column — the model in `database.py` has been patched to match. If migrations or new columns are added, ensure schema alignment.
+When adding migrations or columns, ensure the SQLAlchemy models match the production schema — see the schema-alignment gotcha in the root `AGENTS.md`.
 <!-- END:api-server -->

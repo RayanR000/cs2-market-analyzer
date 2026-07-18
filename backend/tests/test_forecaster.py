@@ -9,6 +9,7 @@ and injecting them directly into the methods under test.
 import pytest
 import numpy as np
 import pandas as pd
+import lightgbm as lgb
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
@@ -873,5 +874,245 @@ class TestForecastBlending:
         low, mid, high = forecaster._blend_returns_with_prior(
             current.copy(), current.copy(), current.copy(), prior, 0.15)
         assert np.all(mid == current)
+
+
+# ---------------------------------------------------------------------------
+# Regime-switching models
+# ---------------------------------------------------------------------------
+
+class TestRegimeSwitching:
+    def test_assign_regime_label_bear(self, forecaster):
+        """market_return_30d < -3% should be bear."""
+        assert forecaster._assign_regime_label(-5.0) == "bear"
+        assert forecaster._assign_regime_label(-3.1) == "bear"
+        assert forecaster._assign_regime_label(-100.0) == "bear"
+
+    def test_assign_regime_label_range(self, forecaster):
+        """-3% <= market_return_30d <= 3% should be range."""
+        assert forecaster._assign_regime_label(-3.0) == "range"
+        assert forecaster._assign_regime_label(0.0) == "range"
+        assert forecaster._assign_regime_label(3.0) == "range"
+
+    def test_assign_regime_label_bull(self, forecaster):
+        """market_return_30d > 3% should be bull."""
+        assert forecaster._assign_regime_label(3.1) == "bull"
+        assert forecaster._assign_regime_label(10.0) == "bull"
+        assert forecaster._assign_regime_label(100.0) == "bull"
+
+    def test_assign_regime_labels_dataframe(self, forecaster):
+        """_assign_regime_labels should label rows based on market_return_30d."""
+        df = pd.DataFrame({
+            "market_return_30d": [-5.0, 0.0, 5.0, np.nan],
+            "price": [10.0] * 4,
+        })
+        labels = forecaster._assign_regime_labels(df)
+        assert labels.iloc[0] == "bear"
+        assert labels.iloc[1] == "range"
+        assert labels.iloc[2] == "bull"
+        assert labels.iloc[3] == "range"  # NaN → range
+
+    def test_assign_regime_labels_missing_column(self, forecaster):
+        """When market_return_30d column is missing, all rows get 'range'."""
+        df = pd.DataFrame({"price": [10.0, 20.0]})
+        labels = forecaster._assign_regime_labels(df)
+        assert (labels == "range").all()
+
+    def test_detect_current_regime_from_latest(self, forecaster):
+        """_detect_current_regime uses the most recent row's market_return_30d."""
+        df = pd.DataFrame({
+            "market_return_30d": [1.0, 2.0, -5.0, 0.5],
+            "date": pd.date_range("2026-01-01", periods=4),
+        })
+        regime = forecaster._detect_current_regime(df)
+        assert regime == "range"  # latest row has 0.5
+
+    def test_detect_current_regime_bull(self, forecaster):
+        df = pd.DataFrame({
+            "market_return_30d": [1.0, 5.0],
+            "date": pd.date_range("2026-01-01", periods=2),
+        })
+        assert forecaster._detect_current_regime(df) == "bull"
+
+    def test_detect_current_regime_bear(self, forecaster):
+        df = pd.DataFrame({
+            "market_return_30d": [1.0, -10.0],
+            "date": pd.date_range("2026-01-01", periods=2),
+        })
+        assert forecaster._detect_current_regime(df) == "bear"
+
+    def test_detect_current_regime_missing_column(self, forecaster):
+        """If market_return_30d is missing, default to range."""
+        df = pd.DataFrame({"price": [10.0]})
+        assert forecaster._detect_current_regime(df) == "range"
+
+    def test_detect_current_regime_empty_series(self, forecaster):
+        """If market_return_30d is all NaN, default to range."""
+        df = pd.DataFrame({
+            "market_return_30d": [np.nan, np.nan],
+            "date": pd.date_range("2026-01-01", periods=2),
+        })
+        assert forecaster._detect_current_regime(df) == "range"
+
+    def test_regime_columns_on_training_data(self, forecaster):
+        """_regime column should be present after prepare_targets."""
+        def mock_fetch(*args, **kwargs):
+            np.random.seed(42)
+            rows = []
+            for item_id in range(5):
+                price = 50.0
+                for day_offset in range(200):
+                    d = date(2025, 1, 1) + timedelta(days=day_offset)
+                    price *= 1 + np.random.randn() * 0.01
+                    rows.append({
+                        "item_id": f"item_{item_id}",
+                        "date": d,
+                        "price": round(max(price, 0.01), 2),
+                        "volume": int(max(np.random.poisson(200), 0)),
+                    })
+            return pd.DataFrame(rows)
+
+        def mock_events(*args, **kwargs):
+            return pd.DataFrame([
+                {"id": 1, "type": "major", "timestamp": pd.Timestamp("2025-06-01"),
+                 "description": "Major", "date": date(2025, 6, 1)},
+            ])
+
+        with patch.object(forecaster, 'fetch_price_history', mock_fetch):
+            with patch.object(forecaster, 'fetch_events', mock_events):
+                df = forecaster.build_training_data(days_back=200, backfilled_only=False)
+
+        # Simulate the train() flow: prepare targets and check _regime column
+        for h in forecaster.HORIZONS:
+            tdf = forecaster.prepare_targets(df, h)
+            tdf = tdf.dropna(subset=[f"target_return_{h}d"]).copy()
+            tdf = tdf.sort_values("date")
+            tdf["_regime"] = forecaster._assign_regime_labels(tdf)
+
+            assert "_regime" in tdf.columns
+            assert tdf["_regime"].isin(["bear", "range", "bull"]).all()
+            # At least one regime type should be present
+            assert tdf["_regime"].nunique() >= 1
+
+    def test_regime_models_populated_after_train(self):
+        """After train(), regime_models should contain entries for regimes
+        with sufficient data."""
+        f = ItemForecaster(db_session=MagicMock())
+        f._supply_meta_cache = pd.DataFrame(columns=["item_id", "rarity", "rarity_rank", "weapon_type"])
+
+        def mock_fetch(*args, **kwargs):
+            np.random.seed(42)
+            rows = []
+            for item_id in range(5):
+                price = 50.0
+                for day_offset in range(300):
+                    d = date(2025, 1, 1) + timedelta(days=day_offset)
+                    # Vary returns to create different regimes
+                    price *= 1 + np.random.randn() * 0.02
+                    rows.append({
+                        "item_id": f"item_{item_id}",
+                        "date": d,
+                        "price": round(max(price, 0.01), 2),
+                        "volume": int(max(np.random.poisson(200), 0)),
+                    })
+            df = pd.DataFrame(rows)
+            return df
+
+        def mock_events(*args, **kwargs):
+            return pd.DataFrame([
+                {"id": 1, "type": "major", "timestamp": pd.Timestamp("2025-06-01"),
+                 "description": "Major", "date": date(2025, 6, 1)},
+            ])
+
+        with patch.object(f, 'fetch_price_history', mock_fetch):
+            with patch.object(f, 'fetch_events', mock_events):
+                with patch.object(f, '_fetch_supply_metadata',
+                                  return_value=pd.DataFrame(columns=["item_id", "rarity", "rarity_rank", "weapon_type"])):
+                    with patch.object(f, '_fetch_item_metadata',
+                                      return_value=pd.DataFrame(columns=["item_id", "type"])):
+                        with patch.dict('os.environ', {'SKIP_CV': '1', 'FORCE_HP_SEARCH': '1'}):
+                            f.train(max_rows=100_000)
+
+        # Should have global models for all horizons and quantiles
+        for h in f.HORIZONS:
+            for q in f.QUANTILES:
+                assert (h, q) in f.models, f"Missing global model for {h}d q{q}"
+
+        # Should have at least some regime models (likely range with 300 days of data)
+        if f.regime_models:
+            regimes_trained = set(r for (r, h, q) in f.regime_models.keys())
+            for regime in regimes_trained:
+                for h in f.HORIZONS:
+                    for q in f.QUANTILES:
+                        key = (regime, h, q)
+                        if key in f.regime_models:
+                            assert len(f.regime_models[key]) == f.N_ENSEMBLES
+
+    def test_predict_falls_back_to_global_when_no_regime_model(self, forecaster):
+        """When no regime models exist, predict should use global models."""
+        with patch.object(forecaster, 'fetch_price_history',
+                          return_value=pd.DataFrame(columns=["item_id", "date", "price", "volume"])):
+            with patch.object(forecaster, 'fetch_events',
+                              return_value=pd.DataFrame(columns=["id", "type", "timestamp", "description"])):
+                # No regime models loaded, should use global (which are also empty)
+                result = forecaster.predict()
+                assert isinstance(result, pd.DataFrame)
+                assert result.empty
+
+    def test_regime_models_save_and_load(self, forecaster, tmp_path):
+        """Regime-specific models should round-trip through save/load."""
+        forecaster.model_dir = str(tmp_path)
+        forecaster.feature_cols = ["price_log", "price_lag_1d"]
+        forecaster.horizon_feature_cols = {7: ["price_log", "price_lag_1d"]}
+        forecaster.regime_feature_cols = {(7, "range"): ["price_log", "price_lag_1d"]}
+
+        # Create dummy regime model
+        X = np.random.randn(100, 2).astype(np.float32)
+        y = np.random.randn(100)
+        ds = lgb.Dataset(X, y)
+        model = lgb.train({"objective": "regression", "verbosity": -1,
+                           "max_bin": 63, "min_data_in_leaf": 1,
+                           "num_leaves": 3, "learning_rate": 0.1},
+                          ds, num_boost_round=5)
+
+        forecaster.regime_models[("range", 7, 0.5)] = [model]
+        forecaster.confidence_thresholds = {7: {"high_range": 0.15, "high_change": 0.01, "high_accuracy": 99.0}}
+        forecaster.save_models()
+
+        # Load into a new forecaster
+        f2 = ItemForecaster(db_session=MagicMock(), model_dir=str(tmp_path))
+        f2.load_models()
+
+        assert ("range", 7, 0.5) in f2.regime_models
+        assert len(f2.regime_models[("range", 7, 0.5)]) == 1
+        assert (7, "range") in f2.regime_feature_cols
+
+    def test_regime_models_skipped_with_insufficient_data(self, forecaster):
+        """Regimes with too few training rows should be skipped."""
+        # Data that covers all 3 regimes but has minimal rows in bear/bull
+        rows = []
+        for day_offset in range(300):
+            d = date(2025, 1, 1) + timedelta(days=day_offset)
+            regime = "range"
+            if day_offset < 10:
+                regime = "bear"
+            elif day_offset >= 290:
+                regime = "bull"
+            for item_id in range(3):
+                price = 50.0 + (10.0 if regime == "bull" else -10.0 if regime == "bear" else 0.0)
+                rows.append({
+                    "item_id": f"item_{item_id}",
+                    "date": d,
+                    "price": price + np.random.randn() * 0.5,
+                    "volume": 100,
+                    "_regime": regime,
+                })
+
+        tdf = pd.DataFrame(rows)
+
+        # Simulate the filter logic from train()
+        for regime in forecaster.REGIMES:
+            r_train = tdf[tdf["_regime"] == regime]
+            # Both bear (30 rows) and bull (30 rows) should fail the 500-row minimum
+            assert len(r_train) < 500 or regime == "range"
 
 

@@ -15,6 +15,10 @@
 | Timing tests | Done | Ran 2026-07-17 — see §2 |
 | Test updates | Done | `test_forecaster.py` — constants + `test_tuned_params_roundtrip` |
 | Changelog | Done | `docs/changelog/2026-07-17-tier-1-training-speedups.md` |
+| Regime-switching models | Done | `forecaster.py` — `_assign_regime_label`, regime training, regime predict, persistence |
+| Regime A/B comparison | Done | `forecast_prices.py` — `--compare-regime` flag |
+| Regime tests | Done | `test_forecaster.py` — 15 tests in `TestRegimeSwitching` |
+| Regime docs | Done | `docs/changelog/2026-07-18-regime-switching.md` |
 
 ## 1. Accuracy validation — PASS ✅
 

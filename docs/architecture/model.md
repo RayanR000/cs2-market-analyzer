@@ -2,24 +2,82 @@
 
 ## Overview
 
-Single `ItemForecaster` containing **36 LightGBM models** for quantile regression:
+Two-layer `ItemForecaster` containing **~252 LightGBM models** — a global ensemble and per-regime ensembles:
+
+### Global models (always available)
 
 ```
-3d horizon:  3 quantiles (p10, p50, p90) × 3 seeds (42, 73, 91)
-7d horizon:  3 quantiles (p10, p50, p90) × 3 seeds (42, 73, 91)
-14d horizon: 3 quantiles (p10, p50, p90) × 3 seeds (42, 73, 91)
-30d horizon: 3 quantiles (p10, p50, p90) × 3 seeds (42, 73, 91)
+3d horizon:  3 quantiles (p10, p50, p90) × 6 ensemble members
+7d horizon:  3 quantiles (p10, p50, p90) × 6 ensemble members
+14d horizon: 3 quantiles (p10, p50, p90) × 6 ensemble members
+30d horizon: 3 quantiles (p10, p50, p90) × 6 ensemble members
 ```
 
-Predictions are averaged across seeds per quantile. p10/p90 provide the interval, p50 is the point prediction.
+72 total. Predictions averaged across ensemble members per quantile. p10/p90 provide the interval, p50 is the point prediction.
 
-**Model version:** `lgbm-v3` (since 2026-07-16; was `lgbm-v2`) — 9-ensemble, 1460d window, 20 HP trials, forecast blending
-**Last trained:** 2026-07-13 (full retrain)
-**Files:** 36 `lgb_*.txt` + `meta.json` in `backend/models/saved_models/`
+### Regime-specific models (trained per regime)
+
+Separate ensembles for each detectable market regime (bear / range / bull), each with the same 72-model structure. Trained alongside global models when data volume permits. At prediction time, the current regime is detected and regime-specific models are preferred.
+
+| Regime | Detection | Typical status |
+|--------|-----------|----------------|
+| bear | `market_return_30d < -3%` | Trained for 7d/14d, skipped for 3d/30d (insufficient val data) |
+| range | `-3% ≤ return_30d ≤ 3%` | Fully trained |
+| bull | `return_30d > 3%` | Fully trained |
+
+**Model version:** `lgbm-v3-regime` (regime-enabled) / `lgbm-v3-global-only` (A/B comparison)
+**Files:** `lgb_{horizon}d_q{q}_e{ei}.txt` (global) + `lgb_{horizon}d_q{q}_{regime}_e{ei}.txt` (regime) + `meta.json` in `backend/models/saved_models/`
 
 ---
 
-## Feature Engineering (~116 features)
+## Regime-Switching
+
+### Motivation
+
+Market regimes (bear/range/bull) have fundamentally different price dynamics. A single global model must average across all regimes, diluting signal in each. Separate per-regime models capture regime-specific patterns (e.g., mean-reversion in ranges, momentum in bulls).
+
+### Training
+
+In `train()`, after global models complete:
+
+1. **Label assignment:** `_assign_regime_label()` tags each row by `market_return_30d` → bear/range/bull
+2. **Per-regime training:** `_assign_regime_labels()` groups data by regime, calls `_train_horizon_ensemble()` with regime-specific subset
+3. **Skip threshold:** regime skipped if <500 train or <50 val rows (bear often skipped for short horizons)
+4. **Hyperparameters:** reuse global `tuned_params` (no separate Optuna per regime)
+5. **Storage:** regime models saved to `self.regime_models[(regime, horizon, q)]` — parallel to `self.models[(horizon, q)]`
+
+### Prediction
+
+`predict()` detects current regime once via `_detect_current_regime()`:
+
+```python
+regime = _detect_current_regime(feature_row)
+#     ^— "bear", "range", or "bull"
+```
+
+For each `(horizon, q)`:
+- If `regime_models.get((regime, horizon, q))` exists → use it
+- Otherwise → fall back to `models[(horizon, q)]`
+
+Logs per-horizon usage ratio after prediction.
+
+### Persistence
+
+- Regime model filenames: `lgb_{horizon}d_q{q}_{regime}_e{ei}.txt`
+- `meta.json` fields:
+  - `trained_regimes`: list of regimes that have models saved
+  - `regime_feature_cols`: feature columns per regime ensemble
+
+### Training time impact
+
+On the initial run (Mac, 400K rows, SKIP_CV):
+- Global-only: ~30 min (53 min - 23 min regime overhead)
+- Regime (range + bull, bear partial): +23 min
+- Total: **53 min** for all 4 horizons
+
+Speed concern is mitigated by the Monday retrain schedule + weekday predict-only pattern.
+
+---
 
 ### Price Features
 Lags (1/3/7/14/30/60d), returns (winsorized ±500%), rolling stats (7/14/20/30/60d windows), log returns, autocorrelation proxies, price acceleration.
@@ -80,8 +138,8 @@ Confidence calibration uses pooled out-of-fold predictions across all folds. Add
 1460 days of backfilled data from Parquet archive. Changed from 365d→730d (Jul 2026) then 730d→1460d (2026-07-16) to improve long-horizon signal. Row count bounded by a pre-feature-engineering item-stratified subsample (max 700K rows).
 
 ### Retrain Schedule
-- Full retrain: Monday (Optuna + 108 ensemble models: 4 horizons × 3 quantiles × 9 seeds)
-- Predict-only: Tue-Sun (load saved models)
+- Full retrain Monday: Optuna + 72 global ensemble models + ~180 regime ensemble models (~53 min total on Mac with SKIP_CV)
+- Predict-only Tue-Sun: load saved models (global + regime both loaded)
 - Drift-triggered: auto-retrain if directional accuracy drops below 60% on 7-day sliding window
 
 ### Parameters
@@ -100,12 +158,15 @@ Confidence calibration uses pooled out-of-fold predictions across all folds. Add
 | `lambda_l1` | 0.5 |
 | `lambda_l2` | 0.5 |
 
-### Training Time (M4)
-~30 min full retrain (~17 min Optuna + CV + ensemble).
+### Training Time (Mac)
+~53 min full retrain with regime models (~30 min global + ~23 min regime). ~17–20 min of Optuna on cold start. With SKIP_CV+HP reuse: ~30 min global + ~23 min regime.
 
 ---
 
 ## Prediction
+
+### Regime detection
+Current market regime detected from global `market_return_30d` mean before per-item prediction. If regime models exist for the detected regime, they are preferred over global models. Usage ratio logged per run.
 
 ### Eligibility
 ≥14 days of price history in Parquet archive. Filtered to items with STEAMCOMMUNITY backfill data (~5,542 items).
@@ -120,7 +181,7 @@ When p10 > p50 or p90 < p50: impute average interval half-width from well-behave
 NaN/INF/negative forecast prices → clamped to `current_price` with `flat` direction and `low` confidence. High confidence downgraded for zero-volume items.
 
 ### Confidence
-Binary: `high` or `low`. Threshold-calibrated per horizon from CV out-of-fold predictions. Targets ≥80% directional accuracy within high-confidence bucket with minimum 5% coverage.
+Binary: `high` or `low`. Threshold-calibrated per horizon from holdout predictions. Targets ≥80% directional accuracy within high-confidence bucket with minimum 5% coverage.
 
 ---
 
@@ -215,6 +276,7 @@ All three issues were fixed in the 2026-07-17 changelog. Full details in `docs/c
 | Recency mismatch fix (365d → 365d aligned) | Jul 2026 | Medium |
 | 60d rolling features + 730d training window | 2026-07-12 | Medium |
 | Concept drift monitoring | Jul 2026 | Medium |
+| **Regime-switching models** (bear/range/bull per horizon) | **2026-07-18** | **High** — captures regime-specific price dynamics |
 | Prediction sanity checks (clamp, zero-volume) | 2026-07-12 | Low |
 | 41 unit tests for forecaster | 2026-07-12 | Foundation |
 | **Dead item filter** (remove $0.03 floor items) | 2026-07-17 | High — +2-5pp estimated, 41% less training noise |
@@ -234,13 +296,13 @@ All three issues were fixed in the 2026-07-17 changelog. Full details in `docs/c
 
 | File | Lines | Role |
 |------|-------|------|
-| `backend/models/forecaster.py` | 2,012 | Core ML: ItemForecaster class, feature engineering, training, predict |
+| `backend/models/forecaster.py` | ~2,250 | Core ML: ItemForecaster class, feature engineering, training, predict, regime-switching |
 | `backend/models/steam_types.py` | 130 | Steam type field parser (rarity + weapon_type extraction) |
-| `backend/scripts/forecast_prices.py` | 193 | Entry point: train + predict pipeline |
+| `backend/scripts/forecast_prices.py` | 283 | Entry point: train + predict pipeline, `--compare-regime` A/B mode |
 | `backend/scripts/evaluate_forecaster.py` | 366 | Walk-forward accuracy evaluation |
-| `backend/scripts/backtest_accuracy.py` | 360 | Mature forecast backtesting |
+| `backend/scripts/backtest_accuracy.py` | 399 | Mature forecast backtesting |
 | `backend/scripts/backfill_supply_metadata.py` | — | Backfill supply metadata from catalog → Parquet + DB |
 | `backend/scripts/ab_test_supply_side.py` | — | A/B test: with vs without supply-side features (archived) |
 | `backend/scripts/ab_test_player_counts.py` | — | A/B test: with vs without player count features (archived) |
-| `backend/tests/test_forecaster.py` | — | 46 unit tests |
+| `backend/tests/test_forecaster.py` | 1,118 | 69 unit tests (54 global + 15 regime-switching) |
 | `price-archive/item-metadata.parquet` | 8,691 rows | Supply metadata cache (rarity, weapon_type per item) |

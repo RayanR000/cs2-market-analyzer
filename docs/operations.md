@@ -77,8 +77,9 @@ git log origin/data-archive --oneline -5
 ### Healthy state
 
 - Aggregator runs once daily at ~23:00 UTC, ~5,525 items, ~60s
-- Forecast chains off aggregator automatically, ~2-5 min (predict-only) or ~15 min (Monday retrain)
+- Forecast chains off aggregator automatically, ~2-5 min (predict-only) or ~53 min (Monday retrain with regime models)
 - Backtest chains off forecast automatically, ~1-2 min
+- A/B regime comparison: `python scripts/forecast_prices.py --compare-regime` (writes `lgbm-v3-regime` + `lgbm-v3-global-only` forecasts, runs backtest)
 - All tables (`item_forecasts`, `prediction_accuracy`, etc.) stay bounded by UPSERT
 - `chart_points` never pruned — bounded at ~4M rows (one close per item per day)
 - Parquet archive on `data-archive` grows by ~300 KB/day
@@ -128,6 +129,9 @@ python scripts/forecast_prices.py --predict-only
 
 # Forecast (full retrain)
 python scripts/forecast_prices.py
+
+# Forecast (regime A/B comparison)
+python scripts/forecast_prices.py --compare-regime
 
 # Backtest forecast accuracy
 python scripts/backtest_accuracy.py --type forecast

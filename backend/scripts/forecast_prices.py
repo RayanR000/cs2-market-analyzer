@@ -8,6 +8,7 @@ Usage:
     python scripts/forecast_prices.py          # train + predict
     python scripts/forecast_prices.py --predict-only  # use saved models (auto-retrain on drift)
     python scripts/forecast_prices.py --train-only     # train models only, skip forecasts
+    python scripts/forecast_prices.py --compare-regime # A/B test regime vs global-only + backtest
 """
 
 import sys
@@ -68,7 +69,62 @@ def _drift_detected(forecaster) -> bool:
     return False
 
 
-def run_forecast(train_only: bool = False, predict_only: bool = False):
+def _write_forecasts_to_db(db, results, model_version, slug_to_id, today):
+    """Write forecast results to the item_forecasts table. Returns count."""
+    forecast_rows = []
+    for _, row in results.iterrows():
+        slug = str(row["item_id"])
+        item_id = slug_to_id.get(slug)
+        if item_id is None:
+            logger.warning(f"  Skipping unknown slug: {slug}")
+            continue
+        current_price = row.get("current_price")
+        forecasts = row.get("forecasts", {})
+
+        for horizon, fcast in forecasts.items():
+            forecast_rows.append({
+                "item_id": item_id,
+                "forecast_date": today,
+                "horizon_days": horizon,
+                "price_low": fcast.get("low"),
+                "price_mid": fcast.get("mid"),
+                "price_high": fcast.get("high"),
+                "current_price": current_price,
+                "direction": fcast.get("direction"),
+                "confidence": fcast.get("confidence"),
+                "model_version": model_version,
+                "created_at": datetime.now(timezone.utc).replace(tzinfo=None),
+            })
+
+    if forecast_rows:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        bind = db.get_bind()
+        is_sqlite = bind is not None and bind.dialect.name == "sqlite"
+        insert_stmt = sqlite_insert if is_sqlite else pg_insert
+        table = ItemForecast.__table__
+        batch_size = 90 if is_sqlite else 5000
+        for i in range(0, len(forecast_rows), batch_size):
+            batch = forecast_rows[i:i + batch_size]
+            stmt = insert_stmt(table).values(batch)
+            excluded = stmt.excluded
+            update_cols = {
+                col.name: getattr(excluded, col.name)
+                for col in table.columns
+                if col.name not in {"id", "item_id", "forecast_date", "horizon_days", "created_at"}
+            }
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["item_id", "forecast_date", "horizon_days"],
+                set_=update_cols,
+            )
+            db.execute(stmt)
+            db.commit()
+
+    return len(forecast_rows)
+
+
+def run_forecast(train_only: bool = False, predict_only: bool = False,
+                 compare_regime: bool = False):
     db = SessionLocal()
     try:
         forecaster = ItemForecaster(db_session=db)
@@ -77,11 +133,6 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
         force_retrain = os.environ.get("FORCE_RETRAIN") == "1"
         retrain_interval = int(os.environ.get("RETRAIN_INTERVAL_DAYS", "14"))
 
-        # Decide whether a (re)train is actually needed.
-        #   --train-only: always train (explicit user action).
-        #   full mode (e.g. Monday): train only if no model, forced, the model
-        #     is stale (>= RETRAIN_INTERVAL_DAYS old), or drift was detected.
-        #   predict-only: train only if drift is detected (existing behavior).
         do_train = False
         if train_only:
             do_train = True
@@ -125,13 +176,11 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
                 logger.info("Saved models found, retraining...")
             forecaster.train(max_rows=700_000)
             has_models = True
-            # Training can take a while and Supabase may drop idle connections.
-            # Refresh the DB session before prediction.
             logger.info("Refreshing DB connection after training...")
             try:
                 db.close()
             except Exception:
-                pass  # stale connection, discard silently
+                pass
             db = SessionLocal()
             forecaster.db = db
 
@@ -143,89 +192,71 @@ def run_forecast(train_only: bool = False, predict_only: bool = False):
             logger.error("No models available for prediction.")
             return {"status": "error", "message": "No trained models"}
 
-        results = forecaster.predict()
-
-        if results.empty:
-            logger.warning("No forecast results generated.")
-            return {"status": "empty", "forecast_count": 0}
-
-        # Map item slugs (strings from Parquet) to integer IDs from the DB.
-        # Parquet uses items.item_id (the stable hash name) as the slug key.
+        # Map item slugs to integer IDs
         slug_rows = db.execute(
             text("SELECT id, item_id FROM items WHERE is_backfilled = 1")
         ).fetchall()
         slug_to_id = {r.item_id: r.id for r in slug_rows}
-        logger.info(f"Loaded {len(slug_to_id)} slug→ID mappings from DB")
-
-        # Write forecasts to DB
+        logger.info(f"Loaded {len(slug_to_id)} slug->ID mappings from DB")
         override = os.environ.get("FORECAST_DATE_OVERRIDE")
         today = date.fromisoformat(override) if override else date.today()
-        forecast_rows = []
-        for _, row in results.iterrows():
-            slug = str(row["item_id"])
-            item_id = slug_to_id.get(slug)
-            if item_id is None:
-                logger.warning(f"  Skipping unknown slug: {slug}")
-                continue
-            current_price = row.get("current_price")
-            forecasts = row.get("forecasts", {})
 
-            for horizon, fcast in forecasts.items():
-                forecast_rows.append({
-                    "item_id": item_id,
-                    "forecast_date": today,
-                    "horizon_days": horizon,
-                    "price_low": fcast.get("low"),
-                    "price_mid": fcast.get("mid"),
-                    "price_high": fcast.get("high"),
-                    "current_price": current_price,
-                    "direction": fcast.get("direction"),
-                    "confidence": fcast.get("confidence"),
-                    "model_version": MODEL_VERSION,
-                    "created_at": datetime.now(timezone.utc).replace(tzinfo=None),
-                })
+        # Run A: prediction WITH regime-switching
+        results = forecaster.predict()
+        if results.empty:
+            logger.warning("No forecast results generated.")
+            return {"status": "empty", "forecast_count": 0}
 
-        # Bulk upsert in batches
-        if forecast_rows:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        version_regime = f"{MODEL_VERSION}-regime"
+        n_regime = _write_forecasts_to_db(db, results, version_regime, slug_to_id, today)
+        logger.info(f"Wrote {n_regime} forecasts (regime mode) to item_forecasts table")
 
-            bind = db.get_bind()
-            dialect_name = bind.dialect.name if bind is not None else "sqlite"
-            insert_stmt = sqlite_insert if dialect_name == "sqlite" else pg_insert
-            table = ItemForecast.__table__
+        # Run B: prediction WITHOUT regime-switching (A/B comparison)
+        if compare_regime:
+            logger.info("=" * 60)
+            logger.info("COMPARISON MODE: re-running with regime models disabled")
+            logger.info("=" * 60)
+            n_cleared = sum(len(v) for v in forecaster.regime_models.values())
+            forecaster.regime_models.clear()
+            logger.info(f"  Cleared {n_cleared} regime model groups")
 
-            # SQLite has a default limit of 999 variables per query
-            # (~90 rows with 11 columns). PostgreSQL handles 5000+.
-            bind = db.get_bind()
-            is_sqlite = bind is not None and bind.dialect.name == "sqlite"
-            batch_size = 90 if is_sqlite else 5000
-            for i in range(0, len(forecast_rows), batch_size):
-                batch = forecast_rows[i:i + batch_size]
-                stmt = insert_stmt(table).values(batch)
-                excluded = stmt.excluded
-                update_cols = {
-                    col.name: getattr(excluded, col.name)
-                    for col in table.columns
-                    if col.name not in {"id", "item_id", "forecast_date", "horizon_days", "created_at"}
-                }
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["item_id", "forecast_date", "horizon_days"],
-                    set_=update_cols,
-                )
-                db.execute(stmt)
-                db.commit()
+            results_global = forecaster.predict()
+            version_global = f"{MODEL_VERSION}-global-only"
+            n_global = _write_forecasts_to_db(db, results_global, version_global, slug_to_id, today)
+            logger.info(f"Wrote {n_global} forecasts (global-only mode) to item_forecasts table")
 
-        logger.info(f"✅ Wrote {len(forecast_rows)} forecasts to item_forecasts table")
+            # Run backtest on both model versions
+            logger.info("=" * 60)
+            logger.info("Running backtest on both model versions...")
+            logger.info("=" * 60)
+            try:
+                from scripts.backtest_accuracy import backtest_forecasts
+                bt_results = backtest_forecasts(db, today)
+                logger.info(f"Backtest complete: {len(bt_results or [])} accuracy records")
+            except Exception as e:
+                logger.error(f"Backtest failed: {e}", exc_info=True)
+                bt_results = []
+
+            return {
+                "status": "success",
+                "items_regime": len(results),
+                "forecasts_regime": n_regime,
+                "items_global": len(results_global),
+                "forecasts_global": n_global,
+                "backtest_records": len(bt_results or []),
+                "model_version_regime": version_regime,
+                "model_version_global": version_global,
+            }
+
         return {
             "status": "success",
             "items": len(results),
-            "forecasts": len(forecast_rows),
-            "model_version": MODEL_VERSION,
+            "forecasts": n_regime,
+            "model_version": version_regime,
         }
 
     except Exception as e:
-        logger.error(f"❌ Forecast failed: {e}", exc_info=True)
+        logger.error(f"Forecast failed: {e}", exc_info=True)
         db.rollback()
         return {"status": "error", "message": str(e)}
 
@@ -240,8 +271,10 @@ def main():
     args = set(sys.argv[1:])
     train_only = "--train-only" in args
     predict_only = "--predict-only" in args
+    compare_regime = "--compare-regime" in args
 
-    result = run_forecast(train_only=train_only, predict_only=predict_only)
+    result = run_forecast(train_only=train_only, predict_only=predict_only,
+                          compare_regime=compare_regime)
     print(f"RESULT: {result}")
     return 0 if result.get("status") == "success" else 1
 
