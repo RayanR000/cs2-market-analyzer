@@ -10,7 +10,15 @@
         "task": {
           "review": "allow",
           "test": "allow",
-          "security": "allow"
+          "security": "allow",
+          "data": "allow"
+        }
+      }
+    },
+    "plan": {
+      "permission": {
+        "task": {
+          "data": "allow"
         }
       }
     }

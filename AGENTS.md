@@ -61,4 +61,6 @@ price-archive/      — Parquet price data (13 years)
 2. Frontend changes: run `npm run lint` and `npm run build` before marking done.
 3. When adding API routes, also update `frontend/lib/api.ts` with the typed fetch function.
 4. Keep `frontend/AGENTS.md` in sync if design tokens or API surface changes.
-5. The `@review` subagent can check changes automatically — invoke it after significant work.
+5. The `@review` subagent can check changes automatically — invoke it after significant work. The chain plugin (`.opencode/plugins/chain.js`) auto-triggers review → test → security after build edits; a 5-min cooldown prevents loops.
+6. Use `@data` for DuckDB/Parquet queries on the `price-archive/`. It knows the Parquet schemas, common DuckDB patterns, and schema gotchas (VARCHAR pricing columns, missing source in older files).
+7. When adding agents, update both `opencode.json` task permissions and this file.
