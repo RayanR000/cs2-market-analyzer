@@ -137,11 +137,14 @@ def _store_forecast_outcomes(db, outcomes):
         return
     from database import ForecastOutcome
 
-    existing_ids = {
-        r[0] for r in db.query(ForecastOutcome.forecast_id)
-        .filter(ForecastOutcome.forecast_id.in_([o["forecast_id"] for o in outcomes]))
-        .all()
-    }
+    all_fids = [o["forecast_id"] for o in outcomes]
+    existing_ids = set()
+    for i in range(0, len(all_fids), 900):
+        batch = all_fids[i:i+900]
+        rows = db.query(ForecastOutcome.forecast_id).filter(
+            ForecastOutcome.forecast_id.in_(batch)
+        ).all()
+        existing_ids.update(r[0] for r in rows)
 
     to_insert = []
     to_update = []
@@ -269,10 +272,11 @@ def backtest_forecasts(db, today=None):
             confidence_buckets[conf]["total"] += 1
 
             # Record per-forecast outcome
+            fcast_date = f.forecast_date if isinstance(f.forecast_date, date) else date.fromisoformat(str(f.forecast_date)[:10])
             all_outcomes.append({
                 "forecast_id": f.id,
                 "item_id": f.item_id,
-                "forecast_date": f.forecast_date,
+                "forecast_date": fcast_date,
                 "horizon_days": horizon,
                 "target_date": target_date,
                 "current_price": current,
