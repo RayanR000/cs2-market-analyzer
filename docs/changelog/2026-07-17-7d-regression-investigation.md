@@ -2,6 +2,9 @@
 
 **Date:** 2026-07-17
 
+> ✅ **RESOLVED (2026-07-17).** Guard fix verified, retrain complete, models deployed as
+> `lgbm-v3` (corrected). See `docs/changelog/2026-07-17-distribution-shift-guard-fix.md`.
+
 **Context:** A retrain was run after pulling in the dead-item-filter / corrupt-item-flagging /
 target-winsorization / sample-weighting / 2026 shift-guard fixes (`b23f5d9`, merged via
 `8fa9699`). The models on disk (`backend/models/saved_models/`, last committed in `0dead22`)
@@ -63,9 +66,9 @@ Shuffling features *appeared* to improve 7d accuracy, so the auto-prune dropped 
 down to the 4-feature safety net (`price_log`, `price_std_7d`, `price_lag_1d`,
 `price_lag_3d`), collapsing the 7d model and causing the −9.1pp regression.
 
-## Why the guard fails (NOT yet confirmed)
+## Why the guard failed
 
-The guard code (`forecaster.py:1359-1367`) is:
+The original guard code (`forecaster.py:1359-1367`, before `56ff0b7`) was:
 
 ```python
 if "date" in price_df.columns:
@@ -77,30 +80,32 @@ if "date" in price_df.columns:
         logger.info(f"  Excluded {n_2026:,} incomplete 2026 rows ...")
 ```
 
-Hypotheses (unverified — diagnostic was interrupted before the fetch→filter→subsample
-2026 check completed):
-1. `price_df["date"]` dtype after `_stratified_item_subsample` may not support `.dt.year`
-   (string vs timestamp), so the `== 2026` mask is empty and nothing is excluded.
-2. The guard runs *after* the subsample; if the subsample's 590 items happen to carry
-   2026 rows, those persist into feature engineering.
-3. The `dt.year == 2026` comparison silently no-ops on a non-datetime column.
+Two bugs:
+1. **`month < 6` check**: In July 2026 (month 7), `dates_2026.max().month` is ≥ 6, so the
+   guard is skipped entirely. All 1.9M 2026 rows survive into training.
+2. **Position**: The guard ran *after* `_stratified_item_subsample`, wasting the row budget
+   on data that should have been excluded.
 
-Need to re-run the aborted diagnostic to confirm which of these is the actual failure.
+## Validation-set floor fix
 
-## Secondary issue: validation-set floor too low
+The validation-set fallback threshold `val_set < 100` was raised to `val_set < 2000`
+or `< 7 distinct dates`. Feature-group validation is now skipped entirely when below
+this threshold, preventing false-positive pruning from noisy permutation tests.
 
-`forecaster.py:1483` only falls back to a percentage split when `len(val_set) < 100`.
-Even the healthy 3d window (2,474 rows / 5 dates) is small for reliable permutation
-testing. A higher floor (e.g. ≥ 2,000) and/or a percentage-based holdout would make the
-prune decision robust regardless of calendar sparsity.
+## Resolution
 
-## Not fixed yet — next steps
+The guard was rewritten in `56ff0b7` to:
+- Run **before** the stratified subsample (row budget preserved for valid data)
+- Remove all 2026 data unconditionally (no `month < 6` check)
 
-1. Confirm why the 2026 guard doesn't exclude 2026 rows (finish the interrupted diagnostic:
-   `fetch_price_history` → `_filter_dead_items` → `_stratified_item_subsample` → inspect
-   `pd.to_datetime(price_df["date"]).dt.year == 2026`).
-2. Fix the guard so 2026 data is actually dropped (data ends 2026-03-29, incomplete).
-3. Raise the `val_set < 100` fallback threshold and/or switch to a percentage-based split.
-4. Re-run the retrain (guard fix alone should move the 7d val window back into complete
-   2025 data, giving a proper multi-date validation set and preventing the safety-net
-   collapse) and re-backtest.
+A retrain with the fixed guard completed in 811s (13.5 min) and models were saved as
+`lgbm-v3` (corrected). Accuracy after fix:
+
+| Horizon | Post-fix | Notes |
+|---------|:--------:|-------|
+| 3d  | **58.15%** | Slight regression (-2.5pp vs original baseline); expected from removing 1.9M noisy rows |
+| 7d  | **57.41%** | Recovered from 53.0% collapse; 20-feature model (events-focused) vs prior 4-feature safety net |
+| 14d | **55.08%** | +1.7pp; stable improvement from cleaner training data |
+| 30d | **55.15%** | **+12.7pp**; above random for the first time on clean data |
+
+See `docs/changelog/2026-07-17-distribution-shift-guard-fix.md` for full details.
