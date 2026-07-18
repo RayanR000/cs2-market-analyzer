@@ -11,7 +11,7 @@
 
 ## Part 1 — Training window fix
 
-Fixes the bug documented in `docs/2026-07-16-training-window-audit.md`: the
+Fixes the bug documented in `2026-07-16-training-window-audit.md`: the
 post-feature-engineering `train_set.tail(max_rows)` cap kept only the most
 recent ~51 calendar days (dropping 93% of voted rows) as the archive grew.
 This silently disabled expanding-window CV (needs `CV_MIN_TRAIN_DAYS=200`

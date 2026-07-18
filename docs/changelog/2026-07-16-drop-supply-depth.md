@@ -35,7 +35,7 @@ in the accuracy backlog (`docs/research/accuracy-opportunities.md` #6).
   to **Dropped**; regime-switching models is now the top remaining item. §1 carries a
   DECISION note and the trade-volume/supply-depth distinction warning.
 - `docs/research/feature-engineering.md`: Phase 4 (supply/liquidity) marked Dropped.
-- `docs/2026-07-14-remaining-accuracy-improvements.md`: recommendation #6 marked Dropped.
+- `../research/2026-07-14-remaining-accuracy-improvements.md`: recommendation #6 marked Dropped.
 - `docs/changelog/2026-07-16-multi-source-outlier-voting.md`: top-ROI note updated.
 - `docs/references/data-sources.md`: supply scraper marked "output unused".
 - Realistic cumulative ceiling for remaining work is **unchanged: +5-8pp**

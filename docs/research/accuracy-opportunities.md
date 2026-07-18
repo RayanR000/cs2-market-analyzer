@@ -10,7 +10,7 @@ Date: 2026-07-14
 - **Feature categories**: Price technicals (lags, rolling stats, Bollinger, RSI, MACD, support/resistance, volume), temporal (cyclic time features), events (5 types with exponential decay), cross-sectional (market returns, regime flags)
 - **Drift threshold**: 60% directional accuracy on 7-day sliding window
 - **Confidence calibration**: 80% target accuracy, min 5% coverage
-- **Training data**: 1460 days backfilled from Parquet archive (2013-2026). Row count is bounded by a pre-feature-engineering item-stratified subsample (`max_feature_rows=700K`) that preserves the full 1460-day calendar window; a post-split safety cap (`max_rows`, default 700K) samples randomly rather than truncating recent data. (Previously a `tail(200K)` cap silently truncated training to ~51 days — fixed 2026-07-16, see `docs/2026-07-16-training-window-audit.md`. Window expanded 730d→1460d 2026-07-16, see `docs/changelog/2026-07-16-quick-postprocessing-wins.md`.)
+- **Training data**: 1460 days backfilled from Parquet archive (2013-2026). Row count is bounded by a pre-feature-engineering item-stratified subsample (`max_feature_rows=700K`) that preserves the full 1460-day calendar window; a post-split safety cap (`max_rows`, default 700K) samples randomly rather than truncating recent data. (Previously a `tail(200K)` cap silently truncated training to ~51 days — fixed 2026-07-16, see `../changelog/2026-07-16-training-window-audit.md`. Window expanded 730d→1460d 2026-07-16, see `docs/changelog/2026-07-16-quick-postprocessing-wins.md`.)
 - **Retrain schedule**: Full retrain Mondays, predict other days, auto-retrain on drift
 
 ---
@@ -105,7 +105,7 @@ Date: 2026-07-14
 2. **✅ Completed: Player count** — **Removed**. +3.0pp A/B but **0pp** causal (extra model capacity inflation). Permutation test: shuffled = real to within 0.03pp.
 3. **✅ Completed: Event decay optimization** — **0pp**. Coordinate-wise tau grid search found defaults were already optimal. Walk-forward A/B: "optimal" taus degraded by -0.57pp.
 4. **✅ Completed: Auto-prune (permutation-based feature validation)** — prevents overfit by removing feature groups that fail permutation test.
-5. **✅ Completed: Multi-source outlier voting** — **0pp on training, essential for inference**. 99.6% of training data is single-source STEAMCOMMUNITY backfill; voting only affects 0.4% of rows. At inference, 96.4% of items see >0.5% price correction on current_price. See `docs/2026-07-14-remaining-accuracy-improvements.md` for full analysis.
+5. **✅ Completed: Multi-source outlier voting** — **0pp on training, essential for inference**. 99.6% of training data is single-source STEAMCOMMUNITY backfill; voting only affects 0.4% of rows. At inference, 96.4% of items see >0.5% price correction on current_price. See `2026-07-14-remaining-accuracy-improvements.md` for full analysis.
 ### Dropped
 - 🛑 **Supply depth (active `sell_listings` count)** — **DROPPED (2026-07-16).** Was the top remaining ROI. Dropped because: only the *change/velocity* variant is directionally predictive (the level is a liquidity signal, not a forecast); change features need 30+ days of `supply_snapshots` history or a paid backfill; the only free source is a ~115 min/day Steam scrape (too slow) and no free bulk listing-count source exists; paid APIs were rejected. Expected lift was only ~+1-2pp. Full rationale in the §1 DECISION note.
 

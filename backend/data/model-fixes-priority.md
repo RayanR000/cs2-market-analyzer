@@ -67,7 +67,7 @@ A model collapsing from 39 → 4 features should be a red flag, not accepted sil
 ### 5. More Optuna trials on cold retrains
 - **File:** `backend/models/forecaster.py` (`_optuna_search_params` ~1089)
 - **Change:** 20 → 50 trials. HP results are cached, so this only costs time on the Monday cold run.
-- **Expected impact:** +0.5–1pp (per `docs/2026-07-14-remaining-accuracy-improvements.md`).
+- **Expected impact:** +0.5–1pp (per `docs/research/2026-07-14-remaining-accuracy-improvements.md`).
 
 ---
 

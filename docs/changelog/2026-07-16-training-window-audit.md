@@ -1,7 +1,7 @@
 # Training Window Audit — 2026-07-16
 
 > ✅ **RESOLVED (2026-07-16).** All proposed fixes implemented. See
-> `docs/changelog/2026-07-16-training-window-fix-and-speedups.md`. The
+> `2026-07-16-training-window-fix-and-speedups.md`. The
 > `train_set.tail()` truncation was replaced with a pre-feature-engineering
 > stratified subsample (`_stratified_item_subsample`) that preserves the full
 > 730-day window, `predict()` was reconciled to 730d, regression tests were
@@ -136,4 +136,4 @@ The subsample should preserve per-item time-series continuity for lag/rolling fe
 | `backend/models/forecaster.py` | 1010-1020, 1581-1599 | `_compute_cv_splits()`, `_cv_evaluate_horizon()` |
 | `backend/scripts/forecast_prices.py` | 34-88 | `run_forecast()` orchestrates train/predict |
 | `.github/workflows/price-forecast.yml` | 35, 72-76, 80-98 | 120-min timeout, Monday full-retrain mode, invocation |
-| `docs/changelog/2026-07-11-backfilled-item-training.md` | — | Historical description of the 730-day / backfilled-only design |
+| `2026-07-11-backfilled-item-training.md` | — | Historical description of the 730-day / backfilled-only design |

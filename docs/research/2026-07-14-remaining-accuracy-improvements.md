@@ -12,9 +12,9 @@ Below are the remaining opportunities, grouped by estimated impact and effort.
 
 ### 1. Player count feature ✅
 
-**Status:** Implemented and backfilled. See `docs/2026-07-15-player-count-backfill-and-ab-test.md`.
+**Status:** Implemented and backfilled. Removed from forecaster (zero causal signal per permutation test).
 
-**Actual impact:** **Zero** — permutation test showed the +3pp A/B delta was spurious (extra model capacity, not causal signal). See `docs/2026-07-15-player-count-backfill-and-ab-test.md#permutation-test-causality-check`.
+**Actual impact:** **Zero** — permutation test showed the +3pp A/B delta was spurious (extra model capacity, not causal signal).
 
 **Key files:**
 - `scripts/backfill_player_counts_to_parquet.py` — historical DB → Parquet
@@ -28,7 +28,7 @@ Below are the remaining opportunities, grouped by estimated impact and effort.
 
 ### 2. Supply-side features (rarity, weapon_type, weapon-type cross-sectional) ✅
 
-**Status:** Implemented and A/B tested. See `docs/changelog/2026-07-15-supply-side-features.md`.
+**Status:** Implemented and A/B tested. See `../changelog/2026-07-15-supply-side-features.md`.
 
 **Actual impact:** **+0.66pp avg** directional accuracy (3d: +1.92pp, 7d: -0.16pp, 14d: +0.79pp, 30d: +0.08pp). Below the 3-6pp estimate because existing features already capture much of the signal. Impact concentrated at short horizons.
 
@@ -173,7 +173,7 @@ Replace the ad-hoc quantile monotonicity fix (`np.minimum(p10, p50)`, `np.maximu
 **Effort:** Medium (new calibration logic, integration with existing pipeline)
 **Impact:** Better calibrated intervals (not necessarily higher directional accuracy)
 
-**Already documented in:** `docs/2026-07-11-accuracy-improvement-brainstorm.md` (Item #12)
+**Already documented in:** accuracy-improvement-brainstorm.md (Item #12)
 
 **Costs:** Negligible — calibration runs once per training, adds milliseconds to inference.
 
@@ -200,7 +200,7 @@ Currently training on 730 days of data. The parquet archive has data back to 201
 
 ### 10. Optuna trial count increase
 
-Currently **8** Optuna trials per quantile per horizon (reduced from 15 on 2026-07-16 for training speed at ~0pp accuracy cost — see `docs/changelog/2026-07-16-training-window-fix-and-speedups.md`). Increasing to 30-50 trials would find better hyperparameters, especially for the larger search space.
+Currently **8** Optuna trials per quantile per horizon (reduced from 15 on 2026-07-16 for training speed at ~0pp accuracy cost — see `../changelog/2026-07-16-training-window-fix-and-speedups.md`). Increasing to 30-50 trials would find better hyperparameters, especially for the larger search space.
 
 **Effort:** Trivial (parameter change)
 **Impact estimate:** +0.5-1pp (diminishing returns)
@@ -246,9 +246,9 @@ Training time is roughly linear in feature count, row count, and model count. Pa
 | 9 | Quality spreads (cross-wear) | Medium | +2-4pp | **+1-2pp** | +1-2% | Pending |
 | 10 | Sub-models (per-category) | High | +2-5pp | **+1-3pp** | +500% | Pending |
 | 11 | Conformal prediction | Medium | Intervals only | Intervals only | Negligible | Pending |
-| 12 | More training data (730d→1460d) | Low | +1-2pp | **+0-1pp** | +100% | **Done** (2026-07-16, with ensemble expansion + blending — see `docs/changelog/2026-07-16-quick-postprocessing-wins.md`) |
+| 12 | More training data (730d→1460d) | Low | +1-2pp | **+0-1pp** | +100% | **Done** (2026-07-16, with ensemble expansion + blending — see `../changelog/2026-07-16-quick-postprocessing-wins.md`) |
 | 13 | More HP trials (15→50) | Trivial | +0.5-1pp | **+0.5-1pp** | +200-300% | Pending |
 
-**Top recommendation (as of 2026-07-14):** **#6 (listing count / supply depth)** — highest remaining potential from genuinely novel signal. 🛑 **Subsequently DROPPED on 2026-07-16** — see `docs/research/accuracy-opportunities.md` §1 DECISION and `docs/changelog/2026-07-16-drop-supply-depth.md`. Top remaining work is now regime-switching models.
+**Top recommendation (as of 2026-07-14):** **#6 (listing count / supply depth)** — highest remaining potential from genuinely novel signal. 🛑 **Subsequently DROPPED on 2026-07-16** — see `accuracy-opportunities.md` §1 DECISION and `../changelog/2026-07-16-drop-supply-depth.md`. Top remaining work is now regime-switching models.
 
 **Guardrail:** Any new feature group must pass `_validate_feature_groups()` (built-in permutation test during `train()`) or it will be auto-pruned. This applies to all items above. A/B test deltas without permutation confirmation should be treated as upper bounds, not guarantees.

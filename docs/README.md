@@ -18,19 +18,19 @@
 - `feature-engineering.md` — Deep analysis of current + 115 planned features with implementation plan
 - `accuracy-opportunities.md` — Categorized opportunities: features, architecture, training, data quality
 - `volume-data.md` — Volume data source evaluation: CS2Cap, SteamWebAPI, CSMarketAPI, recommendations
+- `remaining-accuracy-improvements.md` — Master tracker of all remaining opportunities with completion status
 
 ## Historical (`historical/`)
 
 - `backend-review.md` — Original code review (Jul 2026). All critical/high issues resolved.
 - `system-overhaul.md` — Session notes from the full system overhaul (2026-07-07 → 07-08)
-- `db-migration-plan.md` — Database cleanup and historical data migration plan
+- `db-migration-plan.md` — Database cleanup and historical data migration plan (superseded by Parquet architecture)
 - `schema-fix-recommendations.md` — Schema optimization recommendations, composite PK migration
 - `price-basis-swap.md` — Steam price basis swap: unified pricing from market.csgo to Steam basis
-- `catalog-build.md` — Steam market catalog build with rate limiting strategy
 
 ## Changelog (`changelog/`)
 
-Dated execution logs and bug fixes. See `changelog/` directory for the full list.
+Dated execution logs, bug fixes, and audit findings. See `changelog/` directory for the full list (27 entries).
 
 ## Root-level docs moved here
 
