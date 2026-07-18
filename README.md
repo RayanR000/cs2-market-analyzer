@@ -247,7 +247,7 @@ npm run lint    # Run ESLint
 cd backend && source venv/bin/activate && pytest
 ```
 
-> 118 tests across collection, forecasting, backtesting, and API layers.
+> 119 tests across collection, forecasting, backtesting, and API layers.
 
 ### Pre-commit Checks
 

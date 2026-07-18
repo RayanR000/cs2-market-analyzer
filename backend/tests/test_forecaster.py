@@ -758,8 +758,15 @@ class TestForecastBlending:
             MagicMock(item_id=2, price_low=9.0, price_mid=10.0, price_high=11.0,
                       current_price=20.0, forecast_date=date(2026, 7, 15)),
         ]
-        forecaster.db.execute.return_value.fetchall.return_value = rows
-        out = forecaster._fetch_prior_forecasts(np.array([1, 2, 3]), horizon=7)
+        slug_rows = [
+            MagicMock(item_id="1", id=1),
+            MagicMock(item_id="2", id=2),
+        ]
+        forecaster.db.execute.side_effect = [
+            MagicMock(fetchall=lambda: rows),
+            MagicMock(fetchall=lambda: slug_rows),
+        ]
+        out = forecaster._fetch_prior_forecasts(np.array(["1", "2", "3"]), horizon=7)
 
         assert out["mask"][0] and out["mask"][1] and not out["mask"][2]
         # Item 1 latest: current=10, mid=12 -> +20% return.

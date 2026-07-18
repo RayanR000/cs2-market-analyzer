@@ -80,6 +80,7 @@ class ItemForecaster:
         # Expanding-window CV results per horizon: {horizon: {fold_count, fold_accs, per_fold, ...}}
         self.cv_results: Dict[int, Dict] = {}
         # Event decay constants (grid-searchable per event type)
+        self.horizon_feature_cols: Dict[int, List[str]] = {}
         self.event_decay_constants: Dict[str, float] = {
             "major": 60,
             "operation": 21,
