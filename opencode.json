@@ -5,59 +5,6 @@
     "frontend/AGENTS.md"
   ],
   "agent": {
-    "review": {
-      "description": "Reviews code changes for quality, conventions, and correctness",
-      "mode": "subagent",
-      "temperature": 0.1,
-      "steps": 8,
-      "permission": {
-        "edit": "deny",
-        "bash": {
-          "*": "deny",
-          "git diff": "allow",
-          "git diff *": "allow",
-          "git log *": "allow",
-          "npm run lint": "allow",
-          "npm run build": "allow",
-          "pytest": "allow",
-          "pytest *": "allow",
-          "python3 -m py_compile *": "allow"
-        }
-      }
-    },
-    "test": {
-      "description": "Runs tests and reports failures with details",
-      "mode": "subagent",
-      "temperature": 0.1,
-      "steps": 5,
-      "permission": {
-        "edit": "deny",
-        "bash": {
-          "*": "deny",
-          "pytest": "allow",
-          "pytest *": "allow",
-          "python3 -m py_compile *": "allow",
-          "npm run build": "allow",
-          "npm run lint": "allow"
-        }
-      }
-    },
-    "security": {
-      "description": "Reviews changes for security issues — secrets, auth, injection, unsafe external data",
-      "mode": "subagent",
-      "temperature": 0.1,
-      "steps": 8,
-      "permission": {
-        "edit": "deny",
-        "bash": {
-          "*": "deny",
-          "git diff": "allow",
-          "git diff *": "allow",
-          "git log *": "allow",
-          "python3 -m py_compile *": "allow"
-        }
-      }
-    },
     "build": {
       "permission": {
         "task": {
