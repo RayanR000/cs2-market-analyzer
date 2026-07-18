@@ -655,6 +655,62 @@ class TestModelPersistence:
 
 
 # ---------------------------------------------------------------------------
+# Feature Cache
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureCache:
+    def test_save_and_load_cache(self, forecaster, tmp_path):
+        """Cached feature DataFrame round-trips through Parquet."""
+        import os
+        forecaster.model_dir = str(tmp_path)
+        df = pd.DataFrame({
+            "item_id": ["a", "b", "a", "b"],
+            "date": [date(2026, 1, 1), date(2026, 1, 1),
+                     date(2026, 1, 2), date(2026, 1, 2)],
+            "price": [10.0, 20.0, 11.0, 21.0],
+            "volume": [100, 200, 110, 220],
+            "feature_1": [0.1, 0.2, 0.3, 0.4],
+            "feature_2": [1.0, 2.0, 3.0, 4.0],
+        })
+        forecaster._save_engineered_cache(df)
+        cache_path = os.path.join(str(tmp_path), ItemForecaster.ENGINEERED_CACHE_NAME)
+        assert os.path.exists(cache_path)
+        loaded = forecaster._load_engineered_cache()
+        assert loaded is not None
+        assert len(loaded) == 4
+        assert "item_id" in loaded.columns
+        assert "feature_1" in loaded.columns
+        assert loaded["price"].iloc[0] == 10.0
+
+    def test_cache_missing_returns_none(self, forecaster, tmp_path):
+        """_load_engineered_cache returns None when no cache file exists."""
+        forecaster.model_dir = str(tmp_path)
+        result = forecaster._load_engineered_cache()
+        assert result is None
+
+    def test_cache_stale_after_3_days(self, forecaster, tmp_path):
+        """Cache older than 3 days triggers refresh (returns None)."""
+        import os
+        import pyarrow.parquet as pq
+        forecaster.model_dir = str(tmp_path)
+        df = pd.DataFrame({
+            "item_id": ["a"], "date": [date(2020, 1, 1)],
+            "price": [10.0], "volume": [100],
+            "feature_1": [0.1],
+        })
+        forecaster._save_engineered_cache(df)
+        path = os.path.join(str(tmp_path), ItemForecaster.ENGINEERED_CACHE_NAME)
+        table = pq.read_table(path)
+        meta = dict(table.schema.metadata or {})
+        meta[b"_cache_date"] = b"2020-01-01"
+        table = table.replace_schema_metadata(meta)
+        pq.write_table(table, path)
+        result = forecaster._load_engineered_cache()
+        assert result is None, "Stale cache (>3 days) should return None"
+
+
+# ---------------------------------------------------------------------------
 # Training Window / Subsampling (regression tests for the 2026-07-16 audit)
 # ---------------------------------------------------------------------------
 

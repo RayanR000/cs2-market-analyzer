@@ -64,6 +64,9 @@ backend/data/*.json
 # Price archive (lives on data-archive branch, not main)
 price-archive/
 
+# Feature cache (auto-generated at train time, regenerated on each retrain)
+backend/models/saved_models/engineered_data.parquet
+
 # OS
 Thumbs.db
 .DS_Store

@@ -13,6 +13,7 @@ import lightgbm as lgb
 from datetime import datetime, timedelta, timezone, date
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
+from collections import defaultdict
 from sqlalchemy import text
 from models.item_parser import parse_item_name
 
@@ -69,6 +70,8 @@ class ItemForecaster:
     # Expanding-window cross-validation
     CV_STEP_DAYS = 200        # Days between each fold's validation window
     CV_MIN_TRAIN_DAYS = 200   # Minimum unique dates before first validation fold
+
+    ENGINEERED_CACHE_NAME = "engineered_data.parquet"
 
     def __init__(self, db_session, model_dir: str = None, prune_failed_groups: bool = True):
         self.db = db_session
@@ -465,13 +468,18 @@ class ItemForecaster:
         df["rsi_14"] = df["rsi_14"].clip(0, 100)
 
         # =====================================================================
-        # MACD
+        # MACD (vectorized — no lambda transforms)
         # =====================================================================
-        ema_12 = grouped["price"].transform(lambda x: x.ewm(span=12, min_periods=12).mean())
-        ema_26 = grouped["price"].transform(lambda x: x.ewm(span=26, min_periods=26).mean())
-        df["macd_line"] = ema_12 - ema_26
-        df["macd_signal"] = df.groupby("item_id")["macd_line"].transform(
-            lambda x: x.ewm(span=9, min_periods=9).mean()
+        df = df.sort_values(["item_id", "date"])
+        # Compute EMAs per group using expanding EWMA on sorted data
+        ewm12 = df.groupby("item_id")["price"].ewm(span=12, min_periods=12, adjust=False).mean()
+        ewm26 = df.groupby("item_id")["price"].ewm(span=26, min_periods=26, adjust=False).mean()
+        df["macd_line"] = ewm12.reset_index(level=0, drop=True) - ewm26.reset_index(level=0, drop=True)
+        df["macd_signal"] = (
+            df.groupby("item_id")["macd_line"]
+            .ewm(span=9, min_periods=9, adjust=False)
+            .mean()
+            .reset_index(level=0, drop=True)
         )
         df["macd_histogram"] = df["macd_line"] - df["macd_signal"]
 
@@ -1146,7 +1154,7 @@ class ItemForecaster:
         """
         import optuna
 
-        n_trials = 50
+        n_trials = 15
 
         # Build the binned Dataset once and reuse across all trials. Only tree
         # params (num_leaves, learning_rate, ...) vary between trials; the data
@@ -1267,8 +1275,19 @@ class ItemForecaster:
         return df
 
     # ------------------------------------------------------------------
-    # Build training dataset
+    # Training helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _train_ensemble_member(params: dict, dtrain: lgb.Dataset,
+                                dval: lgb.Dataset) -> lgb.Booster:
+        """Train a single ensemble member. Static for joblib compatibility."""
+        return lgb.train(
+            params, dtrain,
+            num_boost_round=1000,
+            valid_sets=[dval],
+            callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)]
+        )
 
     @staticmethod
     def _filter_dead_items(price_df: pd.DataFrame) -> pd.DataFrame:
@@ -1461,6 +1480,75 @@ class ItemForecaster:
         return df
 
     # ------------------------------------------------------------------
+    # Feature cache for predict speed
+    # ------------------------------------------------------------------
+
+    @property
+    def _engineered_cache_path(self) -> str:
+        return os.path.join(self.model_dir, self.ENGINEERED_CACHE_NAME)
+
+    def _save_engineered_cache(self, df: pd.DataFrame):
+        """Save the fully-engineered feature DataFrame to Parquet cache."""
+        path = self._engineered_cache_path
+        cache_df = df.copy()
+        cache_df.attrs["_cache_date"] = str(date.today())
+        logger.info(f"  Saving engineered feature cache ({len(cache_df):,} rows) to {path}")
+        cache_df.to_parquet(path, index=False)
+
+    def _load_engineered_cache(self) -> Optional[pd.DataFrame]:
+        """Load cached engineered features. Returns None if cache is missing or stale."""
+        path = self._engineered_cache_path
+        if not os.path.exists(path):
+            return None
+        try:
+            df = pd.read_parquet(path)
+            cache_date_str = df.attrs.get("_cache_date", "")
+            logger.info(f"  Loaded engineered feature cache from {path} "
+                        f"({len(df):,} rows, cache_date={cache_date_str})")
+
+            # Check staleness: if cache is older than 3 days, trigger refresh
+            if cache_date_str:
+                try:
+                    cache_date = date.fromisoformat(cache_date_str)
+                    days_stale = (date.today() - cache_date).days
+                    if days_stale > 3:
+                        logger.info(f"  Cache is {days_stale} days stale (>3), will refresh")
+                        return None
+                except (ValueError, TypeError):
+                    pass
+
+            # For legacy caches without attrs (pre-cache-refactor), fall back to
+            # DuckDB freshness check against the Parquet archive.
+            if not cache_date_str:
+                try:
+                    import duckdb
+                    archive_dir = Path(__file__).parent.parent.parent / "price-archive"
+                    if archive_dir.exists():
+                        con = duckdb.connect()
+                        pq_files = sorted([str(p) for p in archive_dir.glob("prices-*.parquet")])
+                        if pq_files:
+                            latest_archive = con.sql(
+                                "SELECT MAX(day) FROM read_parquet(?)",
+                                params=[pq_files[-1]]
+                            ).fetchone()[0]
+                            con.close()
+                            cache_max_date = df["date"].max() if "date" in df.columns else None
+                            if cache_max_date is not None and latest_archive is not None:
+                                archive_max = pd.to_datetime(latest_archive).date()
+                                cache_max = pd.to_datetime(cache_max_date).date() if not isinstance(cache_max_date, date) else cache_max_date
+                                days_diff = (archive_max - cache_max).days
+                                if days_diff > 3:
+                                    logger.info(f"  Cache max_date={cache_max} < archive max_date={archive_max} ({days_diff}d diff), refreshing")
+                                    return None
+                except Exception:
+                    pass
+
+            return df
+        except Exception as e:
+            logger.warning(f"  Failed to load feature cache: {e}")
+            return None
+
+    # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
 
@@ -1500,6 +1588,7 @@ class ItemForecaster:
 
         _train_start = datetime.now()
         df = self.build_training_data(days_back=1460, backfilled_only=True)
+        self._save_engineered_cache(df)
 
         self.horizon_feature_cols = {}
 
@@ -1628,7 +1717,7 @@ class ItemForecaster:
                         q: dict(per_quantile_params[q]) for q in self.QUANTILES
                     }
 
-                # Train ensemble models for each quantile using the (cached or searched) params
+                # Train ensemble models (sequential — LightGBM internal threading handles CPU)
                 for q in self.QUANTILES:
                     pq = per_quantile_params[q]
                     logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
@@ -1637,16 +1726,8 @@ class ItemForecaster:
                     for ei in range(self.N_ENSEMBLES):
                         params = pq.copy()
                         params["random_state"] = self.ENSEMBLE_SEEDS[ei]
-                        # Column-subsampling variation per member (diversifies
-                        # the ensemble beyond row bagging alone).
                         params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-
-                        model = lgb.train(
-                            params, dtrain,
-                            num_boost_round=1000,
-                            valid_sets=[dval],
-                            callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)]
-                        )
+                        model = self._train_ensemble_member(params, dtrain, dval)
                         ensemble_models.append(model)
 
                     self.models[(horizon, q)] = ensemble_models
@@ -1654,7 +1735,7 @@ class ItemForecaster:
                     fi = self._get_feature_importance(ensemble_models[0])
                     logger.info(f"  Done in {_ens_elapsed:.0f}s — Top features: {fi['feature'].head(5).tolist()}")
 
-                # Train regime-specific models (separate from global)
+                # Train regime-specific models
                 for regime in self.REGIMES:
                     if regime == "global":
                         continue
@@ -1695,12 +1776,7 @@ class ItemForecaster:
                             params = pq.copy()
                             params["random_state"] = self.ENSEMBLE_SEEDS[ei]
                             params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                            model = lgb.train(
-                                params, r_dtrain,
-                                num_boost_round=1000,
-                                valid_sets=[r_dval],
-                                callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)]
-                            )
+                            model = self._train_ensemble_member(params, r_dtrain, r_dval)
                             r_ensemble.append(model)
                         self.regime_models[(regime, horizon, q)] = r_ensemble
 
@@ -1909,29 +1985,39 @@ class ItemForecaster:
     def predict(self, item_ids: List[int] = None) -> pd.DataFrame:
         logger.info("Generating forecasts...")
 
-        price_df = self.fetch_price_history(days_back=1460, backfilled_only=True)
+        # Try to load cached engineered features first (major speedup)
+        df = self._load_engineered_cache()
 
-        # Skip items without a real recent series: snapshot-tier items keep
-        # only a single latest row, and a "forecast" from one data point is
-        # a meaningless constant that would still be written to the DB.
-        day_counts = price_df.groupby("item_id")["date"].nunique()
-        eligible = day_counts[day_counts >= self.PREDICT_MIN_HISTORY_DAYS].index
-        skipped = price_df["item_id"].nunique() - len(eligible)
-        price_df = price_df[price_df["item_id"].isin(eligible)]
-        logger.info(
-            f"  {len(eligible):,} items with >= {self.PREDICT_MIN_HISTORY_DAYS} days of history "
-            f"({skipped:,} skipped)"
-        )
+        if df is not None:
+            logger.info(f"  Using cached engineered features ({len(df):,} rows)")
+        else:
+            logger.info("  No usable cache found — running full feature engineering")
+            price_df = self.fetch_price_history(days_back=1460, backfilled_only=True)
 
-        events_df = self.fetch_events()
+            # Skip items without a real recent series: snapshot-tier items keep
+            # only a single latest row, and a "forecast" from one data point is
+            # a meaningless constant that would still be written to the DB.
+            day_counts = price_df.groupby("item_id")["date"].nunique()
+            eligible = day_counts[day_counts >= self.PREDICT_MIN_HISTORY_DAYS].index
+            skipped = price_df["item_id"].nunique() - len(eligible)
+            price_df = price_df[price_df["item_id"].isin(eligible)]
+            logger.info(
+                f"  {len(eligible):,} items with >= {self.PREDICT_MIN_HISTORY_DAYS} days of history "
+                f"({skipped:,} skipped)"
+            )
 
-        df = self.engineer_features(price_df, events_df)
+            events_df = self.fetch_events()
 
-        # Add cross-sectional features (same as training)
-        df = self._add_cross_sectional_features(df)
+            df = self.engineer_features(price_df, events_df)
 
-        # Add supply depth features (same as training)
-        df = self._add_supply_depth_features(df)
+            # Add cross-sectional features (same as training)
+            df = self._add_cross_sectional_features(df)
+
+            # Add supply depth features (same as training)
+            df = self._add_supply_depth_features(df)
+
+            # Save to cache for next predict run
+            self._save_engineered_cache(df)
 
         # Align features with training columns (add missing, drop extras)
         for col in self.feature_cols:
