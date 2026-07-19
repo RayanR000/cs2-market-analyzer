@@ -96,6 +96,10 @@ class ItemForecaster:
         # Per-horizon confidence thresholds: {horizon: {"high_range": ..., "high_change": ..., "high_accuracy": ...}}
         self.confidence_thresholds: Dict[int, Dict[str, float]] = {}
         self.feature_medians: pd.Series = pd.Series(dtype=np.float64)
+        # Conformal quantile calibration adjustment per horizon (in percentage-return space).
+        # Maps horizon -> q_hat, the (1-α)(1+1/n) quantile of nonconformity scores
+        # from CV out-of-fold predictions. Applied as: low -= q_hat, high += q_hat.
+        self.conformal_calibration: Dict[int, float] = {}
         # Expanding-window CV results per horizon: {horizon: {fold_count, fold_accs, per_fold, ...}}
         self.cv_results: Dict[int, Dict] = {}
         # Event decay constants (grid-searchable per event type)
@@ -1816,9 +1820,9 @@ class ItemForecaster:
                 # Expanding-window CV evaluation using the best hyperparams
                 if os.environ.get("SKIP_CV") == "1":
                     logger.info(f"  CV skipped (SKIP_CV=1); calibrating from single holdout")
-                    oof_records, cv_metrics = [], []
+                    oof_records, cv_metrics, nc_scores = [], [], []
                 else:
-                    oof_records, cv_metrics = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
+                    oof_records, cv_metrics, nc_scores = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
 
                 # Calibrate confidence thresholds on pooled OOF predictions from CV
                 # (more robust than a single 21-day holdout)
@@ -1827,6 +1831,21 @@ class ItemForecaster:
                     logger.info(f"  Calibrating on {len(records_df)} pooled OOF predictions "
                                 f"({len(cv_metrics)} folds)")
                     self._calibrate_confidence(horizon=horizon, records_df=records_df)
+
+                    # Conformal quantile calibration: compute the (1-α)(1+1/n)
+                    # quantile of nonconformity scores from pooled OOF predictions.
+                    # This adjustment factor widens prediction intervals so that
+                    # [p10 - q_hat, p90 + q_hat] achieves ~(1-2α) empirical coverage.
+                    if nc_scores:
+                        nc_arr = np.array(nc_scores)
+                        n_cal = len(nc_arr)
+                        alpha = 0.10  # target 90% coverage for the conformal interval
+                        q_level = (1.0 - alpha) * (1.0 + 1.0 / max(n_cal, 1))
+                        q_level = min(q_level, 0.999)
+                        q_hat = float(np.quantile(nc_arr, q_level))
+                        self.conformal_calibration[horizon] = q_hat
+                        logger.info(f"  CQR calibration: q_hat={q_hat:.4f}pp "
+                                    f"(n={n_cal}, α={alpha}, target coverage={(1-alpha)*100:.0f}%)")
                 elif os.environ.get("SKIP_CV") == "1":
                     logger.info("  CV skipped (SKIP_CV=1); fallback to single-split calibration")
                     self._calibrate_confidence(horizon=horizon, X_val=X_val, y_val=y_val, val_set=val_set)
@@ -1943,6 +1962,45 @@ class ItemForecaster:
     # ------------------------------------------------------------------
     # Prediction
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _fix_quantile_crossing(low: np.ndarray, mid: np.ndarray,
+                                high: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Enforce low <= mid <= high via isotonic regression (PAV for 3 points).
+
+        For each item where quantiles cross, projects [low, mid, high] onto
+        the non-decreasing constraint using the Pool-Adjacent-Violators
+        algorithm. This preserves item-level interval width as much as
+        possible, unlike a global average-half-width imputation.
+
+        Returns (low_fixed, high_fixed) arrays with low_fixed <= mid <= high_fixed.
+        """
+        v0, v1, v2 = low.copy().astype(np.float64), mid.copy().astype(np.float64), high.copy().astype(np.float64)
+
+        # Pattern A: v0 > v1 (first two cross)
+        cross_01 = v0 > v1
+        if cross_01.any():
+            pool_01 = (v0[cross_01] + v1[cross_01]) * 0.5
+            v0[cross_01] = pool_01
+            v1[cross_01] = pool_01
+
+        # Pattern B: after fixing A, check v1 > v2 (last two cross)
+        cross_12 = v1 > v2
+        if cross_12.any():
+            pool_12 = (v1[cross_12] + v2[cross_12]) * 0.5
+            v1[cross_12] = pool_12
+            v2[cross_12] = pool_12
+
+        # Pattern C: after fixing B, check again if A was re-broken (pooled
+        # v1,v2 < original v0). Only possible when all three crossed.
+        recross_01 = v0 > v1
+        if recross_01.any():
+            pool_all = (v0[recross_01] + v1[recross_01] + v2[recross_01]) / 3.0
+            v0[recross_01] = pool_all
+            v1[recross_01] = pool_all
+            v2[recross_01] = pool_all
+
+        return v0, v2
 
     def _blend_returns_with_prior(self, low_ret_arr: np.ndarray, mid_ret_arr: np.ndarray,
                                   high_ret_arr: np.ndarray, prior: Dict[str, np.ndarray],
@@ -2178,31 +2236,19 @@ class ItemForecaster:
             p50_ret = preds[0.5]
             p90_ret = preds[0.9]
 
-            # Ensure quantile monotonicity without scrambling model identities.
-            # For items where quantiles cross (p10 > p50 or p50 > p90), we
-            # preserve a non-zero interval width by imputing the average
-            # half-width from well-behaved items. This avoids collapsing the
-            # prediction interval to a point (which clamping alone would do).
-            crossing_mask = (p10_ret > p50_ret) | (p50_ret > p90_ret)
-            non_crossing = ~crossing_mask
-
-            low_ret_arr = np.where(crossing_mask, p50_ret, p10_ret)
-            high_ret_arr = np.where(crossing_mask, p50_ret, p90_ret)
-
-            if non_crossing.any():
-                # Average half-width of non-crossing items (in percentage points)
-                avg_half_width = np.mean([
-                    np.mean(p50_ret[non_crossing] - p10_ret[non_crossing]),
-                    np.mean(p90_ret[non_crossing] - p50_ret[non_crossing]),
-                ])
-                # Apply symmetric interval to crossing items using the average width
-                if avg_half_width > 0:
-                    low_ret_arr[crossing_mask] = p50_ret[crossing_mask] - avg_half_width
-                    high_ret_arr[crossing_mask] = p50_ret[crossing_mask] + avg_half_width
-
-            low_ret_arr = np.minimum(low_ret_arr, p50_ret)
-            high_ret_arr = np.maximum(high_ret_arr, p50_ret)
+            # Fix quantile crossing via isotonic regression (PAV for 3 points).
+            # Preserves item-level interval width instead of global imputation.
+            low_ret_arr, high_ret_arr = self._fix_quantile_crossing(
+                p10_ret, p50_ret, p90_ret)
             mid_ret_arr = p50_ret
+
+            # Conformal calibration: widen intervals by the CQR adjustment factor
+            # learned from CV out-of-fold residuals. This pushes empirical coverage
+            # toward nominal (80% for [p10, p90] intervals).
+            q_hat = self.conformal_calibration.get(horizon, 0.0)
+            if q_hat > 0:
+                low_ret_arr = low_ret_arr - q_hat
+                high_ret_arr = high_ret_arr + q_hat
 
             # Forecast blending / directional smoothing: blend the current
             # return-space predictions with the previous day's forecast for the
@@ -2213,10 +2259,11 @@ class ItemForecaster:
                 low_ret_arr, mid_ret_arr, high_ret_arr, prior, self.FORECAST_BLEND_WEIGHT)
 
             # Diagnostic: log crossing rate
+            crossing_mask = (p10_ret > p50_ret) | (p50_ret > p90_ret)
             crossing_rate = np.mean(crossing_mask)
             if crossing_rate > 0.01:
                 logger.warning(f"  Quantile crossing rate: {crossing_rate:.3f} "
-                               f"(imputed avg_half_width={avg_half_width:.2f}pp)")
+                               f"(corrected via PAV isotonic regression)")
 
             for i, iid in enumerate(item_id_arr):
                 low_ret, mid_ret, high_ret = (float(low_ret_arr[i]),
@@ -2315,9 +2362,10 @@ class ItemForecaster:
             per_quantile_params: Dict {q: base_params} with best HP merged.
 
         Returns:
-            (oof_records, fold_metrics) where oof_records is a list of dicts
-            with range_pct/change_pct/hit for calibration, and fold_metrics
-            is a list of per-fold accuracy dicts.
+            (oof_records, fold_metrics, nonconformity_scores) where oof_records
+            is a list of dicts with range_pct/change_pct/hit for calibration,
+            fold_metrics is a list of per-fold accuracy dicts, and
+            nonconformity_scores is a list of CQR scores for conformal calibration.
         """
         sorted_dates = sorted(tdf["date"].unique())
         splits = self._compute_cv_splits(sorted_dates)
@@ -2331,6 +2379,7 @@ class ItemForecaster:
 
         oof_records = []
         fold_metrics = []
+        nonconformity_scores = []
 
         for fold_id, (train_dates, val_dates) in enumerate(splits):
             train_df = tdf[tdf["date"].isin(train_dates)]
@@ -2397,24 +2446,20 @@ class ItemForecaster:
             if fold_p50 is None or fold_p10 is None or fold_p90 is None:
                 continue
 
-            # Quantile crossing fix (same logic as _calibrate_confidence)
-            crossing_mask = (fold_p10 > fold_p50) | (fold_p50 > fold_p90)
-            non_crossing = ~crossing_mask
-            low_pred = np.minimum(fold_p10, fold_p50)
-            high_pred = np.maximum(fold_p90, fold_p50)
-            if non_crossing.any():
-                avg_hw = np.mean([
-                    np.mean(fold_p50[non_crossing] - fold_p10[non_crossing]),
-                    np.mean(fold_p90[non_crossing] - fold_p50[non_crossing]),
-                ])
-                if avg_hw > 0:
-                    low_pred[crossing_mask] = fold_p50[crossing_mask] - avg_hw
-                    high_pred[crossing_mask] = fold_p50[crossing_mask] + avg_hw
-            low_pred = np.minimum(low_pred, fold_p50)
-            high_pred = np.maximum(high_pred, fold_p50)
-
+            # Fix quantile crossing via isotonic regression (same as predict()).
+            low_pred, high_pred = self._fix_quantile_crossing(
+                fold_p10, fold_p50, fold_p90)
             current_prices = val_df["price"].values
             actual_returns = y_val.values
+
+            # Conformal nonconformity scores: max(Q_low - y, y - Q_high) in % return space.
+            # Measures how far the actual return falls outside the prediction interval.
+            fold_scores = np.maximum(
+                low_pred - actual_returns,
+                actual_returns - high_pred,
+            )
+            fold_scores = np.clip(fold_scores, 0.0, None)  # inside interval → score 0
+            nonconformity_scores.extend(fold_scores[~np.isnan(fold_scores)].tolist())
 
             # Fold-level directional accuracy
             fold_hits = 0
@@ -2473,7 +2518,7 @@ class ItemForecaster:
                 f"{len(sorted_dates)} distinct dates and {len(tdf)} rows."
             )
 
-        return oof_records, fold_metrics
+        return oof_records, fold_metrics, nonconformity_scores
 
     def _calibrate_confidence(self, horizon, X_val=None, y_val=None, val_set=None,
                                records_df=None):
@@ -2503,21 +2548,9 @@ class ItemForecaster:
             current_prices = val_set["price"].values
             actual_returns = y_val.values
 
-            # Apply the same crossing-aware monotonicity correction for calibration
-            crossing_mask_cal = (p10_pred > p50_pred) | (p50_pred > p90_pred)
-            non_crossing_cal = ~crossing_mask_cal
-            low_pred = np.minimum(p10_pred, p50_pred)
-            high_pred = np.maximum(p90_pred, p50_pred)
-            if non_crossing_cal.any():
-                avg_half_width_cal = np.mean([
-                    np.mean(p50_pred[non_crossing_cal] - p10_pred[non_crossing_cal]),
-                    np.mean(p90_pred[non_crossing_cal] - p50_pred[non_crossing_cal]),
-                ])
-                if avg_half_width_cal > 0:
-                    low_pred[crossing_mask_cal] = p50_pred[crossing_mask_cal] - avg_half_width_cal
-                    high_pred[crossing_mask_cal] = p50_pred[crossing_mask_cal] + avg_half_width_cal
-            low_pred = np.minimum(low_pred, p50_pred)
-            high_pred = np.maximum(high_pred, p50_pred)
+            # Fix quantile crossing via isotonic regression (same as predict / CV).
+            low_pred, high_pred = self._fix_quantile_crossing(
+                p10_pred, p50_pred, p90_pred)
 
             records = []
             for i in range(len(val_set)):
@@ -2799,6 +2832,7 @@ class ItemForecaster:
             "regime_threshold_bull": self.REGIME_RETURN_THRESHOLD_BULL,
             "trained_at": str(self._now()),
             "confidence_thresholds": thresholds_serial,
+            "conformal_calibration": {str(h): v for h, v in self.conformal_calibration.items()},
             "feature_medians": medians_serial,
             "n_ensembles": self.N_ENSEMBLES,
             "ensemble_seeds": self.ENSEMBLE_SEEDS,
@@ -2868,6 +2902,15 @@ class ItemForecaster:
                 # Legacy flat format: {"high_range": ..., ...} — assign to all horizons
                 for h in self.HORIZONS:
                     self.confidence_thresholds[h] = dict(raw_thresholds)
+        # Restore conformal calibration adjustment factors
+        raw_cc = meta.get("conformal_calibration", {})
+        self.conformal_calibration = {}
+        for h_str, q_hat in raw_cc.items():
+            try:
+                self.conformal_calibration[int(h_str)] = float(q_hat)
+            except (ValueError, TypeError):
+                continue
+
         n_ensembles = meta.get("n_ensembles", 1)
 
         for horizon in self.HORIZONS:

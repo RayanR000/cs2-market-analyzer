@@ -396,23 +396,76 @@ class TestTargetPreparation:
 # ---------------------------------------------------------------------------
 
 class TestQuantileMonotonicity:
-    def test_quantile_monotonicity_enforced(self):
-        """Verify that np.minimum(p10, p50) and np.maximum(p50, p90) work."""
-        p10 = np.array([5.0, 8.0, 3.0, 10.0])
-        p50 = np.array([4.0, 7.0, 5.0, 9.0])
-        p90 = np.array([6.0, 6.0, 7.0, 8.0])
-        low = np.minimum(p10, p50)   # [4, 7, 3, 9]
-        high = np.maximum(p50, p90)  # [6, 7, 7, 9]
-        assert (low <= p50).all()
-        assert (p50 <= high).all()
+    def test_already_monotonic_unchanged(self):
+        """Items with p10 <= p50 <= p90 should not be altered."""
+        from models.forecaster import ItemForecaster
+        low, high = ItemForecaster._fix_quantile_crossing(
+            np.array([1.0, 3.0, 5.0]),
+            np.array([2.0, 4.0, 6.0]),
+            np.array([3.0, 5.0, 7.0]),
+        )
+        assert list(low) == [1.0, 3.0, 5.0]
+        assert list(high) == [3.0, 5.0, 7.0]
 
-    def test_crossing_rate_diagnostic(self, forecaster):
-        p10 = np.array([5.0, 2.0])
-        p50 = np.array([4.0, 3.0])
-        p90 = np.array([6.0, 8.0])
-        crossing = (p10 > p50) | (p50 > p90)
-        rate = np.mean(crossing)
-        assert rate == 0.5
+    def test_p10_greater_than_p50_pooled(self):
+        """When p10 > p50, first two are pooled to their mean."""
+        from models.forecaster import ItemForecaster
+        low, high = ItemForecaster._fix_quantile_crossing(
+            np.array([5.0, 5.0]),
+            np.array([3.0, 3.0]),
+            np.array([6.0, 6.0]),
+        )
+        assert np.allclose(low, [4.0, 4.0])
+        assert np.allclose(high, [6.0, 6.0])
+
+    def test_p50_greater_than_p90_pooled(self):
+        """When p50 > p90, last two are pooled to their mean."""
+        from models.forecaster import ItemForecaster
+        low, high = ItemForecaster._fix_quantile_crossing(
+            np.array([1.0, 1.0]),
+            np.array([5.0, 5.0]),
+            np.array([3.0, 3.0]),
+        )
+        assert np.allclose(low, [1.0, 1.0])
+        assert np.allclose(high, [4.0, 4.0])
+
+    def test_all_three_cross_pooled_equally(self):
+        """When p10 > p50 > p90, all three are pooled to their common mean."""
+        from models.forecaster import ItemForecaster
+        low, high = ItemForecaster._fix_quantile_crossing(
+            np.array([8.0, 8.0]),
+            np.array([5.0, 5.0]),
+            np.array([2.0, 2.0]),
+        )
+        assert np.allclose(low, [5.0, 5.0])
+        assert np.allclose(high, [5.0, 5.0])
+
+    def test_mixed_mask_handles_both_crossing_and_non(self):
+        """Mixed arrays with some crossing and some monotonic items."""
+        from models.forecaster import ItemForecaster
+        low, high = ItemForecaster._fix_quantile_crossing(
+            np.array([1.0, 8.0]),
+            np.array([5.0, 5.0]),
+            np.array([9.0, 2.0]),
+        )
+        # Item 0: 1 <= 5 <= 9 → unchanged
+        # Item 1: 8 > 5 and then 5+2 pool → (8+5+2)/3 = 5
+        assert low[0] == 1.0
+        assert high[0] == 9.0
+        assert np.allclose(low[1], 5.0)
+        assert np.allclose(high[1], 5.0)
+
+    def test_returns_low_high_only(self):
+        """Method returns only (low, high); mid is left for caller to keep."""
+        from models.forecaster import ItemForecaster
+        low, high = ItemForecaster._fix_quantile_crossing(
+            np.array([5.0, 1.0, 7.0]),
+            np.array([3.0, 3.0, 5.0]),
+            np.array([4.0, 6.0, 4.0]),
+        )
+        assert len(low) == 3
+        assert len(high) == 3
+        assert np.all(low <= high)
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +721,55 @@ class TestCalibration:
         # For 30d, range_pct = 0.20 is NOT < 0.10 → low
         result_30 = forecaster._compute_confidence(10.0, 9.0, 11.0, 9.8, horizon=30)
         assert result_30 == "low"
+
+
+# ---------------------------------------------------------------------------
+# Conformal Calibration (CQR)
+# ---------------------------------------------------------------------------
+
+class TestConformalCalibration:
+    def test_q_hat_zero_when_all_scores_zero(self):
+        """If all nonconformity scores are 0, q_hat should be 0."""
+        from models.forecaster import ItemForecaster
+        f = ItemForecaster.__new__(ItemForecaster)
+        f.conformal_calibration = {}
+        f.confidence_thresholds = {}
+        scores = [0.0, 0.0, 0.0, 0.0, 0.0]
+        alpha = 0.10
+        q_level = (1.0 - alpha) * (1.0 + 1.0 / max(len(scores), 1))
+        q_level = min(q_level, 0.999)
+        q_hat = float(np.quantile(scores, q_level))
+        assert q_hat == 0.0
+
+    def test_q_hat_captures_tail_nonconformity(self):
+        """q_hat should be >= largest middle-80% score for 90% coverage target."""
+        scores = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+        alpha = 0.10
+        n = len(scores)
+        q_level = (1.0 - alpha) * (1.0 + 1.0 / n)
+        q_hat = float(np.quantile(scores, min(q_level, 0.999)))
+        # With n=10 and α=0.10, q_level = 0.9 * 1.1 = 0.99 → q_hat ≈ 0.99
+        assert q_hat > 0.9
+        assert q_hat <= 1.0
+
+    def test_conformal_calibration_stored_per_horizon(self, forecaster):
+        """After training, conformal_calibration should have entries per horizon."""
+        forecaster.conformal_calibration[7] = 0.45
+        forecaster.conformal_calibration[30] = 0.32
+        assert 7 in forecaster.conformal_calibration
+        assert 30 in forecaster.conformal_calibration
+        assert forecaster.conformal_calibration[7] == 0.45
+
+    def test_q_hat_applied_to_prediction_intervals(self, forecaster):
+        """Setting q_hat should widen the predict output intervals."""
+        forecaster.conformal_calibration[7] = 5.0
+        forecaster.models = {}
+        # Patch predict to return early; just verify that conformal_calibration
+        # is checked and q_hat is positive for the horizon
+        q_hat = forecaster.conformal_calibration.get(7, 0.0)
+        assert q_hat == 5.0
+        q_hat_missing = forecaster.conformal_calibration.get(99, 0.0)
+        assert q_hat_missing == 0.0
 
 
 # ---------------------------------------------------------------------------

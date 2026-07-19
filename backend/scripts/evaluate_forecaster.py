@@ -20,6 +20,7 @@ import pandas as pd
 import lightgbm as lgb
 
 from database import SessionLocal
+from models.forecaster import ItemForecaster
 
 logging.basicConfig(
     level=logging.INFO,
@@ -235,22 +236,9 @@ def run_walkforward_evaluation(max_items=500):
                 p50_ret = models[0.5]
                 p90_ret = models[0.9]
 
-                # Ensure quantile monotonicity without scrambling model identities.
-                # For crossing items, impute the average half-width from well-behaved items.
-                crossing_mask_eval = (p10_ret > p50_ret) | (p50_ret > p90_ret)
-                non_crossing_eval = ~crossing_mask_eval
-                low_ret_arr = np.minimum(p10_ret, p50_ret)
-                high_ret_arr = np.maximum(p50_ret, p90_ret)
-                if non_crossing_eval.any():
-                    avg_hw = np.mean([
-                        np.mean(p50_ret[non_crossing_eval] - p10_ret[non_crossing_eval]),
-                        np.mean(p90_ret[non_crossing_eval] - p50_ret[non_crossing_eval]),
-                    ])
-                    if avg_hw > 0:
-                        low_ret_arr[crossing_mask_eval] = p50_ret[crossing_mask_eval] - avg_hw
-                        high_ret_arr[crossing_mask_eval] = p50_ret[crossing_mask_eval] + avg_hw
-                low_ret_arr = np.minimum(low_ret_arr, p50_ret)
-                high_ret_arr = np.maximum(high_ret_arr, p50_ret)
+                # Fix quantile crossing via isotonic regression (same logic as forecaster).
+                low_ret_arr, high_ret_arr = ItemForecaster._fix_quantile_crossing(
+                    p10_ret, p50_ret, p90_ret)
                 mid_ret_arr = p50_ret
 
                 current_prices = val_df["price"].values
