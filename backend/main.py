@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from config import settings
 from database import init_db
-from api.routes import items, opportunities, events, auth, portfolio, market, accuracy
+from api.routes import items, opportunities, events, auth, portfolio, market, accuracy, ab_test
 
 app = FastAPI(
     title=settings.api_title,
@@ -33,6 +33,7 @@ app.include_router(auth.router)
 app.include_router(portfolio.router)
 app.include_router(market.router)
 app.include_router(accuracy.router)
+app.include_router(ab_test.router)
 
 
 @app.middleware("http")

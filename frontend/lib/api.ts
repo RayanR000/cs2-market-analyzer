@@ -385,6 +385,63 @@ export async function getAccuracySummary(predictionType?: string) {
   return response.json();
 }
 
+// A/B Test API
+export interface ABTestHorizonEntry {
+  horizon_days: number;
+  regime?: {
+    sample_count: number;
+    metrics: {
+      mae: number;
+      rmse: number;
+      mape: number;
+      directional_accuracy: number;
+      interval_coverage: number;
+      fold_count: number;
+    };
+  };
+  global_only?: {
+    sample_count: number;
+    metrics: {
+      mae: number;
+      rmse: number;
+      mape: number;
+      directional_accuracy: number;
+      interval_coverage: number;
+      fold_count: number;
+    };
+  };
+  delta?: {
+    directional_accuracy_delta_pp: number;
+    mae_delta: number;
+    mape_delta: number;
+    interval_coverage_delta_pp: number;
+    regime_wins: boolean;
+    regime_dir_acc: number;
+    global_dir_acc: number;
+    regime_mae: number;
+    global_mae: number;
+    regime_mape: number;
+    global_mape: number;
+    regime_int_cov: number;
+    global_int_cov: number;
+    regime_sample_count: number;
+    global_sample_count: number;
+    regime_fold_count: number;
+    global_fold_count: number;
+  };
+}
+
+export interface RegimeABTestResult {
+  test_date: string | null;
+  horizons: ABTestHorizonEntry[];
+}
+
+export async function getRegimeABTest(): Promise<RegimeABTestResult> {
+  const response = await fetch(`${API_URL}/ab-test/regime`);
+  if (!response.ok) throw new Error('Failed to fetch A/B test results');
+  return response.json();
+}
+
 // Portfolio API
 export async function getInventory() {
   const response = await fetch(`${API_URL}/portfolio/inventory`, {
