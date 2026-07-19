@@ -1,7 +1,7 @@
 # Prediction Model — Priority Fixes
 
 **Created:** 2026-07-17
-**Status:** Planning (not yet implemented)
+**Status:** Items 1–3 resolved; items 4–6 planning
 **Context:** Warm retrain is ~5.7 min against a 20–30 min budget. The model is **not time-constrained — it is correctness-constrained.** Spend the headroom on robustness, not more boosters.
 
 ## Current state (trustworthy numbers only)
@@ -36,19 +36,11 @@ Applied in two commits:
 
 Guard now correctly excludes all incomplete 2026 data. Investigation confirmed all three hypotheses were addressed.
 
-### 2. Raise the validation-set floor
-The current `val_set < 100 → fallback` threshold is far too low. Permutation tests on ~350 rows are noise.
+### ~~2. Raise the validation-set floor~~ **RESOLVED** (commit `56ff0b7`)
+Changed `val_set < 100` to `len(val_set) < 2000 or val_dates < 7` in both the temporal-split fallback (`forecaster.py:1641`) and the feature-group validation skip (`forecaster.py:1843`).
 
-- **File:** `backend/models/forecaster.py` (temporal split, ~lines 1468–1488)
-- **Change:** require a meaningful minimum val size (e.g. ≥2–3K rows **or** a minimum number of distinct calendar days) before trusting permutation pruning or single-split calibration.
-- **Expected impact:** prevents future thin-window collapses. Zero training-time cost.
-
-### 3. Gate permutation-pruning conservatively
-A model collapsing from 39 → 4 features should be a red flag, not accepted silently.
-
-- **File:** `backend/models/forecaster.py` (`_validate_feature_groups`, ~lines 997, and the retrain-after-prune block ~1632–1680)
-- **Change:** require the accuracy-drop signal to clear a confidence bound; skip pruning entirely when the val window is thin (ties into #2).
-- **Expected impact:** restores 14d/30d to full feature sets. Zero training-time cost.
+### ~~3. Gate permutation-pruning conservatively~~ **RESOLVED** (commit `56ff0b7`)
+Permutation pruning is now skipped entirely when the validation window is thin (same ≥2000 rows / ≥7 dates threshold). The retrain-after-prune safety net (7 core features) was already present.
 
 ---
 
@@ -85,8 +77,8 @@ A model collapsing from 39 → 4 features should be a red flag, not accepted sil
 
 ## Suggested order
 
-1. Fixes **1 → 2 → 3** together (they share the thin-validation root cause), then retrain and re-run the Parquet backtest to confirm 7d recovers and 14d/30d regain features.
-2. Then **4 → 5** to align CV with reality.
+1. Fixes **1 → 2 → 3** — **done** (commit `56ff0b7`, follow-up `b165476`). Ready for retrain to confirm 7d recovery and 14d/30d feature restoration.
+2. Next: **4 → 5** to align CV with reality.
 3. Only then evaluate **6**.
 
 **Bottom line:** Don't add model capacity. Fix the validation/pruning pipeline first — it likely recovers several points across horizons at essentially no training-time cost.

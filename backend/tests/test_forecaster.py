@@ -242,6 +242,127 @@ class TestFeaturePruning:
         pruned = forecaster._prune_features(df)
         assert len(pruned) == 3
 
+    def test_validate_feature_groups_passes_statistically_significant(
+        self, forecaster,
+    ):
+        """A feature group that causally affects predictions should pass both
+        the statistical (p < 0.05) and practical (drop >= 0.5pp) gates.
+        Uses quantile regression (alpha=0.5) to match the real pipeline."""
+        rng = np.random.RandomState(42)
+        n = 500
+        X = rng.randn(n, 4).astype(np.float32)
+        # y is a continuous return-like target; only cols 0-1 are predictive
+        y = X[:, 0] * 2 + X[:, 1] * 1.5 + rng.randn(n) * 0.5
+
+        ds = lgb.Dataset(X, y)
+        model = lgb.train(
+            {"objective": "quantile", "alpha": 0.5, "verbosity": -1,
+             "max_bin": 63, "min_data_in_leaf": 1, "num_leaves": 4,
+             "learning_rate": 0.1, "metric": "quantile"},
+            ds, num_boost_round=30,
+        )
+        forecaster.models[(7, 0.5)] = model
+
+        # Feature names: "price_technicals" group (cols 0-1, predictive),
+        # "events" group (cols 2-3, pure noise)
+        feature_names = ["price_momentum_1", "price_momentum_2",
+                         "event_major_1", "event_major_2"]
+        results = forecaster._validate_feature_groups(
+            X, y, feature_names, horizon=7,
+            n_shuffles=30, min_drop_pp=0.5, significance_level=0.05,
+        )
+
+        # The "price_technicals" group — causally linked to y — should PASS
+        pt = results["price_technicals"]
+        assert pt["passed"], (
+            f"Expected 'price_technicals' to pass (drop_pp={pt['drop_pp']}, "
+            f"p={pt['p_value']})"
+        )
+        assert pt["p_value"] < 0.05
+
+    def test_validate_feature_groups_fails_noisy_group(
+        self, forecaster,
+    ):
+        """A feature group with no causal signal should fail the statistical
+        significance gate (p >= 0.05), even if the drop happens to be >= 0.5pp
+        by chance. Uses quantile regression to match the real pipeline."""
+        rng = np.random.RandomState(42)
+        n = 500
+        X = rng.randn(n, 6).astype(np.float32)
+        # y depends only on cols 0-2; cols 3-5 (events) are pure noise
+        y = X[:, 0] * 2 + X[:, 1] * 1.5 + X[:, 2] * 1.0 + rng.randn(n) * 0.5
+
+        ds = lgb.Dataset(X, y)
+        model = lgb.train(
+            {"objective": "quantile", "alpha": 0.5, "verbosity": -1,
+             "max_bin": 63, "min_data_in_leaf": 1, "num_leaves": 4,
+             "learning_rate": 0.1, "metric": "quantile"},
+            ds, num_boost_round=30,
+        )
+        forecaster.models[(7, 0.5)] = model
+
+        # Feature names: "price_technicals" group (cols 0-2, predictive),
+        # "events" group (cols 3-5, pure noise — no relation to y)
+        feature_names = [
+            "price_momentum_1", "price_momentum_2", "price_momentum_3",
+            "event_major_1", "event_major_2", "event_major_3",
+        ]
+        results = forecaster._validate_feature_groups(
+            X, y, feature_names, horizon=7,
+            n_shuffles=30, min_drop_pp=0.5, significance_level=0.05,
+        )
+
+        # The "events" group (cols 3-5) has no causal link to y — should FAIL
+        events = results["events"]
+        assert not events["passed"], (
+            f"Expected 'events' to fail (drop_pp={events['drop_pp']}, "
+            f"p={events['p_value']})"
+        )
+        assert events["p_value"] >= 0.05
+
+    def test_validate_feature_groups_skips_no_model(self, forecaster):
+        """When no p50 model exists for the horizon, validation returns {}."""
+        assert forecaster.models == {}
+        results = forecaster._validate_feature_groups(
+            np.empty((10, 2)), np.empty(10), ["a", "b"], horizon=7,
+        )
+        assert results == {}
+
+    def test_prune_features_filters_by_significance(
+        self, forecaster,
+    ):
+        """Integration: _validate_feature_groups gates pruning in train().
+        Non-causal groups are dropped; causal groups are kept."""
+        rng = np.random.RandomState(42)
+        n = 500
+        X = rng.randn(n, 4).astype(np.float32)
+        # y depends only on cols 0-1; cols 2-3 are pure noise
+        y = X[:, 0] * 2 + X[:, 1] * 1.5 + rng.randn(n) * 0.5
+
+        ds = lgb.Dataset(X, y)
+        model = lgb.train(
+            {"objective": "quantile", "alpha": 0.5, "verbosity": -1,
+             "max_bin": 63, "min_data_in_leaf": 1, "num_leaves": 4,
+             "learning_rate": 0.1, "metric": "quantile"},
+            ds, num_boost_round=30,
+        )
+        forecaster.models[(7, 0.5)] = model
+
+        # Feature groups: "price_technicals" (predictive cols 0-1) and
+        # "events" (noise cols 2-3)
+        forecaster.feature_cols = ["price_momentum_1", "price_momentum_2",
+                                   "event_major_1", "event_major_2"]
+        results = forecaster._validate_feature_groups(
+            X, y, forecaster.feature_cols, horizon=7,
+            n_shuffles=30, min_drop_pp=0.5, significance_level=0.05,
+        )
+
+        # "price_technicals" should pass, "events" should fail
+        pt_passed = results.get("price_technicals", {}).get("passed", False)
+        events_passed = results.get("events", {}).get("passed", True)
+        assert pt_passed, "Causal group should pass significance gate"
+        assert not events_passed, "Noise group should fail significance gate"
+
 
 # ---------------------------------------------------------------------------
 # Target Preparation

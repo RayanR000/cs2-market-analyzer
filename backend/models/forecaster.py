@@ -1068,19 +1068,30 @@ class ItemForecaster:
         self, X_val: np.ndarray, y_val: np.ndarray,
         feature_names: List[str], horizon: int = 7,
         n_shuffles: int = 20, min_drop_pp: float = 0.5,
+        significance_level: float = 0.05,
     ) -> Dict[str, Dict]:
-        """Validate feature groups via permutation importance.
+        """Validate feature groups via permutation importance with
+        statistical significance gating.
 
         For each feature group, shuffles its columns on the validation set
         and measures the directional accuracy drop vs the unshuffled baseline.
-        Groups with drops below `min_drop_pp` are flagged as non-contributing.
+        A group is kept only if it passes BOTH:
+
+          1. **Statistical significance** — the p-value (fraction of shuffled
+             trials where accuracy >= baseline accuracy) is below
+             `significance_level`. This ensures the group's signal isn't
+             attributable to noise.
+          2. **Practical significance** — the accuracy drop exceeds
+             `min_drop_pp` (default 0.5pp). This ensures the effect is large
+             enough to matter for forecasting.
 
         Uses the p50 (median) quantile model for the given horizon.
 
         Returns:
             {group_name: {"drop_pp": float, "base_acc": float,
-                          "shuffled_acc": float, "passed": bool,
-                          "feature_count": int, "features": [str]}}
+                          "shuffled_acc": float, "p_value": float,
+                          "passed": bool, "feature_count": int,
+                          "features": [str]}}
         """
         model_key = (horizon, 0.5)
         if model_key not in self.models:
@@ -1116,13 +1127,17 @@ class ItemForecaster:
                 acc = np.mean((p50_shuf > 0) == (y_val > 0)) * 100
                 shuffled_accs.append(acc)
 
-            mean_shuf = np.mean(shuffled_accs)
+            shuffled_arr = np.array(shuffled_accs)
+            mean_shuf = float(np.mean(shuffled_arr))
             drop_pp = base_acc - mean_shuf
-            passed = bool(drop_pp >= min_drop_pp)
+            p_value = float(np.mean(shuffled_arr >= base_acc))
+            passed = bool(p_value < significance_level and drop_pp >= min_drop_pp)
+
             results[group] = {
-                "drop_pp": round(float(drop_pp), 2),
+                "drop_pp": round(drop_pp, 2),
                 "base_acc": round(float(base_acc), 2),
-                "shuffled_acc": round(float(mean_shuf), 2),
+                "shuffled_acc": round(mean_shuf, 2),
+                "p_value": round(p_value, 4),
                 "passed": passed,
                 "feature_count": len(idxs),
                 "features": groups[group],
@@ -1132,7 +1147,7 @@ class ItemForecaster:
             logger.info(
                 f"  [feat group] {group}: {drop_pp:+.2f}pp when shuffled "
                 f"({base_acc:.1f}% -> {mean_shuf:.1f}%) "
-                f"[{status}]"
+                f"p={p_value:.4f} [{status}]"
             )
 
         return results
@@ -1838,6 +1853,11 @@ class ItemForecaster:
                 # as the temporal-split floor above) — permutation tests on <2000
                 # rows or <7 distinct dates are pure noise and cause false-positive
                 # pruning that collapses 14d/30d models to ~4 features.
+                # The significance_level parameter (0.05) gates pruning further:
+                # a group must pass BOTH the statistical significance test (p < α)
+                # AND the practical significance test (drop_pp >= 0.5) to be kept.
+                # This prevents noisy-but-spurious correlations from surviving
+                # on marginal windows without fully skipping the check.
                 val_dates = val_set["date"].nunique() if "date" in val_set.columns else 0
                 need_retrain = False
                 if len(val_set) < 2000 or val_dates < 7:
@@ -1852,6 +1872,7 @@ class ItemForecaster:
                         fv = self._validate_feature_groups(
                             X_val_np, y_val_np, self.feature_cols,
                             horizon=horizon, n_shuffles=20, min_drop_pp=0.5,
+                            significance_level=0.05,
                         )
                         self.cv_results[horizon]["feature_validation"] = fv
                         failed = [g for g, r in fv.items() if not r["passed"]]
