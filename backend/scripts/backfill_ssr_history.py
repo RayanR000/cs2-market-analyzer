@@ -350,10 +350,6 @@ class SteamPriceHistoryClient:
 
     def __init__(self):
         self.session = requests.Session()
-        self.session.cookies.update({
-            "sessionid": settings.steam_session_id,
-            "steamLoginSecure": settings.steam_login_secure,
-        })
         self.session.headers.update({
             "User-Agent": USER_AGENTS[0],
             "Referer": "https://steamcommunity.com/market/",

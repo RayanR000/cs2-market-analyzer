@@ -11,7 +11,6 @@ import requests
 
 sys.path.insert(0, '.')
 from database import SessionLocal, Item, PriceHistory
-from config import settings
 
 TEST_ITEMS = [
     "AK-47 | Redline (Field-Tested)",
@@ -20,16 +19,6 @@ TEST_ITEMS = [
     "M4A1-S | Hyper Beast (Field-Tested)",
     "Desert Eagle | Blaze (Factory New)",
 ]
-
-# Load cookies from env/config (never hardcode secrets)
-COOKIES = {
-    "sessionid": settings.steam_session_id,
-    "steamLoginSecure": settings.steam_login_secure,
-}
-
-if not COOKIES["sessionid"] or not COOKIES["steamLoginSecure"]:
-    print("ERROR: Set STEAM_SESSION_ID and STEAM_LOGIN_SECURE in .env first.")
-    sys.exit(1)
 
 DELAY_BETWEEN = 10.0
 
@@ -53,7 +42,7 @@ for idx, item_name in enumerate(TEST_ITEMS):
 
     try:
         resp = requests.get(
-            url, params=params, headers=headers, cookies=COOKIES, timeout=30
+            url, params=params, headers=headers, timeout=30
         )
         if resp.status_code == 200:
             data = resp.json()

@@ -140,16 +140,16 @@ Fields: item counter, total, percentage, hash name, active key, remaining quota,
 
 **`.env` file:**
 ```env
-CSMARKETAPI_KEY_1=csmarketapi_key_w2n3aji1x6r8bivmy6me
-CSMARKETAPI_ACCOUNT_1=skrup.chezz
-CSMARKETAPI_KEY_2=csmarketapi_key_5lnvkqph98d0l8y8jmnl
-CSMARKETAPI_ACCOUNT_2=breadandpoops
-CSMARKETAPI_KEY_3=csmarketapi_key_eu1ku8kj24o2rjfut4ge
-CSMARKETAPI_ACCOUNT_3=rrane2025
-CSMARKETAPI_KEY_4=csmarketapi_key_57hz2y5alc6w04bx6dmc
-CSMARKETAPI_ACCOUNT_4=rayanrane
-CSMARKETAPI_KEY_5=csmarketapi_key_wceniweh2k6a7j792poc
-CSMARKETAPI_ACCOUNT_5=bobafett
+CSMARKETAPI_KEY_1=your_key_here
+CSMARKETAPI_ACCOUNT_1=account_1
+CSMARKETAPI_KEY_2=your_key_2_here
+CSMARKETAPI_ACCOUNT_2=account_2
+CSMARKETAPI_KEY_3=your_key_3_here
+CSMARKETAPI_ACCOUNT_3=account_3
+CSMARKETAPI_KEY_4=your_key_4_here
+CSMARKETAPI_ACCOUNT_4=account_4
+CSMARKETAPI_KEY_5=your_key_5_here
+CSMARKETAPI_ACCOUNT_5=account_5
 ```
 
 Supports up to 5 keys (loops `range(1, 6)`). Config model in `backend/config.py` exposes `settings.csmarketapi_keys` as a list of `{account, key}` dicts.
