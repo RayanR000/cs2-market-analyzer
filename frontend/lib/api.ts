@@ -442,6 +442,63 @@ export async function getRegimeABTest(): Promise<RegimeABTestResult> {
   return response.json();
 }
 
+// Ensemble A/B Test API
+export interface EnsembleABTestHorizonEntry {
+  horizon_days: number;
+  ens3?: {
+    sample_count: number;
+    metrics: {
+      mae: number;
+      rmse: number;
+      mape: number;
+      directional_accuracy: number;
+      interval_coverage: number;
+      fold_count: number;
+    };
+  };
+  ens6?: {
+    sample_count: number;
+    metrics: {
+      mae: number;
+      rmse: number;
+      mape: number;
+      directional_accuracy: number;
+      interval_coverage: number;
+      fold_count: number;
+    };
+  };
+  delta?: {
+    directional_accuracy_delta_pp: number;
+    mae_delta: number;
+    mape_delta: number;
+    interval_coverage_delta_pp: number;
+    ens3_wins: boolean;
+    ens3_dir_acc: number;
+    ens6_dir_acc: number;
+    ens3_mae: number;
+    ens6_mae: number;
+    ens3_mape: number;
+    ens6_mape: number;
+    ens3_int_cov: number;
+    ens6_int_cov: number;
+    ens3_sample_count: number;
+    ens6_sample_count: number;
+    ens3_fold_count: number;
+    ens6_fold_count: number;
+  };
+}
+
+export interface EnsembleABTestResult {
+  test_date: string | null;
+  horizons: EnsembleABTestHorizonEntry[];
+}
+
+export async function getEnsembleABTest(): Promise<EnsembleABTestResult> {
+  const response = await fetch(`${API_URL}/ab-test/ensemble`);
+  if (!response.ok) throw new Error('Failed to fetch ensemble A/B test results');
+  return response.json();
+}
+
 // Portfolio API
 export async function getInventory() {
   const response = await fetch(`${API_URL}/portfolio/inventory`, {

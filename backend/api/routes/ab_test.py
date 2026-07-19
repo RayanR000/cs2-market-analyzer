@@ -1,5 +1,5 @@
 """
-A/B test results API — serves regime-switching vs global-only comparison data.
+A/B test results API — serves regime-switching vs global-only and ensemble-size comparison data.
 """
 
 from typing import Optional
@@ -85,6 +85,71 @@ def get_regime_ab_test(
         if h in global_by_h:
             g = global_by_h[h]
             entry["global_only"] = {"sample_count": g.sample_count, "metrics": g.metrics}
+        if h in delta_by_h:
+            entry["delta"] = delta_by_h[h].metrics
+        horizons.append(entry)
+
+    return {
+        "test_date": latest_date.isoformat() if latest_date else None,
+        "horizons": horizons,
+    }
+
+
+@router.get("/ensemble")
+def get_ensemble_ab_test(
+    db = Depends(get_db),
+):
+    """Return the latest A/B test comparison between 3-member and 6-member ensembles."""
+    from sqlalchemy import text
+
+    latest_date = db.execute(text("""
+        SELECT MAX(evaluation_date)
+        FROM prediction_accuracy
+        WHERE prediction_type = 'ab_test_ensemble_delta'
+    """)).scalar()
+
+    if not latest_date:
+        return {"status": "no_data", "message": "No ensemble A/B test results found. Run `python scripts/ab_test_ensemble.py` first."}
+
+    ens3_rows = db.execute(text("""
+        SELECT horizon_days, sample_count, metrics
+        FROM prediction_accuracy
+        WHERE prediction_type = 'ab_test_ensemble'
+          AND model_version = 'lgbm-v3-ens3'
+          AND evaluation_date = :d
+        ORDER BY horizon_days
+    """), {"d": latest_date}).fetchall()
+
+    ens6_rows = db.execute(text("""
+        SELECT horizon_days, sample_count, metrics
+        FROM prediction_accuracy
+        WHERE prediction_type = 'ab_test_ensemble'
+          AND model_version = 'lgbm-v3-ens6'
+          AND evaluation_date = :d
+        ORDER BY horizon_days
+    """), {"d": latest_date}).fetchall()
+
+    delta_rows = db.execute(text("""
+        SELECT horizon_days, metrics
+        FROM prediction_accuracy
+        WHERE prediction_type = 'ab_test_ensemble_delta'
+          AND evaluation_date = :d
+        ORDER BY horizon_days
+    """), {"d": latest_date}).fetchall()
+
+    ens3_by_h = {r.horizon_days: r for r in ens3_rows}
+    ens6_by_h = {r.horizon_days: r for r in ens6_rows}
+    delta_by_h = {r.horizon_days: r for r in delta_rows}
+
+    horizons = []
+    for h in sorted(set(list(ens3_by_h.keys()) + list(ens6_by_h.keys()) + list(delta_by_h.keys()))):
+        entry = {"horizon_days": h}
+        if h in ens3_by_h:
+            r = ens3_by_h[h]
+            entry["ens3"] = {"sample_count": r.sample_count, "metrics": r.metrics}
+        if h in ens6_by_h:
+            g = ens6_by_h[h]
+            entry["ens6"] = {"sample_count": g.sample_count, "metrics": g.metrics}
         if h in delta_by_h:
             entry["delta"] = delta_by_h[h].metrics
         horizons.append(entry)
