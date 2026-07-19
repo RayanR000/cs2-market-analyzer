@@ -214,7 +214,7 @@ export default function ItemDetailPage() {
           getItemVariants(itemId).catch(() => []),
           getPriceHistory(itemId, 5000, 0, 500),
           getItemTrends(itemId),
-          getItemPrediction(itemId, '30_days'),
+          getItemPrediction(itemId, '7_days'),
           getMultiSourcePrices(itemId, ['all'], days),
           getItemEventImpacts(itemId).catch(() => [] as EventImpact[]),
           getItemFeatureImportance(itemId).catch(() => null),
@@ -250,7 +250,7 @@ export default function ItemDetailPage() {
             mid: predictionResponse?.forecast_mid ?? 0,
             high: predictionResponse?.forecast_high ?? 0,
           },
-          period_label: predictionResponse?.forecast_period ?? '30_days',
+          period_label: predictionResponse?.forecast_period ?? '7_days',
           trend_direction: predictionResponse?.trend_direction,
           confidence: predictionResponse?.confidence,
         } as PredictionResponse);
@@ -529,7 +529,7 @@ export default function ItemDetailPage() {
                 ) : '\u2014'}
               </div>
               <div className="text-xs text-tertiary mt-1">
-                {hasPriceData ? (prediction?.period_label || '30_days') + ' forecast' : 'Insufficient data'}
+                {hasPriceData ? (prediction?.period_label || '7_days') + ' forecast' : 'Insufficient data'}
               </div>
             </div>
 
