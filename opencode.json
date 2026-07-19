@@ -11,14 +11,16 @@
           "review": "allow",
           "test": "allow",
           "security": "allow",
-          "data": "allow"
+          "data": "allow",
+          "document": "allow"
         }
       }
     },
     "plan": {
       "permission": {
         "task": {
-          "data": "allow"
+          "data": "allow",
+          "explore": "allow"
         }
       }
     }

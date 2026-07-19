@@ -63,4 +63,6 @@ price-archive/      — Parquet price data (13 years)
 4. Keep `frontend/AGENTS.md` in sync if design tokens or API surface changes.
 5. The `@review` subagent can check changes automatically — invoke it after significant work. The chain plugin (`.opencode/plugins/chain.js`) auto-triggers review → test → security after build edits; a 5-min cooldown prevents loops.
 6. Use `@data` for DuckDB/Parquet queries on the `price-archive/`. It knows the Parquet schemas, common DuckDB patterns, and schema gotchas (VARCHAR pricing columns, missing source in older files).
-7. When adding agents, update both `opencode.json` task permissions and this file.
+7. Use `@explore` for fast codebase searches — it knows the project layout and can find files/patterns quickly.
+8. Use `@document` to generate session documentation — it reads git diff, understands context, and writes changelog/design/architecture entries.
+9. When adding agents, update both `opencode.json` task permissions and this file.
