@@ -1827,9 +1827,15 @@ class ItemForecaster:
                     logger.info(f"  Calibrating on {len(records_df)} pooled OOF predictions "
                                 f"({len(cv_metrics)} folds)")
                     self._calibrate_confidence(horizon=horizon, records_df=records_df)
-                else:
-                    logger.warning(f"  CV produced no OOF records; falling back to single-split calibration")
+                elif os.environ.get("SKIP_CV") == "1":
+                    logger.info("  CV skipped (SKIP_CV=1); fallback to single-split calibration")
                     self._calibrate_confidence(horizon=horizon, X_val=X_val, y_val=y_val, val_set=val_set)
+                else:
+                    raise RuntimeError(
+                        f"CV produced no OOF records for {horizon}d horizon "
+                        f"but SKIP_CV is not set. This indicates a bug — "
+                        f"_cv_evaluate_horizon should have raised."
+                    )
 
                 # Log CV fold-level metrics
                 fold_accs = [m["directional_accuracy"] for m in cv_metrics]
@@ -2458,6 +2464,14 @@ class ItemForecaster:
                     "change_pct": change_pct,
                     "hit": hit,
                 })
+
+        if not fold_metrics:
+            raise RuntimeError(
+                f"CV evaluated zero folds for {horizon}d horizon — "
+                f"every validation window had <50 rows or all quantile predictions "
+                f"failed. Need at least one usable fold. Training data has "
+                f"{len(sorted_dates)} distinct dates and {len(tdf)} rows."
+            )
 
         return oof_records, fold_metrics
 
