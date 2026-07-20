@@ -24,7 +24,6 @@ from sqlalchemy import text
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import SessionLocal, utcnow_naive
-from config import settings
 
 try:
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -125,7 +124,10 @@ def fetch_subreddit_posts(subreddit: str, limit: int = 100) -> list[dict]:
         post_url = ""
         if permalink and permalink.has_attr("href"):
             href = permalink["href"]
-            post_url = f"https://old.reddit.com{href}" if href.startswith("/") else href
+            if href.startswith("/"):
+                post_url = f"https://old.reddit.com{href}"
+            elif href.startswith("https://"):
+                post_url = href
 
         posts.append({
             "id": post_id,

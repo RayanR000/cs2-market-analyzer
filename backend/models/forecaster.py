@@ -95,7 +95,7 @@ class ItemForecaster:
     # justified). DART left available for future experiments.
     WEAK_HORIZONS = [14, 30]
     BOOSTING_TYPE_MAP = {3: "gbdt", 7: "gbdt", 14: "gbdt", 30: "gbdt"}
-    N_TRIALS_MAP = {3: 50, 7: 15, 14: 15, 30: 15}
+    N_TRIALS_MAP = {3: 20, 7: 50, 14: 50, 30: 50}
     DART_PARAMS = {
         "drop_rate": 0.1,
         "max_drop": 50,
@@ -1512,7 +1512,8 @@ class ItemForecaster:
     def _optuna_search_params(self, X_train, y_train, X_val, y_val,
                                quantile: float = 0.5,
                                boosting_type: str = "gbdt",
-                               n_trials: int = 15) -> Dict[str, Any]:
+                               n_trials: int = 15,
+                               horizon: Optional[int] = None) -> Dict[str, Any]:
         """Bayesian hyperparameter search via Optuna.
 
         Searches over 6 key params using TPE pruning, with early
@@ -1523,6 +1524,9 @@ class ItemForecaster:
                 to reduce overfitting, useful for noisy longer horizons.
             n_trials: Number of Optuna trials. Short horizons (3d) need
                 more trials due to noisy signal; 7d/14d/30d default to 15.
+            horizon: Horizon in days. When provided, applies horizon-aware
+                search-bounds overrides (e.g. 3d skips depth=3 and biases
+                lambda_l2 away from 0, based on prior search results).
         """
         import optuna
 
@@ -1534,6 +1538,13 @@ class ItemForecaster:
         dval = lgb.Dataset(X_val, y_val, reference=dtrain, params=ds_params)
 
         def objective(trial):
+            # Horizon-aware search bounds: 3d overrides known-losing regions.
+            if horizon == 3:
+                _max_depth = trial.suggest_int("max_depth", 4, 8)
+                _lambda_l2 = trial.suggest_float("lambda_l2", 0.5, 2.0, step=0.5)
+            else:
+                _max_depth = trial.suggest_int("max_depth", 3, 8)
+                _lambda_l2 = trial.suggest_float("lambda_l2", 0.0, 2.0, step=0.5)
             params = {
                 "feature_pre_filter": False,
                 "objective": "quantile",
@@ -1547,8 +1558,8 @@ class ItemForecaster:
                 "num_leaves": trial.suggest_int("num_leaves", 15, 63, step=8),
                 "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.08, log=True),
                 "lambda_l1": trial.suggest_float("lambda_l1", 0.0, 2.0, step=0.5),
-                "lambda_l2": trial.suggest_float("lambda_l2", 0.0, 2.0, step=0.5),
-                "max_depth": trial.suggest_int("max_depth", 3, 8),
+                "lambda_l2": _lambda_l2,
+                "max_depth": _max_depth,
                 "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 5, 30, step=5),
                 "min_gain_to_split": 0.1,
                 "feature_fraction": 0.7,
@@ -1569,8 +1580,21 @@ class ItemForecaster:
             return model.best_score["valid_0"]["quantile"]
 
         sampler = optuna.samplers.TPESampler(seed=42)
-        pruner = optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=10)
+        pruner = optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=5)
         study = optuna.create_study(direction="minimize", sampler=sampler, pruner=pruner)
+
+        # Warm-start with the known winning params (from prior 50-trial search),
+        # so TPE starts near the answer instead of rediscovering it.
+        if horizon == 3:
+            study.enqueue_trial({
+                "num_leaves": 47,
+                "learning_rate": 0.01,
+                "lambda_l1": 0.0,
+                "lambda_l2": 1.5,
+                "max_depth": 5,
+                "min_data_in_leaf": 15,
+            })
+
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
         best = study.best_trial
@@ -2082,6 +2106,7 @@ class ItemForecaster:
                             X_train, y_train, X_val, y_val, quantile=q,
                             boosting_type=boosting_type,
                             n_trials=hz_trials,
+                            horizon=horizon,
                         )
 
                         device = "cuda" if _gpu_available() else "cpu"
