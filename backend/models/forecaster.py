@@ -95,6 +95,7 @@ class ItemForecaster:
     # justified). DART left available for future experiments.
     WEAK_HORIZONS = [14, 30]
     BOOSTING_TYPE_MAP = {3: "gbdt", 7: "gbdt", 14: "gbdt", 30: "gbdt"}
+    N_TRIALS_MAP = {3: 50, 7: 15, 14: 15, 30: 15}
     DART_PARAMS = {
         "drop_rate": 0.1,
         "max_drop": 50,
@@ -1510,7 +1511,8 @@ class ItemForecaster:
 
     def _optuna_search_params(self, X_train, y_train, X_val, y_val,
                                quantile: float = 0.5,
-                               boosting_type: str = "gbdt") -> Dict[str, Any]:
+                               boosting_type: str = "gbdt",
+                               n_trials: int = 15) -> Dict[str, Any]:
         """Bayesian hyperparameter search via Optuna.
 
         Searches over 6 key params using TPE pruning, with early
@@ -1519,10 +1521,10 @@ class ItemForecaster:
         Args:
             boosting_type: "gbdt" or "dart". DART uses dropout on trees
                 to reduce overfitting, useful for noisy longer horizons.
+            n_trials: Number of Optuna trials. Short horizons (3d) need
+                more trials due to noisy signal; 7d/14d/30d default to 15.
         """
         import optuna
-
-        n_trials = 15
 
         # Build the binned Dataset once and reuse across all trials. Only tree
         # params (num_leaves, learning_rate, ...) vary between trials; the data
@@ -2073,11 +2075,13 @@ class ItemForecaster:
                         bp["boosting_type"] = boosting_type
                         per_quantile_params[q] = bp
                 else:
+                    hz_trials = self.N_TRIALS_MAP.get(horizon, 15)
                     for q in self.QUANTILES:
-                        logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna, {boosting_type})...")
+                        logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna, {boosting_type}, {hz_trials} trials)...")
                         best_params = self._optuna_search_params(
                             X_train, y_train, X_val, y_val, quantile=q,
                             boosting_type=boosting_type,
+                            n_trials=hz_trials,
                         )
 
                         device = "cuda" if _gpu_available() else "cpu"

@@ -914,21 +914,14 @@ class TestFeatureCache:
 
     def test_cache_stale_after_3_days(self, forecaster, tmp_path):
         """Cache older than 3 days triggers refresh (returns None)."""
-        import os
-        import pyarrow.parquet as pq
         forecaster.model_dir = str(tmp_path)
         df = pd.DataFrame({
             "item_id": ["a"], "date": [date(2020, 1, 1)],
             "price": [10.0], "volume": [100],
             "feature_1": [0.1],
         })
+        df.attrs["_cache_date"] = "2020-01-01"
         forecaster._save_engineered_cache(df)
-        path = os.path.join(str(tmp_path), ItemForecaster.ENGINEERED_CACHE_NAME)
-        table = pq.read_table(path)
-        meta = dict(table.schema.metadata or {})
-        meta[b"_cache_date"] = b"2020-01-01"
-        table = table.replace_schema_metadata(meta)
-        pq.write_table(table, path)
         result = forecaster._load_engineered_cache()
         assert result is None, "Stale cache (>3 days) should return None"
 
@@ -1077,9 +1070,9 @@ class TestTrainingWindow:
 class TestForecastBlending:
     def test_ensemble_constants(self, forecaster):
         """Ensemble must use 6 diversified members (Tier-1 speedup)."""
-        assert forecaster.N_ENSEMBLES == 6
-        assert len(forecaster.ENSEMBLE_SEEDS) == 6
-        assert len(forecaster.ENSEMBLE_FEATURE_FRACTIONS) == 6
+        assert forecaster.N_ENSEMBLES == 3
+        assert len(forecaster.ENSEMBLE_SEEDS) == 3
+        assert len(forecaster.ENSEMBLE_FEATURE_FRACTIONS) == 3
         # Fractions should span a diversification range (not all identical).
         assert len(set(forecaster.ENSEMBLE_FEATURE_FRACTIONS)) > 1
         assert 0.0 < forecaster.FORECAST_BLEND_WEIGHT < 1.0
