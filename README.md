@@ -1,125 +1,108 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white" alt="Python 3.11">
-  <img src="https://img.shields.io/badge/node-20+-339933?logo=nodedotjs&logoColor=white" alt="Node 20+">
-  <img src="https://img.shields.io/badge/next.js-16.2-000000?logo=nextdotjs&logoColor=white" alt="Next.js 16">
-  <img src="https://img.shields.io/badge/fastapi-latest-009688?logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
-</p>
+<div align="center">
 
-<h1 align="center">CS2 Market Analyzer</h1>
+# CS2 Market Analyzer
 
-<p align="center">
-  <em>Counter-Strike 2 market intelligence — collect, analyze, and visualize item price data across 7 markets.</em>
-</p>
+**Market intelligence platform for the Counter-Strike 2 skin economy**
 
-<br>
+[![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white&style=flat-square)](https://python.org)
+[![Node 20+](https://img.shields.io/badge/node-20%2B-339933?logo=nodedotjs&logoColor=white&style=flat-square)](https://nodejs.org)
+[![Next.js 16](https://img.shields.io/badge/next.js-16.2-000000?logo=nextdotjs&logoColor=white&style=flat-square)](https://nextjs.org)
+[![FastAPI](https://img.shields.io/badge/fastapi-009688?logo=fastapi&logoColor=white&style=flat-square)](https://fastapi.tiangolo.com)
+[![TypeScript](https://img.shields.io/badge/typescript-3178C6?logo=typescript&logoColor=white&style=flat-square)](https://typescriptlang.org)
+[![Tailwind CSS v4](https://img.shields.io/badge/tailwind_v4-06B6D4?logo=tailwindcss&logoColor=white&style=flat-square)](https://tailwindcss.com)
+[![LightGBM](https://img.shields.io/badge/lightgbm-7D3C98?logo=python&logoColor=white&style=flat-square)](https://lightgbm.readthedocs.io)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://opensource.org/licenses/MIT)
+
+[![Aggregator](https://img.shields.io/github/actions/workflow/status/RayanR000/cs2-market-analyzer/aggregator-update.yml?label=aggregator&style=flat-square&logo=github)](https://github.com/RayanR000/cs2-market-analyzer/actions/workflows/aggregator-update.yml)
+[![Forecast](https://img.shields.io/github/actions/workflow/status/RayanR000/cs2-market-analyzer/price-forecast.yml?label=forecast&style=flat-square&logo=github)](https://github.com/RayanR000/cs2-market-analyzer/actions/workflows/price-forecast.yml)
+[![Backtest](https://img.shields.io/github/actions/workflow/status/RayanR000/cs2-market-analyzer/backtest-accuracy.yml?label=backtest&style=flat-square&logo=github)](https://github.com/RayanR000/cs2-market-analyzer/actions/workflows/backtest-accuracy.yml)
+[![Supply](https://img.shields.io/github/actions/workflow/status/RayanR000/cs2-market-analyzer/supply-scraper.yml?label=supply&style=flat-square&logo=github)](https://github.com/RayanR000/cs2-market-analyzer/actions/workflows/supply-scraper.yml)
+[![Sentiment](https://img.shields.io/github/actions/workflow/status/RayanR000/cs2-market-analyzer/reddit-sentiment.yml?label=sentiment&style=flat-square&logo=github)](https://github.com/RayanR000/cs2-market-analyzer/actions/workflows/reddit-sentiment.yml)
+
+</div>
 
 ---
 
-## Overview
+**CS2 Market Analyzer** is a full-stack analytics platform for the Counter-Strike 2 skin economy. A daily pipeline collects multi-source prices across **7 markets**, archives 13+ years of history to **Parquet**, and serves intelligence through a **FastAPI** REST API to a **Next.js** dashboard. ML price forecasts via **LightGBM quantile ensembles** replace naive trend analysis with probabilistic predictions.
 
-Full-stack analytics platform for the CS2 skin economy. A daily pipeline collects multi-source prices from **7 markets** (Steam, Skinport, Buff163, CSFloat, CSMoney, CSGOTrader, Youpin), archives to **Parquet**, and serves through a **FastAPI** REST API to a **Next.js** dashboard. ML price forecasts via **LightGBM quantile ensembles** replace traditional trend analysis.
+---
+
+## Architecture
 
 ```
-┌─────────────────┐     ┌────────────────────┐     ┌──────────────────┐
-│  7 Market APIs  │ ──▶ │  FastAPI / Supabase │ ──▶ │  Next.js Dashboard│
-│                 │     │                    │     │                  │
-└────────┬────────┘     └──────────┬─────────┘     └────────┬─────────┘
-         ▼                         ▼                         ▼
-┌─────────────────┐     ┌────────────────────┐     ┌──────────────────┐
-│ Parquet Archive │     │   PostgreSQL / PG   │     │ Recharts + Framer│
-│ (13 years)      │     │   (daily closes)    │     │ Motion           │
-└─────────────────┘     └────────────────────┘     └──────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         DATA INGESTION                           │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────┐  │
+│  │  Steam   │ │ Skinport │ │  Buff163 │ │  CSFloat  │ │  … +3 │  │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └───┬───┘  │
+│       └────────────┴────────────┴────────────┴────────────┘      │
+│                              ▼                                    │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │                Daily Aggregator (23:00 UTC)               │    │
+│  └──────────┬────────────────────────────────────┬──────────┘    │
+│             ▼                                    ▼                │
+│  ┌──────────────────┐              ┌──────────────────────┐      │
+│  │  Parquet Archive  │              │  PostgreSQL/Supabase  │      │
+│  │  (13 yrs · DuckDB)│              │  (daily closes)       │      │
+│  └──────────────────┘              └──────────┬───────────┘      │
+└─────────────────────────────────────────────────┼────────────────┘
+                                                  │
+┌─────────────────────────────────────────────────▼────────────────┐
+│                           BACKEND                                 │
+│  ┌────────────┐  ┌────────────┐  ┌──────────────┐  ┌─────────┐  │
+│  │  FastAPI   │  │ SQLAlchemy │  │   Alembic    │  │  Pydantic│  │
+│  │  REST API  │  │    ORM     │  │  Migrations  │  │ Settings │  │
+│  └─────┬──────┘  └────────────┘  └──────────────┘  └─────────┘  │
+│        │                                                          │
+│  ┌─────▼──────────────────────────────────────────────────────┐  │
+│  │  ML Layer: LightGBM · Optuna · Quantile Ensembles         │  │
+│  │  Regime-Switching · Walk-Forward · SHAP Feature Importance│  │
+│  └───────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────▼────────────────────────────────────┐
+│                      FRONTEND                                     │
+│  ┌────────────┐ ┌────────────┐ ┌──────────┐ ┌────────────────┐   │
+│  │  Next.js   │ │  Recharts  │ │  Tailwind│ │  Framer Motion │   │
+│  │  App Router│ │  Viz       │ │  CSS v4  │ │  Animations    │   │
+│  └────────────┘ └────────────┘ └──────────┘ └────────────────┘   │
+│                                                                   │
+│  Item Detail · Price History · Forecast Overlay · Market Map    │
+│  Opportunities · Event Impacts · Portfolio · Accuracy Metrics   │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-<br>
+---
 
 ## Features
 
-<table>
-  <tr>
-    <td width="50%">
-      <h4>📊 Multi-Source Collection</h4>
-      Daily aggregator polling 7 CS2 skin markets in parallel
-    </td>
-    <td width="50%">
-      <h4>🗄️ Parquet Price Archive</h4>
-      13 years of history, queryable via DuckDB
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <h4>🤖 ML Price Forecasts</h4>
-      LightGBM quantile regression (q10/q50/q90) across 3/7/14/30d horizons.<br>
-      6-member diversified ensemble with walk-forward validation &amp; Optuna tuning
-    </td>
-    <td width="50%">
-      <h4>🔄 Regime-Switching</h4>
-      Separate models per market regime (bear / range / bull)
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <h4>🎯 Accuracy Tracking</h4>
-      Automated daily backtesting with MAE, MAPE, directional accuracy, drift alerts
-    </td>
-    <td width="50%">
-      <h4>🔍 Model Explainability</h4>
-      Per-item feature importance via SHAP-style analysis
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <h4>⚡ Event Impact Analysis</h4>
-      Quantified market-event price impacts with correlation scoring
-    </td>
-    <td width="50%">
-      <h4>📈 Market Opportunities</h4>
-      Undervalued, overheated, and momentum signals surfaced daily
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2">
-      <h4>🖥️ Interactive Dashboard</h4>
-      Responsive Recharts visualizations, grouped market views, item detail pages, forecast overlays
-    </td>
-  </tr>
-</table>
+| | | |
+|---|---|---|
+| **Multi-Source Collection** — Daily aggregator polling 7 CS2 skin markets in parallel | **Parquet Price Archive** — 13 years of history, queryable via DuckDB |
+| **ML Price Forecasts** — LightGBM quantile regression (q10/q50/q90) across 3/7/14/30d horizons. 6-member diversified ensemble with walk-forward validation & Optuna tuning | **Regime-Switching** — Separate models per market regime (bear / range / bull) |
+| **Accuracy Tracking** — Automated daily backtesting with MAE, MAPE, directional accuracy, drift alerts | **Model Explainability** — Per-item feature importance via SHAP-style analysis |
+| **Event Impact Analysis** — Quantified market-event price impacts with correlation scoring | **Market Opportunities** — Undervalued, overheated, and momentum signals surfaced daily |
+| **Interactive Dashboard** — Responsive Recharts visualizations, grouped market views, item detail pages, forecast overlays | **A/B Testing** — Regime vs. ensemble comparison for forecast methodology validation |
 
-<br>
+---
 
-## Stack
+## Tech Stack
 
 | Layer | Technologies |
 |-------|-------------|
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, Framer Motion |
 | **Backend** | Python 3.11, FastAPI, SQLAlchemy 2, Alembic, Pydantic Settings |
 | **Data** | PostgreSQL / Supabase, DuckDB, Parquet, Pandas, NumPy, SciPy |
-| **ML** | LightGBM, Optuna, Joblib |
+| **Machine Learning** | LightGBM, Optuna, Joblib |
 | **Automation** | GitHub Actions (7 scheduled workflows) |
 
-<br>
+---
 
-## Project Structure
-
-```
-cs2-market-analyzer/
-├── backend/              # FastAPI server, routes, collectors, models, tests
-├── frontend/             # Next.js app router, components, API client
-├── docs/                 # Architecture, changelog, references, research
-├── price-archive/        # Parquet price data (13-year history)
-└── .github/workflows/    # 7 automated CI/CD workflows
-```
-
-<br>
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js 20+
-- PostgreSQL 14+ (or Supabase account)
+- Python 3.11+, Node.js 20+, PostgreSQL 14+ (or Supabase account)
 
 ### Backend
 
@@ -127,7 +110,7 @@ cs2-market-analyzer/
 cd backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env    # configure DATABASE_URL
+cp .env.example .env          # configure DATABASE_URL + API keys
 python scripts/run_task.py migrate
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -138,10 +121,42 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 cd frontend
 npm install
 echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
-npm run dev              # → http://localhost:3000
+npm run dev                   # → http://localhost:3000
 ```
 
-<br>
+---
+
+## API Overview
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Health check |
+| `GET /items/`, `/items/search`, `/items/trending`, `/items/{id}` | Item catalog & detail |
+| `GET /items/{id}/price-history`, `/prediction` | Price timeline + ML forecasts |
+| `GET /market/summary` | Grouped market view (paginated, cached) |
+| `GET /opportunities/`, `/undervalued`, `/overheated`, `/momentum` | Trading signals |
+| `GET /events/`, `/events/recent` | Market event timeline |
+| `GET /accuracy/`, `/accuracy/latest`, `/accuracy/summary` | Forecast accuracy metrics |
+| `GET /ab-test/regime`, `/ab-test/ensemble` | Forecast methodology A/B comparison |
+| `GET /auth/me`, `/auth/steam/login` | Steam OpenID authentication |
+| `GET /portfolio/inventory` | Steam inventory snapshot |
+
+---
+
+## Environment Variables
+
+Key configuration (see `backend/.env.example` for full reference):
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL/Supabase connection string |
+| `SECRET_KEY` | Yes | Session signing key (rotate in production) |
+| `STEAM_API_KEY` | Yes | Steam Web API key |
+| `CSMARKETAPI_*` | Yes | Market API keys (6 sources) |
+| `FRONTEND_URL` | Yes | Allowed CORS origin |
+| `ENVIRONMENT` | No | `development` / `production` |
+
+---
 
 ## Commands
 
@@ -171,9 +186,9 @@ Run via `python scripts/run_task.py <task>`:
 cd backend && source venv/bin/activate && pytest
 ```
 
-<br>
+---
 
-## Data Flow
+## Data Pipeline
 
 ```
 22:00 UTC     Supply Scraper        → listing supply depth        → Supabase
@@ -184,8 +199,6 @@ Every 2h      Player Count          → Steam active players        → Supabase
 Weekly Sun    Event Correlation     → market-event price impacts  → analysis tables
 ```
 
-<br>
-
 ## Scheduled Workflows
 
 | Workflow | Schedule | Purpose |
@@ -193,21 +206,55 @@ Weekly Sun    Event Correlation     → market-event price impacts  → analysis
 | `aggregator-update` | Daily 23:00 UTC | Multi-source collection + Parquet archive commit |
 | `supply-scraper` | Daily 22:00 UTC | Listing supply-depth per item |
 | `price-forecast` | Chained off aggregator | LightGBM predictions (predict-only Tue–Sun, full retrain Mon) |
-| `backtest-accuracy` | Chained + Mon–Sat 08:00 UTC | Daily forecast accuracy evaluation |
+| `backtest-accuracy` | Chained + M–Sat 08:00 UTC | Daily forecast accuracy evaluation |
 | `event-correlation-analysis` | Weekly Sun 04:00 UTC | Market-event price impacts |
 | `discover-new-items` | Ad hoc | Scan for newly tradable items |
-| `reddit-sentiment` | Periodic | Community sentiment analysis |
+| `reddit-sentiment` | Every 6h | Community sentiment analysis |
 
-<br>
+---
+
+## Project Structure
+
+```
+cs2-market-analyzer/
+├── backend/              # FastAPI server, routes, collectors, models, tests
+│   ├── api/              # Route handlers
+│   ├── collectors/       # Market data collectors (7 sources)
+│   ├── models/           # SQLAlchemy ORM models
+│   ├── analytics/        # ML forecasting, backtesting, event analysis
+│   ├── scripts/          # Task runner + utilities
+│   └── tests/            # Pytest suite
+├── frontend/             # Next.js app router + components
+│   ├── app/              # Pages (app router)
+│   ├── components/       # React component library
+│   └── lib/              # API client, utilities
+├── docs/                 # Architecture docs, changelog, research
+├── price-archive/        # Parquet price data (13 years)
+└── .github/workflows/    # 7 CI/CD automation workflows
+```
+
+---
 
 ## Security
 
 - Never commit `.env` files — use `.env.example` as template
 - Replace default `SECRET_KEY` in production deployments
 - Enable GitHub Secret Scanning for the repository
+- Pre-commit hooks via `.pre-commit-config.yaml` enforce secrets check
 
-<br>
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Install pre-commit hooks: `pre-commit install`
+4. Make changes and verify with tests: `pytest`
+5. Commit using conventional commit messages
+6. Open a pull request
+
+---
 
 ## License
 
-MIT
+[MIT](https://opensource.org/licenses/MIT)
