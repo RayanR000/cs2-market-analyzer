@@ -352,20 +352,6 @@ class DataPipeline:
                         writer.writerow([currency, rate, agg_date])
                 logger.info("Wrote %s exchange rates to %s", len(rates), exchange_rates_csv_path)
 
-            # ── Collect player count snapshot ──
-            player_counts_csv_path = None
-            try:
-                from collectors.player_counts import collect_and_append, read_daily_csv
-                count = collect_and_append(agg_date)
-                if count is not None:
-                    pc_csv = f"/tmp/player-counts/{agg_date}.csv"
-                    if os.path.exists(pc_csv):
-                        player_counts_csv_path = pc_csv
-                        logger.info("Player count: %s (snapshot appended to %s)", count, pc_csv)
-                else:
-                    logger.warning("Player count fetch returned None — skipping")
-            except Exception as pc_err:
-                logger.warning("Player count collection failed (non-fatal): %s", pc_err)
 
             if missing_names:
                 sample_missing = missing_names[:20]
@@ -479,7 +465,6 @@ class DataPipeline:
                 "backfilled_csv_path": backfilled_csv_path,
                 "snapshot_csv_path": snapshot_csv_path,
                 "exchange_rates_csv_path": exchange_rates_csv_path,
-                "player_counts_csv_path": player_counts_csv_path,
             }
 
         except Exception as e:
