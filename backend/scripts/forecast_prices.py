@@ -126,7 +126,8 @@ def _write_forecasts_to_db(db, results, model_version, slug_to_id, today):
 
 def run_forecast(train_only: bool = False, predict_only: bool = False,
                  compare_regime: bool = False,
-                 compare_ensemble: bool = False):
+                 compare_ensemble: bool = False,
+                 update_bias: bool = False):
     db = SessionLocal()
     try:
         forecaster = ItemForecaster(db_session=db)
@@ -212,6 +213,14 @@ def run_forecast(train_only: bool = False, predict_only: bool = False,
         version_regime = f"{MODEL_VERSION}-regime"
         n_regime = _write_forecasts_to_db(db, results, version_regime, slug_to_id, today)
         logger.info(f"Wrote {n_regime} forecasts (regime mode) to item_forecasts table")
+
+        # Update bias corrections from outcomes if requested
+        if update_bias:
+            logger.info("Updating per-tier bias corrections from outcomes...")
+            try:
+                forecaster.update_bias_corrections_from_outcomes()
+            except Exception as e:
+                logger.error(f"Bias update failed: {e}", exc_info=True)
 
         # Run B: prediction WITHOUT regime-switching (A/B comparison)
         if compare_regime:
@@ -342,10 +351,12 @@ def main():
     predict_only = "--predict-only" in args
     compare_regime = "--compare-regime" in args
     compare_ensemble = "--compare-ensemble" in args
+    update_bias = "--update-bias" in args
 
     result = run_forecast(train_only=train_only, predict_only=predict_only,
                           compare_regime=compare_regime,
-                          compare_ensemble=compare_ensemble)
+                          compare_ensemble=compare_ensemble,
+                          update_bias=update_bias)
     print(f"RESULT: {result}")
     return 0 if result.get("status") == "success" else 1
 

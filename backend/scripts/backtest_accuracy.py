@@ -212,31 +212,24 @@ def _store_forecast_outcomes(db, outcomes):
         ).all()
         existing_ids.update(r[0] for r in rows)
 
-    to_insert = []
-    to_update = []
+    evaluated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Delete existing records for these forecast_ids in one query,
+    # then bulk-insert everything — replaces per-row update loop (27k queries → 2).
+    if existing_ids:
+        db.query(ForecastOutcome).filter(
+            ForecastOutcome.forecast_id.in_(list(existing_ids))
+        ).delete(synchronize_session=False)
+
     for o in outcomes:
-        o["evaluated_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
-        if o["forecast_id"] in existing_ids:
-            to_update.append(o)
-        else:
-            to_insert.append(ForecastOutcome(**o))
-
-    # Update existing records
-    if to_update:
-        for o in to_update:
-            db.query(ForecastOutcome).filter(
-                ForecastOutcome.forecast_id == o["forecast_id"]
-            ).update(o)
-
-    # Insert new records
-    if to_insert:
-        db.add_all(to_insert)
+        o["evaluated_at"] = evaluated_at
+    db.bulk_insert_mappings(ForecastOutcome, outcomes)
 
     db.commit()
-    logger.info(f"  Stored {len(outcomes)} forecast outcome records ({len(to_insert)} new, {len(to_update)} updated)")
+    logger.info(f"  Stored {len(outcomes)} forecast outcome records ({len(existing_ids)} replaced, {len(outcomes) - len(existing_ids)} new)")
 
 
-def backtest_forecasts(db, today=None):
+def backtest_forecasts(db, today=None, min_price=0):
     """Compare mature ML forecasts against actual prices.
 
     Stores both aggregate accuracy metrics (prediction_accuracy) and
@@ -247,6 +240,9 @@ def backtest_forecasts(db, today=None):
       - Direction:        directional_accuracy, baseline comp, bootstrap CI
       - Probabilistic:    interval_coverage, conf_gap_pp, conf_calibration_error
       - Skill:            skill_vs_baseline (Theil's U analog, <1 beats persistence)
+
+    Parameters:
+        min_price: Minimum current_price to include (filter out cheap items).
     """
     today = today or date.today()
     logger.info("=" * 60)
@@ -311,11 +307,13 @@ def backtest_forecasts(db, today=None):
             if mid is None or current is None or current <= 0:
                 continue
 
+            if min_price > 0 and current < min_price:
+                continue
+
             abs_error = abs(mid - actual)
 
-            pred_ret = (mid - current) / current
             actual_ret = (actual - current) / current
-            predicted_direction = _direction_from_return(pred_ret)
+            predicted_direction = f.direction or "flat"
             actual_direction = _direction_from_return(actual_ret)
             direction_correct = 1 if predicted_direction == actual_direction else 0
 
@@ -518,7 +516,7 @@ def backtest_forecasts(db, today=None):
 # Main
 # ---------------------------------------------------------------------------
 
-def run_backtest(types=None):
+def run_backtest(types=None, min_price=0, update_bias=False):
     db = SessionLocal()
     today = date.today()
     allowed = ["forecast"]
@@ -528,12 +526,26 @@ def run_backtest(types=None):
         results = {}
         for t in types:
             if t == "forecast":
-                results["forecast"] = backtest_forecasts(db, today)
+                results["forecast"] = backtest_forecasts(db, today, min_price=min_price)
             else:
                 logger.warning(f"Unknown backtest type: {t}")
 
         total = sum(len(v or []) for v in results.values())
         logger.info(f"\nBacktest complete: {total} accuracy records stored")
+
+        if update_bias:
+            logger.info("=" * 60)
+            logger.info("Updating per-tier bias corrections from outcomes...")
+            logger.info("=" * 60)
+            try:
+                from models.forecaster import ItemForecaster
+                forecaster = ItemForecaster(db_session=db)
+                forecaster.load_models()
+                forecaster.update_bias_corrections_from_outcomes()
+                logger.info("Bias corrections updated successfully")
+            except Exception as e:
+                logger.error(f"Bias update failed: {e}", exc_info=True)
+
         return {"status": "success", "total_records": total, "types": list(results.keys())}
 
     except Exception as e:
@@ -546,16 +558,28 @@ def run_backtest(types=None):
 
 
 def main():
-    args = set(sys.argv[1:])
+    args = list(sys.argv[1:])
     types = None
-    if "--type" in args:
-        idx = sys.argv.index("--type") + 1
-        if idx < len(sys.argv):
-            types = [sys.argv[idx]]
+    min_price = 0.0
+    update_bias = False
+    i = 0
+    while i < len(args):
+        if args[i] == "--type" and i + 1 < len(args):
+            types = [args[i + 1]]
+            i += 2
+        elif args[i] == "--min-price" and i + 1 < len(args):
+            min_price = float(args[i + 1])
+            i += 2
+        elif args[i] == "--update-bias":
+            update_bias = True
+            i += 1
         else:
-            logger.error("--type requires: forecast")
-            sys.exit(1)
-    result = run_backtest(types)
+            i += 1
+    if min_price:
+        logger.info(f"Filtering items with current_price >= ${min_price:.2f}")
+    if update_bias:
+        logger.info("Bias correction update enabled")
+    result = run_backtest(types, min_price=min_price, update_bias=update_bias)
     print(f"RESULT: {json.dumps(result, default=str)}")
     return 0 if result.get("status") == "success" else 1
 

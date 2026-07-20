@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 RNG = np.random.RandomState(42)
 DIRECTION_FLAT_TOLERANCE_PCT = 0.5
 
+# Price tier boundaries for per-tier bias correction
+PRICE_TIER_BOUNDARIES = [(0, 1, "<$1"), (1, 5, "$1-5"), (5, 20, "$5-20"),
+                         (20, 100, "$20-100"), (100, float("inf"), ">$100")]
+BIAS_EWMA_ALPHA = 0.3
+
 
 def _gpu_available() -> bool:
     try:
@@ -149,6 +154,163 @@ class ItemForecaster:
             "update": 7,
             "game_update": 7,
         }
+        # Per-tier bias corrections: {horizon: {tier_label: correction_pct}}
+        # Correction is ADDED to mid_ret (positive shifts predictions upward)
+        # DEPRECATED in favor of bias_thresholds below.
+        self.bias_corrections: Dict[int, Dict[str, float]] = {}
+        # Threshold-based corrections: {horizon: {tier_label: {"t_down": x, "t_up": y}}}
+        # Recalibrates classification boundaries to match the true outcome base rate
+        # instead of shifting mid_ret (which pushes predictions into the flat dead-zone).
+        self.bias_thresholds: Dict[int, Dict[str, dict]] = {}
+        # EWMA state for tracking which tiers have been seen
+        self.bias_ewma_state: Dict[int, Dict[str, int]] = {}
+
+    @staticmethod
+    def _get_price_tier(price: float) -> str:
+        for lo, hi, label in PRICE_TIER_BOUNDARIES:
+            if lo <= price < hi:
+                return label
+        return ">$100"
+
+    # ------------------------------------------------------------------
+    # Bias correction
+    # ------------------------------------------------------------------
+
+    def _load_bias_corrections(self):
+        path = os.path.join(self.model_dir, "bias_corrections.json")
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                self.bias_corrections = {int(k): v for k, v in data.get("corrections", {}).items()}
+                raw_thresholds = data.get("thresholds", {})
+                self.bias_thresholds = {int(k): v for k, v in raw_thresholds.items()}
+                self.bias_ewma_state = {int(k): v for k, v in data.get("ewma_state", {}).items()}
+                logger.info(f"  Loaded bias corrections for {len(self.bias_corrections)} horizons, "
+                            f"thresholds for {len(self.bias_thresholds)} horizons")
+            except (json.JSONDecodeError, ValueError, KeyError) as e:
+                logger.warning(f"  Corrupt bias_corrections.json ({e}), using defaults")
+                self._set_default_bias_corrections()
+        else:
+            logger.info("  No bias_corrections.json found, using defaults")
+            self._set_default_bias_corrections()
+
+    def _save_bias_corrections(self):
+        data = {
+            "corrections": {str(k): v for k, v in self.bias_corrections.items()},
+            "thresholds": {str(k): v for k, v in self.bias_thresholds.items()},
+            "ewma_state": {str(k): v for k, v in self.bias_ewma_state.items()},
+        }
+        path = os.path.join(self.model_dir, "bias_corrections.json")
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+        logger.info("  Saved bias corrections")
+
+    def _set_default_bias_corrections(self):
+        self.bias_corrections = {h: {} for h in self.HORIZONS}
+        self.bias_thresholds = {}
+        for h in self.HORIZONS:
+            self.bias_thresholds[h] = {}
+            for _, _, label in PRICE_TIER_BOUNDARIES:
+                self.bias_thresholds[h][label] = {
+                    "t_down": -DIRECTION_FLAT_TOLERANCE_PCT,
+                    "t_up": DIRECTION_FLAT_TOLERANCE_PCT,
+                }
+        self.bias_ewma_state = {h: {} for h in self.HORIZONS}
+
+    def update_bias_corrections_from_outcomes(self):
+        """Query forecast_outcomes, compute per-tier threshold-based bias
+        correction from the actual outcome distribution, and update.
+
+        For each tier/horizon:
+          1. Compute the true base rate: what % of items actually go up/down.
+          2. Find threshold pair (t_down, t_up) on the predicted mid_ret
+             distribution that makes the predicted up/down/flat split match
+             the actual observed split.
+          3. Store thresholds for use in predict()'s direction classification.
+
+        This replaces the old additive-shift/50-50 logic which mostly dumped
+        predictions into the flat dead-zone.
+        Called after a backtest run.
+        """
+        try:
+            rows = self.db.execute(text("""
+                SELECT fo.horizon_days, fo.current_price, fo.predicted_price_mid,
+                       fo.direction_actual
+                FROM forecast_outcomes fo
+                WHERE fo.model_version LIKE 'lgbm-v3%'
+                  AND fo.current_price > 0
+                  AND fo.direction_actual IS NOT NULL
+            """)).fetchall()
+        except Exception as e:
+            logger.warning(f"  Could not query outcomes for bias update: {e}")
+            return
+
+        if not rows:
+            logger.warning("  No outcome rows found for bias update")
+            return
+
+        df = pd.DataFrame(rows, columns=[
+            "horizon_days", "current_price", "predicted_price_mid",
+            "direction_actual",
+        ])
+        df["tier"] = df["current_price"].apply(self._get_price_tier)
+        df["approx_mid_ret"] = (df["predicted_price_mid"] / df["current_price"] - 1) * 100
+
+        for (horizon, tier), g in df.groupby(["horizon_days", "tier"]):
+            n = len(g)
+            if n < 20:
+                continue
+
+            actual_up = (g["direction_actual"] == "up").mean()
+            actual_down = (g["direction_actual"] == "down").mean()
+            mid_rets = g["approx_mid_ret"].values
+
+            # t_up: threshold above which pred is "up"
+            # Want P(mid_ret > t_up) = actual_up → t_up = (1-actual_up) quantile
+            t_up_est = float(np.percentile(
+                mid_rets, max(0, min(100, (1 - actual_up) * 100))))
+            # t_down: threshold below which pred is "down"
+            # Want P(mid_ret < t_down) = actual_down → t_down = actual_down quantile
+            t_down_est = float(np.percentile(
+                mid_rets, max(0, min(100, actual_down * 100))))
+
+            if t_down_est > t_up_est:
+                t_down_est = -DIRECTION_FLAT_TOLERANCE_PCT
+                t_up_est = DIRECTION_FLAT_TOLERANCE_PCT
+
+            t_up_est = max(-3.0, min(3.0, t_up_est))
+            t_down_est = max(-3.0, min(3.0, t_down_est))
+
+            current = self.bias_thresholds.get(horizon, {}).get(tier, {})
+            curr_t_down = current.get("t_down", -DIRECTION_FLAT_TOLERANCE_PCT)
+            curr_t_up = current.get("t_up", DIRECTION_FLAT_TOLERANCE_PCT)
+
+            n_seen = self.bias_ewma_state.get(horizon, {}).get(tier, 0)
+            if n_seen == 0:
+                new_t_down = t_down_est
+                new_t_up = t_up_est
+            else:
+                new_t_down = BIAS_EWMA_ALPHA * t_down_est + (1 - BIAS_EWMA_ALPHA) * curr_t_down
+                new_t_up = BIAS_EWMA_ALPHA * t_up_est + (1 - BIAS_EWMA_ALPHA) * curr_t_up
+
+            if horizon not in self.bias_thresholds:
+                self.bias_thresholds[horizon] = {}
+            self.bias_thresholds[horizon][tier] = {
+                "t_down": round(new_t_down, 2),
+                "t_up": round(new_t_up, 2),
+            }
+
+            if horizon not in self.bias_ewma_state:
+                self.bias_ewma_state[horizon] = {}
+            self.bias_ewma_state[horizon][tier] = n_seen + 1
+
+            logger.info(f"  Threshold[{horizon}d, {tier}]: "
+                        f"t_down={curr_t_down:+.2f}→{new_t_down:+.2f}, "
+                        f"t_up={curr_t_up:+.2f}→{new_t_up:+.2f} "
+                        f"(actual_up={actual_up*100:.1f}% actual_down={actual_down*100:.1f}%, n={n})")
+
+        self._save_bias_corrections()
 
     # ------------------------------------------------------------------
     # Regime switching
@@ -2473,12 +2635,32 @@ class ItemForecaster:
             low_ret_arr, mid_ret_arr, high_ret_arr = self._blend_returns_with_prior(
                 low_ret_arr, mid_ret_arr, high_ret_arr, prior, self.FORECAST_BLEND_WEIGHT)
 
+            # Per-tier bias correction: threshold-based approach (preferred).
+            # Recalibrates classification boundaries to match the true outcome
+            # base rate instead of shifting mid_ret (which pushes predictions
+            # into the flat dead-zone). Falls back to additive correction only
+            # when no threshold data exists for any tier on this horizon.
+            tier_thresholds = self.bias_thresholds.get(horizon, {})
+            fallback_additive = not tier_thresholds
+            corrections = self.bias_corrections.get(horizon, {})
+            if corrections and fallback_additive:
+                mid_ret_arr = np.array(mid_ret_arr, dtype=np.float64, copy=True)
+                low_ret_arr = np.array(low_ret_arr, dtype=np.float64, copy=True)
+                high_ret_arr = np.array(high_ret_arr, dtype=np.float64, copy=True)
+                for i, price in enumerate(current_price_arr):
+                    tier = self._get_price_tier(float(price))
+                    corr = corrections.get(tier, 0.0)
+                    if corr != 0.0:
+                        mid_ret_arr[i] += corr
+                        low_ret_arr[i] += corr
+                        high_ret_arr[i] += corr
+
             # Diagnostic: log crossing rate
             crossing_mask = (p10_ret > p50_ret) | (p50_ret > p90_ret)
             crossing_rate = np.mean(crossing_mask)
             if crossing_rate > 0.01:
                 logger.warning(f"  Quantile crossing rate: {crossing_rate:.3f} "
-                               f"(corrected via PAV isotonic regression)")
+                               f"(corrected via PAV isotonic regression")
 
             for i, iid in enumerate(item_id_arr):
                 low_ret, mid_ret, high_ret = (float(low_ret_arr[i]),
@@ -2491,11 +2673,24 @@ class ItemForecaster:
                 price_mid = round(current_price * (1 + mid_ret / 100), 2)
                 price_high = round(current_price * (1 + high_ret / 100), 2)
 
+                # Direction: use threshold-based correction when available
+                # (recalibrates classification boundaries to match true base rate
+                # instead of shifting mid_ret). Falls back to ±0.5 defaults.
+                tier = self._get_price_tier(float(current_price))
+                th = tier_thresholds.get(tier, {})
+                t_down = th.get("t_down", -DIRECTION_FLAT_TOLERANCE_PCT)
+                t_up = th.get("t_up", DIRECTION_FLAT_TOLERANCE_PCT)
+                if mid_ret > t_up:
+                    direction = "up"
+                elif mid_ret < t_down:
+                    direction = "down"
+                else:
+                    direction = "flat"
                 agg[iid]["forecasts"][horizon] = {
                     "low": price_low,
                     "mid": price_mid,
                     "high": price_high,
-                    "direction": "up" if mid_ret > DIRECTION_FLAT_TOLERANCE_PCT else "down" if mid_ret < -DIRECTION_FLAT_TOLERANCE_PCT else "flat",
+                    "direction": direction,
                     "confidence": self._compute_confidence(price_mid, price_low, price_high,
                                                             current_price, horizon=horizon),
                 }
@@ -3085,6 +3280,9 @@ class ItemForecaster:
         with open(os.path.join(self.model_dir, "meta.json"), "w") as f:
             json.dump(meta, f, default=_json_default)
 
+        # Save per-tier bias corrections
+        self._save_bias_corrections()
+
         logger.info(f"Models saved to {self.model_dir}")
 
     def load_models(self):
@@ -3212,6 +3410,9 @@ class ItemForecaster:
                 continue
             model = ensemble[0] if isinstance(ensemble, list) else ensemble
             self.horizon_feature_cols[horizon] = model.feature_name()
+
+        # Load per-tier bias corrections
+        self._load_bias_corrections()
 
         total_groups = len(self.models) + len(self.regime_models)
         if self.regime_models:
