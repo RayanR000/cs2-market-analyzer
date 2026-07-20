@@ -244,11 +244,27 @@ The 136 remaining high-priority items (1000+ tier) include capsules, stickers, a
 - **Parallel fetching**: Currently 1 request at a time (1s delay). Could parallelize with multiple keys simultaneously.
 - **Selective date range**: Pass `start`/`end` params to sales history to reduce response size for items with very long histories.
 
+## Complementary Coverage: Hugging Face Dataset (2026-07-20)
+
+The CSMarketAPI backfill covers **4,940 items** (Steam + 6 markets). A complementary expansion was done via the [HF CS2 Historical Item Price Dataset](https://huggingface.co/datasets/idomanteu/cs2-historical-item-prices-hourly-march-april-2026) (CC BY 4.0):
+
+| Metric | CSMarketAPI Backfill | HF Dataset |
+|--------|:--------------------:|:----------:|
+| Items | 4,940 | **32,848** |
+| Markets | 7 (Steam + 6) | 3 (BUFF, CSFloat, YouPin) |
+| Period | 2013–2026 (daily) | Mar 22 – Apr 15 2026 (hourly) |
+| Data type | Sale prices (OHLCV) | Ask/bid OHLCV |
+| Method | Per-item API calls | Bulk Parquet download |
+| Auth | API keys ($9.99/mo) | CC BY 4.0 (free) |
+
+The HF dataset brought the total items with some historical data from **5,542 to ~33,000** for the Mar 22 – Apr 15 window. See `docs/references/data-sources.md` for full details. Script: `backend/scripts/merge_hf_dataset.py`.
+
 ## File Reference
 
 | File | Purpose |
 |---|---|
 | `backend/collectors/csmarketapi_backfill.py` | Main backfill script |
+| `backend/scripts/merge_hf_dataset.py` | HF dataset merge into Parquet archive |
 | `backend/config.py` | Settings model with `csmarketapi_keys` property |
 | `.env` | API keys + account names |
 | `runtime/csmarketapi.db` | Backfill database (items + sales_history + state) |

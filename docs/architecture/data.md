@@ -12,7 +12,7 @@ Supabase has a 500 MB limit. `price_history` held 15.2M daily OHLCV rows that co
 
 ```
 data-archive branch:
-  └─ prices-YYYY.parquet    — Full daily OHLCV by year (~10-15 MB each)
+  └─ prices-YYYY.parquet    — Full daily OHLCV by year (~10-45 MB each)
   └─ snapshots-YYYY.parquet — Raw multi-source snapshots
   └─ exchange-rates-YYYY.parquet — Currency rates
 
@@ -31,9 +31,12 @@ Supabase (~68 MB):
 
 ```
 csmarketapi.db ──export_historical_parquet.py──▶ archive/price-archive/prices-*.parquet
-                                                         │
+                                                          │
 Live aggregator ──▶ CSVs ──▶ daily Parquet append
-                                                         │
+                                                          │
+HF CS2 dataset ──merge_hf_dataset.py──▶ append to prices-2026.parquet
+                                          (Mar 22 – Apr 15, ~33K items)
+                                                          │
 Analysis scripts (DuckDB + read_parquet)
   └─ 90-day or 365-day or full history — local, ~200ms
   └─ Compute results → write to Supabase tables
@@ -46,21 +49,23 @@ API serving:
 
 ### Storage Breakdown
 
-| Table | Size | Rows | Growth |
+| Table / File | Size | Rows | Growth |
 |-------|------|------|--------|
 | `items` | ~2 MB | 5,525 | Static |
 | `price_history` | ~1 MB | few hundred | Stale (aggregator writes to Parquet only) |
 | `supply_snapshots` | ~2 MB | 35,037 | ~11K rows/day |
 | `item_forecasts` | ~8.4 MB | 10,970 | UPSERT, bounded |
 | `event_correlations` | ~17 MB | 67,211 | Weekly rebuild |
-| `event_impacts` | ~15 MB | 67,211 | Weekly rebuild |
+| `event_impacts` | ~17 MB | 67,211 | Weekly rebuild |
 | `collection_runs` | ~1 MB | ~1,000 | 1 row/day |
 | `prediction_accuracy` | ~2 MB | ~5,000 | UPSERT, bounded |
 | `forecast_outcomes` | ~4 MB | ~50,000 | UPSERT, bounded |
 | `accuracy_alerts` | ~1 MB | ~100 | UPSERT, bounded |
 | `users` | ~0.1 MB | few | Static |
 | Others | ~8 MB | — | Static |
-| **Total** | **~68 MB** | | |
+| **Supabase total** | **~68 MB** | | |
+| `prices-2026.parquet` | **44.6 MB** (was 19 MB) | **4.1M** (was 2.0M) | After HF merge |
+| `snapshots-2026.parquet` | **21.2 MB** (was 7.6 MB) | **3.7M** (was 1.6M) | After HF merge |
 
 ### Performance
 
@@ -121,6 +126,7 @@ After: `Item.is_backfilled == True`
 |--------|---------|
 | `export_historical_parquet.py` | One-time: csmarketapi.db → year-split Parquet files |
 | `append_to_parquet.py` | Daily: append aggregator rows to current year's Parquet |
+| `merge_hf_dataset.py` | One-time: Hugging Face CS2 dataset → append to 2026 Parquet |
 | `build_chart_points.py` | Manual utility: Parquet → chart_points (if needed) |
 
 ### Daily aggregator run
@@ -149,3 +155,4 @@ See `docs/changelog/` for full detail. Major changes:
 - **2026-07-08**: Dropped `trend_indicators` table, cleared stale rows (~350 MB recovered)
 - **2026-07-11**: All 7 sources written to Parquet; dropped `chart_points` (freed 290 MB)
 - **2026-07-16**: Dropped `daily_analysis` table (migration 0015)
+- **2026-07-20**: Merged HF CS2 dataset (32K items, Mar 22 – Apr 15) into Parquet archive — filled 17 gap days, expanded 8 overlap days, 2.1M new OHLCV rows

@@ -12,6 +12,7 @@
 | Skinport (via aggregator) | JSON API | Every 6h | Broken — reads wrong keys (`last_24h` instead of `starting_at`) | None | **Broken** |
 | Skinport (direct API) | REST API | N/A | Cloudflare 403 — unavailable server-side | None | **Dead** |
 | cs2.sh archive | API stub | N/A | Not implemented | CS2SH_API_KEY | **Stub** |
+| **HF CS2 Dataset (idomanteu)** | **Parquet (Hugging Face)** | **Imported once** | **Hourly BUFF/CSFloat/YouPin, Mar 22 – Apr 15 2026** | **None (CC BY 4.0)** | **✅ Active (merged to archive 2026-07-20)** |
 | Steam Announcements | Stub | N/A | Not implemented | None | **Stub** |
 | Synthetic demo | Generated | Dev only | Fake | None | **Dev only** |
 | Steam `priceoverview` | Undocumented endpoint | Per-item | 24h sales volume, lowest/median price | None | **Not integrated** |
@@ -95,6 +96,49 @@ Tested on the volume-rich window (2023–2025, 4.47M samples with `volume>0`):
 | cs2.sh Developer | $75/mo | ✅ bulk endpoint | ask_volume (listing count, not trade vol) | 6 markets |
 
 **Verdict:** a free, bulk trade-volume source already exists *inside the archive* — the Steam price-history backfill (`aggregator_sync`) — for 5,542 items. Paid sources (CSMarketCap $9.99/mo, SteamWebAPI €15/mo) would only extend coverage to more items and keep recent days fresh; they do **not** add predictive signal.
+
+## Hugging Face CS2 Dataset (merged 2026-07-20)
+
+The [HF CS2 Historical Item Price Dataset](https://huggingface.co/datasets/idomanteu/cs2-historical-item-prices-hourly-march-april-2026) (CC BY 4.0) was merged into the Parquet archive to fill the 2026 data gap and expand item coverage.
+
+### What it contains
+
+| Field | Detail |
+|-------|--------|
+| Source | `idomanteu/cs2-historical-item-prices-hourly-march-april-2026` |
+| Format | Parquet (zstd), 668 MB raw, 69.2M rows |
+| Period | 2026-03-22 → 2026-04-15 (25 days, hourly) |
+| Items | 32,848 unique `market_hash_name` |
+| Markets | BUFF (`aggregator_buff163`), CSFloat (`aggregator_csfloat`), YouPin (`aggregator_youpin`) |
+| Fields | OHLC ask/bid, ask/bid volume, sample count |
+| License | CC BY 4.0 — free for commercial use with attribution |
+
+### What was merged
+
+| Scope | Days | Items added per day | Sources |
+|-------|:----:|:-------------------:|:-------:|
+| Gap fill (Mar 30 – Apr 15) | **17** | ~32,500 (previously 0) | 3 (buff/csfloat/youpin) |
+| Overlap expansion (Mar 22–29) | 8 | ~32,400 (was 504–2,724) | 4 (buff/csfloat/youpin + existing aggregator_sync) |
+
+### Before vs After (2026 Parquet archive)
+
+| Date range | Before | After |
+|------------|--------|-------|
+| Mar 22 | 2,724 items, 1 source | 32,437 items, 4 sources |
+| Mar 30 – Apr 15 | **zero data** | ~32,500 items/day, 3 sources |
+| Jul 11+ | 41,125 items, 11 sources | unchanged |
+
+The remaining gap (**Apr 16 – Jul 8, 84 days**) is still unfilled for non-backfilled items.
+
+### Merge script
+
+`backend/scripts/merge_hf_dataset.py` — standalone script that:
+1. Downloads the HF Parquet file (cached at `/tmp/cs2_listing_prices_hourly.parquet`)
+2. Maps `market_hash_name` → `item_slug`, `bucket` → `day`, `close_ask` → price
+3. Aggregates hourly → daily OHLCV per `(item_slug, day, source)`
+4. Appends to `prices-YYYY.parquet` and `snapshots-YYYY.parquet` using the same dedup logic as `append_to_parquet.py`
+
+Usage: `python scripts/merge_hf_dataset.py --out-dir ..`
 
 ## Quality gaps
 - Wire `data_validation.py` checks into the pipeline
