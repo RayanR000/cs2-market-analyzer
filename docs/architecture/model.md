@@ -144,15 +144,15 @@ Confidence calibration uses pooled out-of-fold predictions across all folds. Add
 
 ### Boosting Strategy
 
-Short horizons (3d, 7d) use standard **GBDT**. Longer horizons (14d, 30d) use **DART** (Dropout Additive Regression Trees) to reduce overfitting on noisy longer-range signals. DART uses 500 boost rounds (vs 1000 for GBDT) and adds three Optuna-tuned hyperparameters (`drop_rate`, `max_drop`, `skip_drop`).
+Short horizons (3d, 7d) use standard **GBDT**. Longer horizons (14d, 30d) use **DART** (Dropout Additive Regression Trees) to reduce overfitting. DART uses 500 boost rounds (vs 1000 for GBDT) and adds three Optuna-tuned hyperparameters (`drop_rate`, `max_drop`, `skip_drop`).
 
 ### Residual Stacking
 
-After ensemble training for weak horizons (14d, 30d), a **Ridge regression** model (`alpha=5.0`) is trained on the ensemble residuals to correct systematic bias. At prediction time, the Ridge correction is added to the ensemble prediction. Models saved as `residual_{horizon}d_q{int(q*100)}.pkl`.
+A **Ridge regression** model (`alpha=5.0`) trained on ensemble residuals to correct systematic bias for weak horizons (14d, 30d). Models saved as `residual_{horizon}d_q{int(q*100)}.pkl`.
 
 ### Forecast Blending
 
-A `FORECAST_BLEND_WEIGHT = 0.15` is applied to smooth predictions day-over-day, reducing direction flip-flopping by blending the current forecast with the previous day's.
+`FORECAST_BLEND_WEIGHT = 0.15` smooths predictions day-over-day, reducing direction flip-flopping by blending with the previous day's forecast.
 
 ### Parameters
 
@@ -319,9 +319,9 @@ All three issues were fixed in the 2026-07-17 changelog. Full details in `docs/c
 | 60d rolling features + 730d training window | 2026-07-12 | Medium |
 | Concept drift monitoring | Jul 2026 | Medium |
 | **Regime-switching models** (bear/range/bull per horizon) | **2026-07-18** | **High** — captures regime-specific price dynamics |
-| **DART boosting for 14d/30d** | Pending | **Medium** — reduces overfitting on noisy long horizons |
-| **Residual stacking** (Ridge on LGB residuals) | Pending | **Medium** — corrects systematic bias for weak horizons |
-| **Forecast blending** (`FORECAST_BLEND_WEIGHT=0.15`) | Pending | **Low** — reduces daily direction flip-flopping |
+| **DART boosting for 14d/30d** | Done | **Medium** — reduces overfitting on noisy long horizons |
+| **Residual stacking** (Ridge on LGB residuals) | Done | **Medium** — corrects systematic bias for weak horizons |
+| **Forecast blending** (`FORECAST_BLEND_WEIGHT=0.15`) | Done | **Low** — reduces daily direction flip-flopping |
 | Prediction sanity checks (clamp, zero-volume) | 2026-07-12 | Low |
 | 41 unit tests for forecaster | 2026-07-12 | Foundation |
 | **Dead item filter** (remove $0.03 floor items) | 2026-07-17 | High — +2-5pp estimated, 41% less training noise |

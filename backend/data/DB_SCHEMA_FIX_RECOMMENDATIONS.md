@@ -1,5 +1,7 @@
 # Database Fix Recommendations (2026-07-07)
 
+> **Historical — all recommendations implemented.** See `docs/architecture/data.md` and `docs/historical/`.
+
 Follow-up to the session notes and `docs/historical/db-migration-plan.md`.
 
 ## Core observation: the problem is write patterns, not hosting

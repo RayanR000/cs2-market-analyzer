@@ -1,5 +1,7 @@
 # Prediction Model — Priority Fixes
 
+> **Historical — all priority fixes resolved.** See `docs/architecture/model.md` and `docs/research/model-critique.md` for current state.
+
 **Created:** 2026-07-17
 **Status:** Items 1–3 resolved; items 4–6 planning
 **Context:** Warm retrain is ~5.7 min against a 20–30 min budget. The model is **not time-constrained — it is correctness-constrained.** Spend the headroom on robustness, not more boosters.

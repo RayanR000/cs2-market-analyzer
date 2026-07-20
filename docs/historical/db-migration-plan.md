@@ -1,5 +1,8 @@
 # Database Cleanup & Historical Data Migration Plan
 
+> **Historical planning doc — superseded by Parquet architecture.**
+> See `docs/architecture/data.md` for current state.
+
 ## Status
 
 - ✅ Phase 0 completed: Removed 3 orphaned local DBs + dropped 6 computed Supabase tables (freed ~194 MB)

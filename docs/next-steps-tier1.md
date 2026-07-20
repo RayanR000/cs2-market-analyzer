@@ -1,5 +1,8 @@
 # Post-Tier-1 Next Steps
 
+> **Historical planning doc — all Tier-1 items completed.**
+> See `docs/architecture/model.md` for current state and `docs/research/accuracy-opportunities.md` for remaining work.
+
 ## ✅ What's been implemented
 
 | Lever | Status | File |

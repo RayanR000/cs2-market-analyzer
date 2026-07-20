@@ -1,5 +1,7 @@
 # Steam Market API Reference
 
+> **Canonical version at `docs/references/steam-api.md`.** This copy is preserved for reference.
+
 Findings from testing — do not re-test, use this as reference.
 
 ---

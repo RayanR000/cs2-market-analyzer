@@ -1,5 +1,8 @@
 # Session Notes — Full System Overhaul (2026-07-07 → 07-08)
 
+> **Historical record — overhaul complete.**
+> Canonical version at `docs/historical/system-overhaul.md`.
+
 Everything done in this session, in order. Companion docs:
 `docs/historical/schema-fix-recommendations.md`, `docs/historical/price-basis-swap.md`.
 

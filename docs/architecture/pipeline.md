@@ -32,10 +32,3 @@
 
 ### Test Coverage
 - ~170 tests passing — 11 unit tests for aggregator fuzzy matching, integration tests for pipeline + DB flow, plus fallback recovery and full workflow tests.
-
-## Future Plans
-
-1. **Test daily workflow** — Let the scheduled GitHub Action run for a few days and verify data lands in both Parquet files correctly.
-2. **Migrate snapshots → Supabase** — Write a migration script to upsert multi-market data from `snapshots-YYYY.parquet` into Supabase `price_history` once the frontend is ready for it.
-3. **Trend average injection** — Inject Steam 7/30/90d averages from Parquet snapshots into the API/cache (the `daily_analysis` table was dropped in migration 0015, so new storage is needed).
-4. **Backfill remaining items** — The CSMarketAPI backfill covered 5,542/31,417 items with full OHLCV + volume. The remaining ~25K have trend-only coverage from CSGOTrader.

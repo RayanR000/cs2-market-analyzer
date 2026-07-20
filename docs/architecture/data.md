@@ -141,31 +141,11 @@ GitHub Actions (23:00 UTC)
 
 ---
 
-## History of Changes
+## Key Schema Milestones
 
-### 2026-07-07: Schema fix (589 MB → 392 MB)
-- Drop surrogate `id` PK on `price_history`, promote `(item_id, timestamp, source)`
-- Freed 80 MB pkey + 256 MB bloated unique index → 138 MB fresh PK
-
-### 2026-07-08: Backfilled-only catalog + Parquet storage
-- Catalog reduced to 5,525 backfilled items; 13,796 snapshot-tier items archived
-- Collection schedule: 4×/day → 1×/day at 23:00 UTC (CSGOTrader refreshes ~21:40 UTC)
-- 117,990 intraday duplicates deleted
-- Daily Parquet archive on `data-archive` branch
-
-### 2026-07-08: DB optimization (775 MB → 301 MB)
-- Removed redundant `idx_chart_point_item_day` index (~100 MB)
-- Deleted stale `price_history` rows for backfilled items (~350 MB)
-- Dropped `trend_indicators` table (redundant with `daily_analysis`)
-
-### 2026-07-11: Multi-source storage
-- All 7 CSGOTrader sources now written to Parquet instead of just `aggregator_sync`
-- Dropped `chart_points` table (freed 290 MB; data in Parquet)
-- Parquet schema: `item_slug, day, source, mean_price, min_price, max_price, median_price, volume`
-- Added exchange rates to archive
-- Supabase: ~68 MB total
-
-### 2026-07-16: Drop `daily_analysis` table
-- Table removed entirely (migration 0015)
-- Functionality superseded by item_forecasts + Parquet-based analysis
-- Storage Breakdown updated to reflect current state
+See `docs/changelog/` for full detail. Major changes:
+- **2026-07-07**: Composite PK on `price_history` promoted (`item_id, timestamp, source`), freed ~80 MB
+- **2026-07-08**: Backfilled catalog (5,525 items), 1×/day collection, Parquet archive on `data-archive`
+- **2026-07-08**: Dropped `trend_indicators` table, cleared stale rows (~350 MB recovered)
+- **2026-07-11**: All 7 sources written to Parquet; dropped `chart_points` (freed 290 MB)
+- **2026-07-16**: Dropped `daily_analysis` table (migration 0015)

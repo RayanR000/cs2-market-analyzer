@@ -1,5 +1,7 @@
 # Data Source Audit & Plan
 
+> **Consolidated into `docs/references/data-sources.md`.** This file is preserved for reference but may be stale.
+
 ## Current Sources
 
 | Source | Type | Interval | Freshness | Auth | Status |

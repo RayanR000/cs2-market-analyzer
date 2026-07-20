@@ -38,14 +38,14 @@ Date: 2026-07-14
 
 ## 2. Model Architecture
 
-| Approach | Expected Benefit | Calibrated | Complexity |
-|----------|-----------------|------------|------------|
-| **Linear/Ridge head ensemble** — hybrid tree + linear model captures both non-linear and trend-following regimes | 2-5pp | 1-2pp | Low |
-| **Multi-horizon joint training** — predict all 4 horizons in one model; short-term signal informs long-term | 1-3pp | 1-2pp | Medium |
-| **Regime-switching models** — separate LGBM for bull/bear/range regimes (detected via market_regime feature as classifier) | 3-8pp | 2-4pp | Medium |
-| **Expand ensemble to 7-10 seeds** with column subsampling variation (not just different random seeds) | 1-2pp | 1-2pp | Low |
-| **N-BEATS or Temporal Fusion Transformer** as secondary stack — tree + neural net ensemble | 3-8pp | 1-3pp | High |
-| **Hierarchical forecast** — predict market → category → item, constrain item forecasts to sum to category | 2-4pp | 1-2pp | High |
+| Approach | Expected Benefit | Calibrated | Complexity | Status |
+|----------|-----------------|------------|------------|--------|
+| **Linear/Ridge head ensemble** — hybrid tree + linear model | 2-5pp | 1-2pp | Low | ✅ Done |
+| **Regime-switching models** — separate LGBM per bull/bear/range regime | 3-8pp | 2-4pp | Medium | ✅ Done |
+| **Multi-horizon joint training** — all 4 horizons in one model | 1-3pp | 1-2pp | Medium | Pending |
+| **Expand ensemble to 7-10 seeds** | 1-2pp | 1-2pp | Low | Pending |
+| **N-BEATS or Temporal Fusion Transformer** — neural net ensemble | 3-8pp | 1-3pp | High | Pending |
+| **Hierarchical forecast** — market → category → item | 2-4pp | 1-2pp | High | Pending |
 
 ---
 
@@ -101,28 +101,23 @@ Date: 2026-07-14
 
 ## Priority Order
 
-1. **✅ Completed: Supply-side features** — rarity one-hot kept (+10-12pp causal signal within model). Weapon_type (22 cols) and cross-sectional (6 cols) removed — zero causal signal. Bundle A/B test: +0.66pp avg.
-2. **✅ Completed: Player count** — **Removed**. +3.0pp A/B but **0pp** causal (extra model capacity inflation). Permutation test: shuffled = real to within 0.03pp.
-3. **✅ Completed: Event decay optimization** — **0pp**. Coordinate-wise tau grid search found defaults were already optimal. Walk-forward A/B: "optimal" taus degraded by -0.57pp.
-4. **✅ Completed: Auto-prune (permutation-based feature validation)** — prevents overfit by removing feature groups that fail permutation test.
-5. **✅ Completed: Multi-source outlier voting** — **0pp on training, essential for inference**. 99.6% of training data is single-source STEAMCOMMUNITY backfill; voting only affects 0.4% of rows. At inference, 96.4% of items see >0.5% price correction on current_price. See `2026-07-14-remaining-accuracy-improvements.md` for full analysis.
+### ✅ Completed
+1. **Supply-side features** — rarity one-hot kept (+10-12pp causal). Weapon_type/player counts removed (zero causal).
+2. **Event decay optimization** — **0pp**; defaults were already optimal.
+3. **Auto-prune** — permutation-based feature validation prevents overfit.
+4. **Multi-source outlier voting** — **0pp on training, essential for inference**.
+5. **Data quality audit** — dead item filter, target winsorization, corrupt item exclusion, sample weighting, 2026 shift guard. Cumulative est. +3-8pp orthogonal gain.
+6. **Regime-switching models** — separate per-regime LGBM ensembles (2026-07-18).
+7. **Ridge residual stacking / DART / forecast blending** — post-processing improvements.
+8. **Feature contribution by horizon** — pruned harmful cross-sectional/event features at 14d/30d (2026-07-19).
+
 ### Dropped
-- 🛑 **Supply depth (active `sell_listings` count)** — **DROPPED (2026-07-16).** Was the top remaining ROI. Dropped because: only the *change/velocity* variant is directionally predictive (the level is a liquidity signal, not a forecast); change features need 30+ days of `supply_snapshots` history or a paid backfill; the only free source is a ~115 min/day Steam scrape (too slow) and no free bulk listing-count source exists; paid APIs were rejected. Expected lift was only ~+1-2pp. Full rationale in the §1 DECISION note.
+- 🛑 **Supply depth (`sell_listings` count)** — change/velocity variant is predictive but needs 30+ days history or paid backfill. Free source too slow. Rejected 2026-07-16.
 
-### ✅ Completed: Data Quality Audit & Training Data Fixes (2026-07-17)
-6. **✅ Completed: Data quality fixes** — comprehensive audit of 9.8M training rows revealed and fixed 3 critical issues:
-   - **Dead item filter**: removed 4.1M rows (41.5%) at Steam floor price — zero signal, pure dilution. +2-5pp estimated.
-   - **Target winsorization**: clipped 11,044 corrupt price jumps >1000%. +1-3pp estimated.
-   - **Corrupt item exclusion**: removed 151 items with 10+ API corruption events. +0.5-1pp estimated.
-   - **Sample weighting**: down-weights flat items, up-weights movers. +1-2pp estimated.
-   - **2026 shift guard**: excludes incomplete 2026 backfill (Jan-Mar). +1-2pp estimated.
-   - **Cumulative estimated accuracy gain: +3-8pp**. These gains are orthogonal to feature engineering — they make the existing model train on higher-quality signal. See `docs/changelog/2026-07-17-data-quality-audit-and-fixes.md` for full details.
-
-### Remaining (re-prioritized — regime-switching is now the top item)
-7. **Regime-switching models** — moderate effort, 2-4pp during volatile periods (lower averaged). **Now the top remaining item.**
-8. **Multi-horizon joint training** — moderate effort, 1-2pp potential.
-9. **Quality spread / cross-wear features** — genuinely new signal, 1-2pp potential.
-10. **Directional smoothing + ensemble expansion** — quick post-processing wins.
+### Remaining
+1. **Quality spread / cross-wear features** — genuinely new signal, 1-2pp.
+2. **Multi-horizon joint training** — all horizons in one model, 1-2pp.
+3. **Ensemble expansion** — more seeds with column subsampling, 1-2pp.
 
 ---
 

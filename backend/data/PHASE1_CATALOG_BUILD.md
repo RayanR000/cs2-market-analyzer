@@ -1,5 +1,8 @@
 # Phase 1: Market Catalog Build — Documentation
 
+> **Historical — catalog build complete (31,908 items, 93% coverage).**
+> See `docs/references/catalog-build.md` for the canonical version.
+
 ## What We Built
 
 A complete catalog of every CS2 item on the Steam Community Market, stored in local SQLite. This replaces the production database's limited 24,822-item catalog with a full 31,908-item catalog scraped directly from Steam's API.

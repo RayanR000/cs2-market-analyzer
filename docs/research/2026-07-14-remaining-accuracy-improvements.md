@@ -1,5 +1,8 @@
 # Remaining Accuracy Improvements
 
+> **Historical planning doc (2026-07-14).** Most items now complete.
+> See `docs/research/accuracy-opportunities.md` for the current prioritized list.
+
 Current accuracy (post item-type features): 60-68% directional across horizons (~10-18pp above 50% baseline).
 
 Below are the remaining opportunities, grouped by estimated impact and effort.

@@ -1,4 +1,4 @@
-/nFeature Contribution A/B Test — Cross-Sectional & Event Features by Horizon
+# Feature Contribution A/B Test — Cross-Sectional & Event Features by Horizon
 
 **Date:** 2026-07-19  
 **Context:** Investigation into whether market-level cross-sectional features and event relevance weighting actually help 14d/30d horizons, given the hypothesis that skin-market prices past ~2 weeks are dominated by unforecastable one-off events.

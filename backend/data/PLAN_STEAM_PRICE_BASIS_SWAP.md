@@ -1,5 +1,7 @@
 # COMPLETED: Unify Price Basis on Steam (fix the historical↔live jump)
 
+> **Executed and complete.** See `docs/historical/price-basis-swap.md` for canonical record.
+
 Written 2026-07-08. Updated 2026-07-08 after execution.
 
 ## Problem (was)

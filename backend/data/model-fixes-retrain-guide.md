@@ -1,5 +1,7 @@
 # Retrain Guide — Model Fixes (Tier 1)
 
+> **Historical — all fixes implemented.** See `docs/architecture/model.md` for current model architecture.
+
 **Date:** 2026-07-17
 **Context:** `backend/data/model-fixes-priority.md` — fixes 1–5 implemented in `backend/models/forecaster.py`
 

@@ -1,5 +1,9 @@
 # Feature Engineering Deep Dive — Prediction Accuracy Improvements
 
+> **Research doc (2026-07-14).** Contains detailed analysis of feature categories, some implemented, some speculative. See `docs/research/accuracy-opportunities.md` for current priorities. See `docs/architecture/model.md` for what's actually in the model.
+>
+> **Key outcomes:** Phase 1 (item identity) ✅ done. Phase 2 (category/rarity) ✅ done — rarity kept (+10-12pp), weapon_type removed (zero causal). Supply depth 🛑 dropped. Social sentiment 🔴 not started.
+
 Date: 2026-07-14
 Extends: `docs/research/accuracy-opportunities.md`
 

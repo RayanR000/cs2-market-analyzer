@@ -1,5 +1,7 @@
 # Session Notes — Full System Overhaul (2026-07-07 → 07-08)
 
+> **Historical record — overhaul complete.** All issues resolved.
+
 Everything done in this session, in order. Companion docs:
 `docs/historical/schema-fix-recommendations.md`, `docs/historical/price-basis-swap.md`.
 

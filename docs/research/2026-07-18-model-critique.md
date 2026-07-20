@@ -1,7 +1,12 @@
-/n# Model & Predictor Critique — Speed, Accuracy, and Priority
+# Model & Predictor Critique — Speed, Accuracy, and Priority
 
 **Date:** 2026-07-18  
 **Context:** Audit of the LightGBM quantile regression forecasting system after the column-order-bug fix and post-July-17 retrain.
+
+> **Note:** Some issues noted here were fixed shortly after:
+> - `fold_count=0` CV bug → hard error added
+> - 2026 distribution-shift guard → switched from `.dt.year` to `pd.DatetimeIndex().year`
+> - `predict()` timing → instrumented with logs
 
 ---
 
