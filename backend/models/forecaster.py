@@ -13,7 +13,6 @@ import lightgbm as lgb
 from datetime import datetime, timedelta, timezone, date
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
-from collections import defaultdict
 from sqlalchemy import text
 from models.item_parser import parse_item_name
 
@@ -520,16 +519,17 @@ class ItemForecaster:
         df["rsi_14"] = df["rsi_14"].clip(0, 100)
 
         # =====================================================================
-        # MACD (vectorized — no lambda transforms)
+        # MACD (vectorized — no lambda transforms, matches original adjust=True)
         # =====================================================================
         df = df.sort_values(["item_id", "date"])
-        # Compute EMAs per group using expanding EWMA on sorted data
-        ewm12 = df.groupby("item_id")["price"].ewm(span=12, min_periods=12, adjust=False).mean()
-        ewm26 = df.groupby("item_id")["price"].ewm(span=26, min_periods=26, adjust=False).mean()
+        # Compute EMAs per group using EWMA on sorted data (adjust=True matches
+        # the original lambda-based ewm(adjust=True).mean() behavior).
+        ewm12 = df.groupby("item_id")["price"].ewm(span=12, min_periods=12, adjust=True).mean()
+        ewm26 = df.groupby("item_id")["price"].ewm(span=26, min_periods=26, adjust=True).mean()
         df["macd_line"] = ewm12.reset_index(level=0, drop=True) - ewm26.reset_index(level=0, drop=True)
         df["macd_signal"] = (
             df.groupby("item_id")["macd_line"]
-            .ewm(span=9, min_periods=9, adjust=False)
+            .ewm(span=9, min_periods=9, adjust=True)
             .mean()
             .reset_index(level=0, drop=True)
         )
@@ -1358,7 +1358,7 @@ class ItemForecaster:
     @staticmethod
     def _train_ensemble_member(params: dict, dtrain: lgb.Dataset,
                                 dval: lgb.Dataset) -> lgb.Booster:
-        """Train a single ensemble member. Static for joblib compatibility."""
+        """Train a single ensemble member (sequential)."""
         return lgb.train(
             params, dtrain,
             num_boost_round=1000,
@@ -1567,9 +1567,8 @@ class ItemForecaster:
     def _save_engineered_cache(self, df: pd.DataFrame):
         """Save the fully-engineered feature DataFrame to Parquet cache."""
         path = self._engineered_cache_path
-        cache_df = df.copy()
-        cache_df.attrs["_cache_date"] = str(date.today())
-        logger.info(f"  Saving engineered feature cache ({len(cache_df):,} rows) to {path}")
+        df.attrs["_cache_date"] = str(date.today())
+        logger.info(f"  Saving engineered feature cache ({len(df):,} rows) to {path}")
         cache_df.to_parquet(path, index=False)
 
     def _load_engineered_cache(self) -> Optional[pd.DataFrame]:
@@ -1601,22 +1600,21 @@ class ItemForecaster:
                     import duckdb
                     archive_dir = Path(__file__).parent.parent.parent / "price-archive"
                     if archive_dir.exists():
-                        con = duckdb.connect()
-                        pq_files = sorted([str(p) for p in archive_dir.glob("prices-*.parquet")])
-                        if pq_files:
-                            latest_archive = con.sql(
-                                "SELECT MAX(day) FROM read_parquet(?)",
-                                params=[pq_files[-1]]
-                            ).fetchone()[0]
-                            con.close()
-                            cache_max_date = df["date"].max() if "date" in df.columns else None
-                            if cache_max_date is not None and latest_archive is not None:
-                                archive_max = pd.to_datetime(latest_archive).date()
-                                cache_max = pd.to_datetime(cache_max_date).date() if not isinstance(cache_max_date, date) else cache_max_date
-                                days_diff = (archive_max - cache_max).days
-                                if days_diff > 3:
-                                    logger.info(f"  Cache max_date={cache_max} < archive max_date={archive_max} ({days_diff}d diff), refreshing")
-                                    return None
+                        with duckdb.connect() as con:
+                            pq_files = sorted([str(p) for p in archive_dir.glob("prices-*.parquet")])
+                            if pq_files:
+                                latest_archive = con.sql(
+                                    "SELECT MAX(day) FROM read_parquet(?)",
+                                    params=[pq_files[-1]]
+                                ).fetchone()[0]
+                                cache_max_date = df["date"].max() if "date" in df.columns else None
+                                if cache_max_date is not None and latest_archive is not None:
+                                    archive_max = pd.to_datetime(latest_archive).date()
+                                    cache_max = pd.to_datetime(cache_max_date).date() if not isinstance(cache_max_date, date) else cache_max_date
+                                    days_diff = (archive_max - cache_max).days
+                                    if days_diff > 3:
+                                        logger.info(f"  Cache max_date={cache_max} < archive max_date={archive_max} ({days_diff}d diff), refreshing")
+                                        return None
                 except Exception:
                     pass
 
@@ -1665,7 +1663,10 @@ class ItemForecaster:
 
         _train_start = datetime.now()
         df = self.build_training_data(days_back=1460, backfilled_only=True)
-        self._save_engineered_cache(df)
+
+        # NOTE: feature cache is NOT saved here — build_training_data subsamples
+        # items (~10-15%), so the cache would miss most items at predict time.
+        # The cache is saved from predict()'s fallback path which runs on all items.
 
         self.horizon_feature_cols = {}
 
