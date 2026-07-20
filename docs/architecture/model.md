@@ -114,10 +114,12 @@ Optuna Bayesian (TPE sampler, MedianPruner). Replaced brute-force grid search Ju
 
 | Before | After |
 |--------|-------|
-| Grid search: 81 combos (3⁴) | Optuna TPE: 15-30 Bayesian trials per quantile |
+| Grid search: 81 combos (3⁴) | Optuna TPE: 15-50 Bayesian trials per quantile |
 | Searched 4 params | Searches 6 (+ max_depth, min_data_in_leaf) |
 | Fixed discrete values | Continuous ranges with log-uniform sampling |
 | All trials to completion | MedianPruner kills bad trials early |
+
+**Per-horizon trial budget (2026-07-20):** 15 trials proved insufficient for the 3d horizon's 6D search space (~40k combinations). The 3d model's chosen depth=3 was an artifact of under-exploration, not a signal ceiling. Added `N_TRIALS_MAP = {3: 50, 7: 15, 14: 15, 30: 15}` — 50 trials for 3d, 15 for others. With 50 trials, Optuna chose depth=5-8 across quantiles (3d p50: depth=5, L2=1.5).
 
 **Bug fix (Jul 2026):** `_optuna_search_params` originally hardcoded `alpha=0.5`. The `quantile` parameter was never received — p10 and p90 models were tuned at alpha=0.5. Fixed by adding `quantile` to method signature.
 

@@ -597,6 +597,14 @@ quality_spread_market_interaction = quality_spread_fn_ft * (
 
 ## 10. Social Sentiment Analysis (Reddit/Twitter)
 
+> **July 2026 audit**: Social features (`social_mentions_1d`, `social_mentions_7d`,
+> `social_mention_velocity`, `social_sentiment_7d`, `social_score_7d`) do **not rank
+> in the top 20** by gain importance for any horizon (3d/7d/14d/30d) out of 122
+> total features. Root cause: VADER is a general-purpose lexicon that scores CS2
+> market jargon as neutral, injecting noise instead of signal. Adding source volume
+> (more subreddits, Twitter, Discord) without fixing NLP quality will not help.
+> See §10.10 for post-mortem and recommendations.
+
 ### 10.1 Why Sentiment Matters for CS2 Skin Prices
 
 The CS2 skin market is heavily driven by hype cycles. Many price movements are preceded by social media activity:
@@ -737,16 +745,16 @@ def score_text(text):
 
 **Accuracy**: ~60-65%. Fast, no dependencies. Good enough for directional signal.
 
-#### Option B: Fine-Tuned DistilBERT (Recommended, ~300 lines)
+#### Option B: ModernFinBERT (Recommended — pre-trained, CPU-fast, 88% acc)
 
-Use a lightweight transformer fine-tuned on financial/crypto sentiment data (social media domain adapts well to CS2 market):
+Use `tabularisai/ModernFinBERT` — a ModernBERT-base (Dec 2024, 149M params) fine-tuned on financial news + social media sentiment. Handles domain-specific language ("my position", "bearish on this", "pump incoming") that VADER misses.
 
 ```python
 from transformers import pipeline
 
 sentiment_pipeline = pipeline(
     "sentiment-analysis",
-    model="mrm8488/distilroberta-finetuned-financial-news-sentiment",
+    model="tabularisai/ModernFinBERT",
     max_length=512,
     truncation=True
 )
@@ -754,20 +762,27 @@ sentiment_pipeline = pipeline(
 def score_post(title, body):
     text = f"{title}. {body[:500]}" if body else title
     result = sentiment_pipeline(text)[0]
-    label = result["label"]    # "positive", "negative", "neutral"
+    label = result["label"]    # "LABEL_1" (bullish), "LABEL_2" (bearish), "LABEL_0" (neutral)
     score = result["score"]
-    if label == "positive":
+    if label == "LABEL_1":
         return score       # 0 to 1
-    elif label == "negative":
+    elif label == "LABEL_2":
         return -score      # -1 to 0
     return 0.0
 ```
 
-**Accuracy**: ~75-80%. Runs modestly on CPU (no GPU needed for batch processing 500 posts/hour). DistilRoBERTa is 82MB — feasible for a serverless function or background task.
+**Accuracy**: ~88% on financial text benchmarks. CPU inference ~45ms/post (PyTorch),
+~10ms/post (ONNX INT8 quantized). Full model cache ~450MB on disk, loaded once.
+Compiler: ModernBERT replaces BERT's inefficiencies (Flash Attention, RoPE, no
+hidden bias) and is the first meaningful encoder update since 2018.
+
+Alternatives: `mrm8488/distilroberta-finetuned-financial-news-sentiment` (82MB,
+~78% acc, lighter but worse) or `maguid28/modernbert-finetune-combined-sentiment`
+(88.3% acc, similar perf).
 
 #### Option C: Fine-Tune on CS2 Market Data (Best, ~500 lines)
 
-Collect 2,000 historical Reddit posts + corresponding price movements. Manually label as bullish/bearish/neutral. Fine-tune a small model. This captures CS2-specific slang ("case god", "blue gem", "purple pattern", "craft", "trade up", "stattrak premium").
+Collect 2,000 historical Reddit posts + corresponding price movements. Manually label as bullish/bearish/neutral. Fine-tune ModernBERT with LoRA for CS2-specific slang ("case god", "blue gem", "purple pattern", "craft", "trade up", "stattrak premium").
 
 **Accuracy**: ~85-90% on CS2-specific text.
 
@@ -833,6 +848,13 @@ df["sentiment_mean_lag_1d"] = df.groupby("item_id")["sentiment_mean"].shift(1)
 ```
 
 **Expected impact**: +2-5pp directional accuracy for items with high social volume (stickers during majors, newly released cases, popular skins). Zero impact for long-tail items with no social mentions.
+
+**Current implementation gap**: The forecaster only computes 7d rolling windows for
+mention count, sentiment, and score. Missing windows (1d, 3d, 14d, 30d) mean the
+model cannot distinguish short-term hype spikes from sustained interest cycles.
+Missing features: sentiment-price divergence (see §10.5), top-5% trending flag,
+lagged sentiment (yesterday's sentiment → today's return). See §10.10 for the
+complete gap analysis.
 
 ### 10.7 Integration into Pipeline
 
@@ -918,6 +940,63 @@ GET /items/{item_id}/social
 
 ---
 
+### 10.10 Post-Mortem: Social Feature Audit (July 2026)
+
+#### Finding
+
+The 5 social features do not rank in the top 20 by gain importance for any
+forecast horizon (3d/7d/14d/30d) out of 122 total features. They contribute
+approximately zero marginal predictive value in the current pipeline.
+
+#### Root Cause
+
+VADER (`vaderSentiment`) is a general-purpose lexicon last meaningfully updated
+in 2014. CS2 market jargon is almost entirely opaque to it:
+
+| Phrase | VADER score | Human label | Problem |
+|--------|-------------|-------------|---------|
+| "BFK CW MW low float" | 0.0 (neutral) | Bullish | All terms are identifiers, not sentiment words |
+| "Blue gem T1 pattern" | 0.0 (neutral) | Bullish | Same — domain-specific praise words |
+| "Pump and dump incoming" | −0.82 (neg) | Neutral/alert | VADER sees "dump" as negative; post is factual |
+| "This skin is sleeping" | 0.0 (neutral) | Bullish | "Sleeping" = undervalued in trading slang |
+| "Sold my collection" | 0.0 (neutral) | Neutral/negative | Could mean exit or profit-taking |
+
+VADER misses all CS2-specific signal. Adding more source volume (Twitter,
+Discord, more subreddits) without fixing NLP quality would amplify noise, not
+signal. The existing 5 features are structurally incapable of providing value.
+
+#### Recommendations (in order)
+
+| # | Action | Effort | Impact | Dependency |
+|---|--------|--------|--------|------------|
+| 1 | Replace VADER with ModernFinBERT (ONNX INT8) | 1 file, ~4 lines changed, +3 deps | High — fixes root cause | None |
+| 2 | Add r/GlobalOffensive (50 posts/run, score filter >10) | 1 line in SUBREDDITS dict | Medium — 5.4M sub reach | None |
+| 3 | Add 1d, 3d, 14d, 30d rolling windows for mentions + sentiment | ~10 lines in forecaster.py | Medium — multiple time scales | Better NLP (step 1) |
+| 4 | Add sentiment-price divergence feature | ~5 lines in forecaster.py | High — leading indicator | Better NLP (step 1) |
+| 5 | Add lagged sentiment (yesterday → today's return) | ~3 lines | Medium — removes lookahead bias | Better NLP (step 1) |
+
+#### What Not to Do
+
+- **Do not** add Twitter/X, Discord, or YouTube sources until steps 1-4 are
+  complete and validated. They triple maintenance burden with zero marginal gain
+  if the NLP pipeline is still VADER.
+- **Do not** add the `social_aggregates` table (planned in §10.3). The current
+  on-the-fly aggregation in `_fetch_social_mentions()` works fine. Pre-computing
+  adds a table to maintain for no measurable benefit.
+- **Do not** increase collection frequency beyond 6h. The bottleneck is NLP
+  accuracy, not data volume. 225 posts × 4x/day is already 900 posts/day —
+  enough for signal if scores were accurate.
+
+#### Expected Impact After Fixes
+
+After VADER → ModernFinBERT + r/GlobalOffensive + divergence + rolling windows,
+social features are expected to reach rank ~30-50 (up from outside top 20).
+Social features will never dominate the model (they are zero for ~80% of items
+on any given day), but for the ~20% of items with active social discussion,
+they should provide +1-3pp directional accuracy.
+
+---
+
 ## 11. Implementation Plan
 
 ### Phase 1 — Quick Wins (1-2 days)
@@ -968,18 +1047,19 @@ GET /items/{item_id}/social
 | Source divergence (std across sources) | ~15 lines |
 | Churn ratio | ~10 lines |
 
-### Phase 5 — Social Sentiment (4-6 days)
+### Phase 5 — Social Sentiment 🟡 Partial (Reddit only, VADER, needs overhaul)
 
-| Component | Effort |
-|-----------|--------|
-| Database schema (social_mentions, social_aggregates) | ~40 lines |
-| Reddit collector (PRAW + item name matching) | ~150 lines |
-| Twitter collector (tweepy + rate limit handling) | ~120 lines |
-| NLP pipeline (DistilBERT or keyword heuristic) | ~100 lines |
-| Daily aggregation + feature generation | ~80 lines |
-| Forecaster integration (_add_social_features) | ~60 lines |
-| Frontend API endpoint for social data | ~50 lines |
-| Total | ~600 lines |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Database schema (social_mentions) | ✅ Done | Migration 0018, composite PK (item_id, source, post_id) |
+| Reddit collector (HTML scrape + item regex matching) | ✅ Done | scrapes old.reddit.com, 3 subreddits, 225 posts/run |
+| Twitter collector | ❌ Not needed | See §10.10 — adding sources without fixing NLP is wasted effort |
+| NLP pipeline | ✅ VADER (**needs replacement**) | Root cause of zero feature importance. Replace with ModernFinBERT. |
+| Daily aggregation + feature generation | ✅ On-the-fly in forecaster | `_fetch_social_mentions()` + `_add_social_features()` |
+| Forecaster integration | ✅ 5 features | Missing: 1d/3d/14d/30d windows, divergence, lagged sentiment |
+| Frontend API endpoint | ✅ `GET /items/{item_id}/social-sentiment` | Returns per-item summary + recent 20 mentions |
+| r/GlobalOffensive | ❌ Planned | +50 posts/run, 5.4M subscriber reach |
+| Social sentiment overhaul | 🟡 **Recommended** | See §10.10 for full plan |
 
 ### Phase 6 — Advanced Features (ongoing)
 
@@ -1019,9 +1099,20 @@ Each phase should be validated independently:
 ### Implementation Order Recommendation
 
 ```
-Completed: Phase 1 → Phase 2
-Remaining: Phase 4 → Phase 3 → Phase 5 → Phase 6
-           (supply)  (quality) (sentiment) (advanced)
+Completed: Phase 1 → Phase 2 → Phase 5 (baseline, needs overhaul)
+Remaining: Phase 5 (overhaul) → Phase 3 → Phase 6
+           (NLP fix + features)   (quality) (advanced)
 ```
 
-Phases 1 and 2 complete. ~~Phase 4 (supply/liquidity — listing counts, churn ratio, source spreads) was the highest remaining ROI opportunity~~ 🛑 **Dropped (2026-07-16)** — see `docs/research/accuracy-opportunities.md` §1 DECISION and `docs/changelog/2026-07-16-drop-supply-depth.md`. Top remaining work is now model architecture (regime-switching, Ridge head). Phase 5 (sentiment) remains lower priority.
+Phases 1 and 2 complete. ~~Phase 4 (supply/liquidity)~~ 🛑 **Dropped (2026-07-16)**.
+
+Phase 5 baseline (Reddit collector, social_mentions schema, forecaster integration)
+is complete but produces zero marginal value — VADER noise ranking outside top 20.
+**Phase 5 overhaul (VADER → ModernFinBERT + r/GlobalOffensive + new features) is
+now the highest-ROI remaining work** because it unlocks a feature group that
+currently contributes nothing. Expected impact after overhaul: +1-3pp on the ~20%
+of items with active social discussion.
+
+See `docs/research/feature-engineering.md` §10.10 for the full post-mortem and
+in-order implementation plan. See `docs/changelog/2026-07-22-social-audit.md` for
+the audit session.
