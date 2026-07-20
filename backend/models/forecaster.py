@@ -1842,6 +1842,7 @@ class ItemForecaster:
 
         # Prune highly correlated features to reduce noise
         self.feature_cols = self._prune_features(df)
+        self._base_feature_cols = list(self.feature_cols)
 
         # Downcast features to float32 to halve feature matrix memory
         for col in self.feature_cols:
@@ -1972,6 +1973,12 @@ class ItemForecaster:
             logger.info(f"HORIZON {horizon}d ({hi}/{len(self.HORIZONS)})")
             logger.info(f"{'='*60}")
             _hz_start = datetime.now()
+
+            # Reset to the full correlation-pruned base set before each horizon.
+            # Without this, 3d's permutation-importance pruning permanently
+            # removes features from self.feature_cols, starving 7d/14d/30d
+            # of features they might have used.
+            self.feature_cols = list(self._base_feature_cols)
 
             tdf = self.prepare_targets(df, horizon)
 
