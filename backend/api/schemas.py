@@ -187,7 +187,33 @@ class FeatureImportanceOut(BaseModel):
     horizons: dict[str, list[FeatureImportanceItem]]
 
 
+class SocialMentionOut(BaseModel):
+    post_id: str
+    subreddit: Optional[str] = None
+    post_title: Optional[str] = None
+    post_score: Optional[int] = None
+    sentiment_score: Optional[float] = None
+    mentioned_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SocialSentimentSummaryOut(BaseModel):
+    item_id: str
+    item_name: str
+    mentions_24h: int
+    mentions_7d: int
+    mention_velocity: float
+    avg_sentiment_7d: float
+    avg_score_7d: float
+    recent_mentions: List[SocialMentionOut] = []
+
+
 class HealthOut(BaseModel):
+    status: str
+    version: str
+    environment: str
     status: str
     version: str
     environment: str

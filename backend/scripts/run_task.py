@@ -125,6 +125,14 @@ def run_task(task_name):
             result = run_supply()
             print(f"RESULT: {result}")
 
+        elif task_name == "reddit_social":
+            logger.info("="*60)
+            logger.info("TASK: Reddit Social Sentiment Collection")
+            logger.info("="*60)
+            from collectors.social_sentiment import run as run_reddit_social
+            result = run_reddit_social()
+            print(f"RESULT: {result}")
+
         else:
             logger.error(f"Unknown task: {task_name}")
             sys.exit(1)
@@ -165,7 +173,7 @@ def run_task(task_name):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python run_task.py <task_name>")
-        print("Tasks: aggregate, priority, trends, long_term_trends (deprecated), migrate, backtest, backtest_historical, walkforward_report, event_correlation, supply_scrape")
+        print("Tasks: aggregate, priority, trends, long_term_trends (deprecated), migrate, backtest, backtest_historical, walkforward_report, event_correlation, supply_scrape, reddit_social")
         sys.exit(1)
         
     run_task(sys.argv[1])

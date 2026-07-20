@@ -60,6 +60,8 @@ def _feature_group(name: str) -> str:
         return "events"
     if any(name.startswith(p) for p in ("market_", "market_regime_")):
         return "cross_sectional"
+    if name.startswith("social_"):
+        return "social"
     return "other"
 
 
@@ -780,6 +782,106 @@ class ItemForecaster:
         logger.info("  supply depth features added")
         return df
 
+    # ── Social sentiment features (Reddit mentions, VADER scores) ──────
+
+    def _fetch_social_mentions(self) -> pd.DataFrame:
+        """Load social mentions from the DB.
+
+        Returns DataFrame with columns:
+          item_id, date, mention_count, avg_sentiment, avg_score
+        One row per item per day with at least one mention.
+        """
+        if hasattr(self, "_social_cache") and self._social_cache is not None:
+            return self._social_cache
+
+        try:
+            rows = self.db.execute(text("""
+                SELECT
+                    i.item_id,
+                    DATE(sm.mentioned_at) AS date,
+                    COUNT(*) AS mention_count,
+                    AVG(sm.sentiment_score) AS avg_sentiment,
+                    AVG(sm.post_score) AS avg_score
+                FROM social_mentions sm
+                JOIN items i ON i.id = sm.item_id
+                GROUP BY i.item_id, DATE(sm.mentioned_at)
+                ORDER BY i.item_id, date
+            """)).fetchall()
+            df = pd.DataFrame(rows, columns=[
+                "item_id", "date", "mention_count",
+                "avg_sentiment", "avg_score"
+            ])
+            if df.empty:
+                logger.info("  social mentions: empty")
+                self._social_cache = df
+                return df
+            df["date"] = pd.to_datetime(df["date"]).dt.date
+            df["mention_count"] = df["mention_count"].fillna(0).astype(int)
+            df["avg_sentiment"] = df["avg_sentiment"].fillna(0.0).astype(float)
+            df["avg_score"] = df["avg_score"].fillna(0.0).astype(float)
+            logger.info(f"  social mentions: {len(df):,} rows, {df.item_id.nunique():,} items")
+            self._social_cache = df
+            return df
+        except Exception as e:
+            logger.warning(f"  Failed to load social mentions: {e}")
+            self._social_cache = pd.DataFrame()
+            return self._social_cache
+
+    def _add_social_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add social sentiment features: mention counts, velocity, sentiment.
+
+        Features:
+          social_mentions_1d       — Reddit mention count in last 24h
+          social_mentions_7d       — Reddit mention count in last 7 days
+          social_mention_velocity  — mentions_1d / max(mentions_7d, 1)
+          social_sentiment_7d      — Rolling 7d avg VADER compound score
+          social_score_7d          — Rolling 7d avg Reddit post score
+        """
+        social = self._fetch_social_mentions()
+        if social.empty:
+            for col in ["social_mentions_1d", "social_mentions_7d",
+                        "social_mention_velocity", "social_sentiment_7d",
+                        "social_score_7d"]:
+                df[col] = 0.0
+            return df
+
+        df = df.merge(social, on=["item_id", "date"], how="left")
+        df["mention_count"] = df["mention_count"].fillna(0).astype(int)
+        df["avg_sentiment"] = df["avg_sentiment"].fillna(0.0).astype(float)
+        df["avg_score"] = df["avg_score"].fillna(0.0).astype(float)
+
+        # Rolling mention counts per item
+        df = df.sort_values(["item_id", "date"])
+        grouped = df.groupby("item_id")["mention_count"]
+        df["social_mentions_1d"] = grouped.transform(
+            lambda x: x.rolling(1, min_periods=1).sum()
+        ).fillna(0).astype(np.float32)
+        df["social_mentions_7d"] = grouped.transform(
+            lambda x: x.rolling(7, min_periods=1).sum()
+        ).fillna(0).astype(np.float32)
+
+        # Mention velocity: acceleration signal
+        mentions_7d = df["social_mentions_7d"].replace(0, 1)
+        df["social_mention_velocity"] = (
+            df["social_mentions_1d"] / mentions_7d
+        ).fillna(0).astype(np.float32)
+
+        # Rolling 7d avg sentiment and score
+        grouped_sent = df.groupby("item_id")["avg_sentiment"]
+        df["social_sentiment_7d"] = grouped_sent.transform(
+            lambda x: x.rolling(7, min_periods=1).mean()
+        ).fillna(0).astype(np.float32)
+
+        grouped_score = df.groupby("item_id")["avg_score"]
+        df["social_score_7d"] = grouped_score.transform(
+            lambda x: x.rolling(7, min_periods=1).mean()
+        ).fillna(0).astype(np.float32)
+
+        df = df.drop(columns=["mention_count", "avg_sentiment", "avg_score"], errors="ignore")
+
+        logger.info("  social sentiment features added")
+        return df
+
     def _add_item_metadata_features(self, df: pd.DataFrame) -> pd.DataFrame:
         meta = self._fetch_item_metadata()
         if meta.empty:
@@ -1309,6 +1411,7 @@ class ItemForecaster:
         df = self._add_event_features(df, events_df)
         df = self._add_item_metadata_features(df)
         df = self._add_supply_side_features(df)
+        df = self._add_social_features(df)
         return df
 
     # ------------------------------------------------------------------
@@ -1569,7 +1672,7 @@ class ItemForecaster:
         path = self._engineered_cache_path
         df.attrs["_cache_date"] = str(date.today())
         logger.info(f"  Saving engineered feature cache ({len(df):,} rows) to {path}")
-        cache_df.to_parquet(path, index=False)
+        df.to_parquet(path, index=False)
 
     def _load_engineered_cache(self) -> Optional[pd.DataFrame]:
         """Load cached engineered features. Returns None if cache is missing or stale."""

@@ -1,7 +1,7 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc, func
+from sqlalchemy import desc, asc, func, text
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 import re
@@ -18,6 +18,7 @@ from api.schemas import (
     ItemOut, PricePointOut, TrendAnalysisOut, PredictionOut,
     SourcePriceOut, MultiSourcePricesOut, EventOut, TrendingItemOut,
     EventImpactOut, FeatureImportanceOut, FeatureImportanceItem,
+    SocialMentionOut, SocialSentimentSummaryOut,
 )
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -615,4 +616,67 @@ def get_multi_source_prices(
         name=item.name,
         sources=sources,
         data=data,
+    )
+
+
+@router.get("/{item_id}/social-sentiment", response_model=SocialSentimentSummaryOut)
+def item_social_sentiment(
+    item_id: str,
+    db: Session = Depends(get_db),
+):
+    item = _resolve_item(item_id, db)
+    now = datetime.now(timezone.utc)
+    cutoff_24h = now - timedelta(days=1)
+    cutoff_7d = now - timedelta(days=7)
+
+    mentions_24h = db.execute(text("""
+        SELECT COUNT(*) FROM social_mentions
+        WHERE item_id = :iid AND source = 'reddit' AND mentioned_at >= :cutoff
+    """), {"iid": item.id, "cutoff": cutoff_24h}).scalar() or 0
+
+    mentions_7d = db.execute(text("""
+        SELECT COUNT(*) FROM social_mentions
+        WHERE item_id = :iid AND source = 'reddit' AND mentioned_at >= :cutoff
+    """), {"iid": item.id, "cutoff": cutoff_7d}).scalar() or 0
+
+    sentiment_row = db.execute(text("""
+        SELECT AVG(sentiment_score) AS avg_sent, AVG(post_score) AS avg_score
+        FROM social_mentions
+        WHERE item_id = :iid AND source = 'reddit' AND mentioned_at >= :cutoff
+    """), {"iid": item.id, "cutoff": cutoff_7d}).first()
+    avg_sent = float(sentiment_row.avg_sent) if sentiment_row and sentiment_row.avg_sent else 0.0
+    avg_score = float(sentiment_row.avg_score) if sentiment_row and sentiment_row.avg_score else 0.0
+
+    mention_velocity = mentions_24h / max(mentions_7d, 1)
+
+    recent_rows = db.execute(text("""
+        SELECT post_id, subreddit, post_title, post_score,
+               sentiment_score, mentioned_at
+        FROM social_mentions
+        WHERE item_id = :iid AND source = 'reddit'
+        ORDER BY mentioned_at DESC
+        LIMIT 20
+    """), {"iid": item.id}).fetchall()
+
+    recent_mentions = [
+        SocialMentionOut(
+            post_id=r.post_id,
+            subreddit=r.subreddit,
+            post_title=r.post_title,
+            post_score=r.post_score,
+            sentiment_score=r.sentiment_score,
+            mentioned_at=r.mentioned_at,
+        )
+        for r in recent_rows
+    ]
+
+    return SocialSentimentSummaryOut(
+        item_id=item.item_id,
+        item_name=item.name,
+        mentions_24h=mentions_24h,
+        mentions_7d=mentions_7d,
+        mention_velocity=mention_velocity,
+        avg_sentiment_7d=avg_sent,
+        avg_score_7d=avg_score,
+        recent_mentions=recent_mentions,
     )

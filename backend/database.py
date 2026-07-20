@@ -342,6 +342,27 @@ class SupplySnapshot(Base):
     )
 
 
+class SocialMention(Base):
+    """Reddit social mention — tracks skin name mentions and VADER sentiment."""
+    __tablename__ = "social_mentions"
+
+    item_id = Column(Integer, ForeignKey("items.id"), primary_key=True)
+    source = Column(String(50), primary_key=True, default="reddit")
+    post_id = Column(String(50), primary_key=True)
+    subreddit = Column(String(50), nullable=True)
+    post_title = Column(String(500), nullable=True)
+    post_score = Column(Integer, nullable=True)
+    post_url = Column(String(500), nullable=True)
+    sentiment_score = Column(Float, nullable=True)
+    mentioned_at = Column(DateTime, nullable=False)
+    collected_at = Column(DateTime, default=utcnow_naive)
+
+    __table_args__ = (
+        Index('idx_social_item_source', 'item_id', 'source'),
+        Index('idx_social_mentioned_at', 'mentioned_at'),
+    )
+
+
 class EventCorrelation(Base):
     """Event correlation model - causal analysis with statistical rigor"""
     __tablename__ = "event_correlations"

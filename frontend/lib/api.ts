@@ -499,6 +499,33 @@ export async function getEnsembleABTest(): Promise<EnsembleABTestResult> {
   return response.json();
 }
 
+// Social Sentiment API
+export interface SocialMention {
+  post_id: string;
+  subreddit: string | null;
+  post_title: string | null;
+  post_score: number | null;
+  sentiment_score: number | null;
+  mentioned_at: string;
+}
+
+export interface SocialSentimentSummary {
+  item_id: string;
+  item_name: string;
+  mentions_24h: number;
+  mentions_7d: number;
+  mention_velocity: number;
+  avg_sentiment_7d: number;
+  avg_score_7d: number;
+  recent_mentions: SocialMention[];
+}
+
+export async function getItemSocialSentiment(itemId: string): Promise<SocialSentimentSummary> {
+  const response = await fetch(`${API_URL}/items/${encodeURIComponent(itemId)}/social-sentiment`);
+  if (!response.ok) throw new Error('Failed to fetch social sentiment');
+  return response.json();
+}
+
 // Portfolio API
 export async function getInventory() {
   const response = await fetch(`${API_URL}/portfolio/inventory`, {
