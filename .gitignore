@@ -36,6 +36,13 @@ frontend/.turbo/
 *~
 .DS_Store
 
+# AI assistant working directories and config (local — not shared to GitHub)
+.claude/
+.opencode/
+opencode.json
+AGENTS.md
+frontend/AGENTS.md
+
 # Tooling (local dev artifacts)
 .impeccable/
 
@@ -64,8 +71,14 @@ backend/data/*.json
 # Price archive (lives on data-archive branch, not main)
 price-archive/
 
-# Feature cache (auto-generated at train time, regenerated on each retrain)
+# ML model artifacts (regenerated on each retrain)
+backend/models/saved_models/*.txt
+backend/models/saved_models/*.pkl
+backend/models/saved_models/bias_corrections.json
 backend/models/saved_models/engineered_data.parquet
+
+# Generated parquet cache
+backend/data/*.parquet
 
 # OS
 Thumbs.db
