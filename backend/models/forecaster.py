@@ -7,6 +7,7 @@ using price history, technical indicators, events, and item metadata.
 import os
 import json
 import logging
+import multiprocessing as mp
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
@@ -73,6 +74,52 @@ def _feature_group(name: str) -> str:
     if name.startswith("social_"):
         return "social"
     return "other"
+
+
+def _train_horizon_worker(args):
+    """Train a single horizon in a child process (multiprocessing worker).
+
+    Uses fork so the parent's memory (imports, DataFrames) is shared
+    via copy-on-write. Each child creates its own ItemForecaster since
+    the horizon training body is self-contained (doesn't query DB after
+    build_training_data). Models are serialized to strings for pickling.
+    """
+    horizon, df, base_feature_cols, model_dir, existing_tuned_params, max_rows = args
+
+    fc = ItemForecaster(db_session=None, model_dir=model_dir)
+    fc._base_feature_cols = list(base_feature_cols)
+    fc.feature_cols = list(base_feature_cols)
+    if existing_tuned_params:
+        fc.tuned_params[horizon] = existing_tuned_params
+
+    fc._train_horizon_inline(horizon, df, max_rows)
+
+    models = {}
+    for (h, q), ensemble in fc.models.items():
+        if h == horizon:
+            models[(horizon, q)] = [m.model_to_string() for m in ensemble]
+
+    regime_models = {}
+    for (reg, h, q), ensemble in fc.regime_models.items():
+        if h == horizon:
+            regime_models[(reg, horizon, q)] = [m.model_to_string() for m in ensemble]
+
+    return {
+        "horizon": horizon,
+        "models": models,
+        "regime_models": regime_models,
+        "regime_feature_cols": {
+            (h, reg): cols for (h, reg), cols in fc.regime_feature_cols.items() if h == horizon
+        },
+        "tuned_params": fc.tuned_params.get(horizon, {}),
+        "cv_results": fc.cv_results.get(horizon, {}),
+        "confidence_thresholds": fc.confidence_thresholds.get(horizon, {}),
+        "conformal_calibration": fc.conformal_calibration.get(horizon, 0.0),
+        "horizon_feature_cols": fc.horizon_feature_cols.get(horizon, []),
+        "residual_models": {
+            (h, q): m for (h, q), m in fc.residual_models.items() if h == horizon
+        },
+    }
 
 
 class ItemForecaster:
@@ -2024,6 +2071,29 @@ class ItemForecaster:
         vol = vol / max(np.mean(vol), 1e-8)
         return vol.astype(np.float32)
 
+    def _merge_horizon_result(self, result):
+        """Merge results from a _train_horizon_worker back into this instance."""
+        h = result["horizon"]
+
+        for key, model_strs in result["models"].items():
+            self.models[key] = [lgb.Booster(model_str=s) for s in model_strs]
+
+        for key, model_strs in result["regime_models"].items():
+            self.regime_models[key] = [lgb.Booster(model_str=s) for s in model_strs]
+
+        self.regime_feature_cols.update(result["regime_feature_cols"])
+        self.tuned_params[h] = result["tuned_params"]
+        self.cv_results[h] = result["cv_results"]
+        if result["confidence_thresholds"]:
+            self.confidence_thresholds[h] = result["confidence_thresholds"]
+        if result["conformal_calibration"]:
+            self.conformal_calibration[h] = result["conformal_calibration"]
+        self.horizon_feature_cols[h] = result["horizon_feature_cols"]
+        self.residual_models.update(result["residual_models"])
+
+        logger.info(f"  Merged horizon {h}d results: "
+                    f"{len(result['models'])} models, {len(result['regime_models'])} regime models")
+
     def train(self, max_rows: int = 300_000):
         logger.info("=" * 60)
         logger.info("TRAINING LIGHTGBM FORECASTER (ensemble, HP search, walk-forward)")
@@ -2038,418 +2108,27 @@ class ItemForecaster:
 
         self.horizon_feature_cols = {}
 
-        for hi, horizon in enumerate(self.HORIZONS, 1):
-            logger.info(f"\n{'='*60}")
-            logger.info(f"HORIZON {horizon}d ({hi}/{len(self.HORIZONS)})")
-            logger.info(f"{'='*60}")
-            _hz_start = datetime.now()
+        # Train horizons in parallel via ProcessPoolExecutor.
+        # Each horizon is independent (different targets, feature subsets, models),
+        # so fork+separate processes avoids GIL contention and LightGBM's
+        # non-thread-safe C internals. DataFrames are shared via copy-on-write.
+        n_workers = min(len(self.HORIZONS), max(1, (os.cpu_count() or 4) // 2))
+        use_parallel = n_workers > 1 and os.cpu_count() is not None and os.cpu_count() >= 4
 
-            # Reset to the full correlation-pruned base set before each horizon.
-            # Without this, 3d's permutation-importance pruning permanently
-            # removes features from self.feature_cols, starving 7d/14d/30d
-            # of features they might have used.
-            self.feature_cols = list(self._base_feature_cols)
-
-            tdf = self.prepare_targets(df, horizon)
-
-            # Drop NaN targets (use percentage return as primary target)
-            tdf = tdf.dropna(subset=[f"target_return_{horizon}d"]).copy()
-            tdf = tdf.sort_values("date")
-
-            # Assign regime labels for regime-switching training
-            tdf["_regime"] = self._assign_regime_labels(tdf)
-
-            for attempt in range(2):
-                if attempt == 1:
-                    logger.info(f"  Retry {horizon}d — pruned feature groups")
-
-                # Proper temporal walk-forward split (using actual data dates):
-                # Hold out the last VALIDATION_WINDOW_DAYS of calendar data.
-                max_date = pd.to_datetime(tdf["date"].max())
-                split_date = max_date - timedelta(days=self.VALIDATION_WINDOW_DAYS)
-                train_set = tdf[pd.to_datetime(tdf["date"]) < split_date]
-                val_set = tdf[pd.to_datetime(tdf["date"]) >= split_date]
-
-                # Safety guard only: the calendar window is already bounded by
-                # the stratified item subsample in build_training_data(). Sample
-                # randomly (never tail()) so we don't truncate the calendar
-                # window, which would silently disable expanding-window CV.
-                if len(train_set) > max_rows:
-                    train_set = train_set.sample(
-                        n=max_rows, random_state=42).sort_values("date")
-
-                val_dates = val_set["date"].nunique() if "date" in val_set.columns else 0
-                if len(val_set) < 2000 or val_dates < 7:
-                    logger.warning(
-                        f"  Validation set for {horizon}d has only {len(val_set)} rows "
-                        f"({val_dates} distinct dates); using last 20% of training data as fallback."
-                    )
-                    split_idx = int(len(tdf) * 0.8)
-                    train_set = tdf.iloc[:split_idx]
-                    val_set = tdf.iloc[split_idx:]
-
-                if attempt == 0:
-                    logger.info(f"  {horizon}d: {len(train_set)} train, {len(val_set)} val")
-
-                # Replace INF with NaN before imputation (division-by-zero artifacts)
-                X_train_pre = train_set[self.feature_cols].replace([np.inf, -np.inf], np.nan)
-                feature_medians = X_train_pre.median()
-                self.feature_medians = feature_medians
-                X_train = X_train_pre.fillna(feature_medians)
-                y_train = train_set[f"target_return_{horizon}d"]
-
-                X_val = val_set[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
-                y_val = val_set[f"target_return_{horizon}d"]
-
-                # Sample weights: down-weight historically flat items so the
-                # model focuses on items with meaningful price movement.
-                train_weights = self._compute_sample_weights(train_set, horizon)
-                val_weights = self._compute_sample_weights(val_set, horizon)
-
-                # Build the binned Dataset once per horizon and reuse it across
-                # all quantiles and ensemble members. X/y and binning are
-                # identical for every quantile (only the objective's alpha
-                # changes), so rebuilding per fit just re-bins the same matrix.
-                ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
-                dtrain_kw = dict(params=ds_params)
-                if train_weights is not None:
-                    dtrain_kw["weight"] = train_weights
-                dval_kw = dict(params=ds_params)
-                if val_weights is not None:
-                    dval_kw["weight"] = val_weights
-                dtrain = lgb.Dataset(X_train, y_train, **dtrain_kw)
-                dval = lgb.Dataset(X_val, y_val, reference=dtrain, **dval_kw)
-
-                per_quantile_params = {}
-
-                # Determine boosting type per horizon: DART for weak/long
-                # horizons, GBDT for short horizons. DART's dropout
-                # regularization helps reduce overfitting on noisy
-                # longer-range signals.
-                boosting_type = self.BOOSTING_TYPE_MAP.get(horizon, "gbdt")
-                dart_msg = " (DART)" if boosting_type == "dart" else ""
-                logger.info(f"  Boosting type for {horizon}d: {boosting_type}{dart_msg}")
-
-                cached_hp = self.tuned_params.get(horizon, {})
-                reuse_hp = (os.environ.get("FORCE_HP_SEARCH") != "1"
-                            and all(q in cached_hp for q in self.QUANTILES))
-                if reuse_hp:
-                    logger.info(f"  Reusing cached HP for {horizon}d (Optuna + CV skipped)...")
-                    _warm_retrain = True
-                    for q in self.QUANTILES:
-                        bp = dict(cached_hp[q])
-                        bp["max_bin"] = self.MAX_BIN
-                        bp["feature_pre_filter"] = False
-                        bp["device"] = "cuda" if _gpu_available() else "cpu"
-                        bp["boosting_type"] = boosting_type
-                        per_quantile_params[q] = bp
-                else:
-                    _warm_retrain = False
-                    skip_hp = horizon in self.SKIP_HP_HORIZONS
-                    hz_trials = self.N_TRIALS_MAP.get(horizon, 15)
-                    for q in self.QUANTILES:
-                        device = "cuda" if _gpu_available() else "cpu"
-                        base_params = {
-                            "device": device,
-                            "feature_pre_filter": False,
-                            "objective": "quantile",
-                            "alpha": q,
-                            "metric": "quantile",
-                            "boosting_type": boosting_type,
-                            "min_gain_to_split": 0.1,
-                            "feature_fraction": 0.7,
-                            "bagging_fraction": 0.7,
-                            "bagging_freq": 5,
-                            "max_bin": self.MAX_BIN,
-                            "verbosity": -1,
-                            "n_jobs": -1,
-                        }
-
-                        if skip_hp:
-                            logger.info(f"  Skipping HP search for {horizon}d (SKIP_HP_HORIZONS)...")
-                            best_params = None
-                        else:
-                            logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna, {boosting_type}, {hz_trials} trials)...")
-                            best_params = self._optuna_search_params(
-                                X_train, y_train, X_val, y_val, quantile=q,
-                                boosting_type=boosting_type,
-                                n_trials=hz_trials,
-                                horizon=horizon,
-                            )
-
-                        # Merge Optuna results into base params
-                        if best_params:
-                            merge_keys = ["num_leaves", "learning_rate", "lambda_l1",
-                                          "lambda_l2", "max_depth", "min_data_in_leaf",
-                                          "bagging_fraction"]
-                            if boosting_type == "dart":
-                                merge_keys += ["drop_rate", "max_drop", "skip_drop"]
-                            for k in merge_keys:
-                                if k in best_params:
-                                    base_params[k] = best_params[k]
-                        else:
-                            base_params["num_leaves"] = 31
-                            base_params["learning_rate"] = 0.03
-                            base_params["lambda_l1"] = 0.5
-                            base_params["lambda_l2"] = 0.5
-                            base_params["max_depth"] = 5
-                            base_params["min_data_in_leaf"] = 15
-
-                        # Add DART-specific defaults if not set by Optuna
-                        if boosting_type == "dart":
-                            for k, v in self.DART_PARAMS.items():
-                                base_params.setdefault(k, v)
-
-                        per_quantile_params[q] = dict(base_params)
-                    self.tuned_params[horizon] = {
-                        q: dict(per_quantile_params[q]) for q in self.QUANTILES
-                    }
-
-                # Train ensemble models sequentially. LightGBM already uses all CPU
-                # cores internally via n_jobs=-1, so outer-loop parallelism would
-                # oversubscribe the CPU. For machines with 16+ cores, consider
-                # ProcessPoolExecutor (Dataset objects are not thread-safe).
-                boost_rounds = self.DART_NUM_BOOST_ROUND if boosting_type == "dart" else 1000
-                for q in self.QUANTILES:
-                    pq = per_quantile_params[q]
-                    logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
-                    _ens_start = datetime.now()
-                    ensemble_models = []
-                    for ei in range(self.N_ENSEMBLES):
-                        params = pq.copy()
-                        params["random_state"] = self.ENSEMBLE_SEEDS[ei]
-                        params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                        model = self._train_ensemble_member(params, dtrain, dval, boost_rounds)
-                        ensemble_models.append(model)
-
-                    self.models[(horizon, q)] = ensemble_models
-                    _ens_elapsed = (datetime.now() - _ens_start).total_seconds()
-                    fi = self._get_feature_importance(ensemble_models[0])
-                    logger.info(f"  Done in {_ens_elapsed:.0f}s — Top features: {fi['feature'].head(5).tolist()}")
-
-                    # Residual stacking: train Ridge regression on ensemble
-                    # residuals to correct systematic bias patterns.
-                    if self.STACK_RESIDUALS and _sklearn_available and horizon in self.WEAK_HORIZONS:
-                        ensemble_pred = np.mean(
-                            [m.predict(X_val) for m in ensemble_models], axis=0
-                        )
-                        residual = y_val.values - ensemble_pred
-                        residual_model = Ridge(alpha=self.RESIDUAL_ALPHA, random_state=42)
-                        residual_model.fit(X_val.values, residual)
-                        self.residual_models[(horizon, q)] = residual_model
-                        r2 = np.corrcoef(residual, residual_model.predict(X_val.values))[0, 1] ** 2
-                        logger.info(f"  Residual model (Ridge α={self.RESIDUAL_ALPHA}) "
-                                     f"trained for {horizon}d p{int(q*100)}: "
-                                     f"R²={r2:.4f}")
-                    elif self.STACK_RESIDUALS and not _sklearn_available and horizon in self.WEAK_HORIZONS:
-                        logger.warning(f"  sklearn not available — skipping residual stacking for {horizon}d")
-
-                # Train regime-specific models (optional: SKIP_REGIMES=1 to skip)
-                if os.environ.get("SKIP_REGIMES") == "1":
-                    logger.info(f"  Regime models skipped (SKIP_REGIMES=1)")
-                else:
-                    for regime in self.REGIMES:
-                        if regime == "global":
-                            continue
-                        r_train = train_set[train_set["_regime"] == regime]
-                        r_val = val_set[val_set["_regime"] == regime]
-                        MIN_REGIME_TRAIN = 500
-                        MIN_REGIME_VAL = 50
-                        if len(r_train) < MIN_REGIME_TRAIN or len(r_val) < MIN_REGIME_VAL:
-                            logger.info(f"  Skipping {regime} regime ({len(r_train)} train, {len(r_val)} val — "
-                                        f"below minimum)")
-                            continue
-
-                        # Use global HP params (reuse Optuna results from global)
-                        r_X_train = r_train[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
-                        r_y_train = r_train[f"target_return_{horizon}d"]
-                        r_X_val = r_val[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
-                        r_y_val = r_val[f"target_return_{horizon}d"]
-
-                        r_train_weights = self._compute_sample_weights(r_train, horizon)
-                        r_val_weights = self._compute_sample_weights(r_val, horizon)
-
-                        r_ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
-                        r_dtrain_kw = dict(params=r_ds_params)
-                        if r_train_weights is not None:
-                            r_dtrain_kw["weight"] = r_train_weights
-                        r_dval_kw = dict(params=r_ds_params)
-                        if r_val_weights is not None:
-                            r_dval_kw["weight"] = r_val_weights
-                        r_dtrain = lgb.Dataset(r_X_train, r_y_train, **r_dtrain_kw)
-                        r_dval = lgb.Dataset(r_X_val, r_y_val, reference=r_dtrain, **r_dval_kw)
-
-                        logger.info(f"  Training {regime} regime models ({horizon}d, "
-                                    f"{len(r_train):,} train, {len(r_val):,} val)...")
-                        for q in self.QUANTILES:
-                            pq = per_quantile_params[q]
-                            r_ensemble = []
-                            for ei in range(self.N_ENSEMBLES):
-                                params = pq.copy()
-                                params["random_state"] = self.ENSEMBLE_SEEDS[ei]
-                                params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                                model = self._train_ensemble_member(params, r_dtrain, r_dval, boost_rounds)
-                                r_ensemble.append(model)
-                            self.regime_models[(regime, horizon, q)] = r_ensemble
-
-                        self.regime_feature_cols[(horizon, regime)] = list(self.feature_cols)
-                        logger.info(f"  {regime} regime models for {horizon}d done "
-                                    f"({len(r_train)} train, {len(r_val)} val)")
-
-                # Expanding-window CV evaluation using the best hyperparams.
-                # Skip CV entirely on warm retrain (cached HPs) — the confidence
-                # thresholds and conformal q_hat from the previous training run
-                # (restored via load_models) remain valid as long as the
-                # distribution hasn't shifted (checked via concept drift).
-                if os.environ.get("SKIP_CV") == "1" or _warm_retrain:
-                    if _warm_retrain:
-                        logger.info(f"  CV skipped (warm retrain — using cached thresholds)")
-                    else:
-                        logger.info(f"  CV skipped (SKIP_CV=1); calibrating from single holdout")
-                    oof_records, cv_metrics, nc_scores = [], [], []
-                else:
-                    oof_records, cv_metrics, nc_scores = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
-
-                # Calibrate confidence thresholds on pooled OOF predictions from CV
-                # (more robust than a single 21-day holdout)
-                if oof_records:
-                    records_df = pd.DataFrame(oof_records)
-                    logger.info(f"  Calibrating on {len(records_df)} pooled OOF predictions "
-                                f"({len(cv_metrics)} folds)")
-                    self._calibrate_confidence(horizon=horizon, records_df=records_df)
-
-                    # Conformal quantile calibration: compute the (1-α)(1+1/n)
-                    # quantile of nonconformity scores from pooled OOF predictions.
-                    # This adjustment factor widens prediction intervals so that
-                    # [p10 - q_hat, p90 + q_hat] achieves ~(1-2α) empirical coverage.
-                    if nc_scores:
-                        nc_arr = np.array(nc_scores)
-                        n_cal = len(nc_arr)
-                        alpha = 0.10  # target 90% coverage for the conformal interval
-                        q_level = (1.0 - alpha) * (1.0 + 1.0 / max(n_cal, 1))
-                        q_level = min(q_level, 0.999)
-                        q_hat = float(np.quantile(nc_arr, q_level))
-                        self.conformal_calibration[horizon] = q_hat
-                        logger.info(f"  CQR calibration: q_hat={q_hat:.4f}pp "
-                                    f"(n={n_cal}, α={alpha}, target coverage={(1-alpha)*100:.0f}%)")
-                elif os.environ.get("SKIP_CV") == "1":
-                    logger.info("  CV skipped (SKIP_CV=1); fallback to single-split calibration")
-                    self._calibrate_confidence(horizon=horizon, X_val=X_val, y_val=y_val, val_set=val_set)
-                else:
-                    raise RuntimeError(
-                        f"CV produced no OOF records for {horizon}d horizon "
-                        f"but SKIP_CV is not set. This indicates a bug — "
-                        f"_cv_evaluate_horizon should have raised."
-                    )
-
-                # Log CV fold-level metrics
-                fold_accs = [m["directional_accuracy"] for m in cv_metrics]
-                mean_acc = float(np.mean(fold_accs)) if fold_accs else float("nan")
-                std_acc = float(np.std(fold_accs)) if len(fold_accs) > 1 else 0.0
-                if cv_metrics:
-                    logger.info(f"  CV ({len(cv_metrics)} folds): "
-                                f"mean={mean_acc:.1f}% sd={std_acc:.1f}% "
-                                f"range=[{min(fold_accs):.1f}%, {max(fold_accs):.1f}%]")
-                self.cv_results[horizon] = {
-                    "fold_count": len(cv_metrics),
-                    "per_fold": cv_metrics,
-                    "mean_dir_acc": round(mean_acc, 1) if fold_accs else 0,
-                    "std_dir_acc": round(std_acc, 1) if len(fold_accs) > 1 else 0,
-                    "min_dir_acc": round(min(fold_accs), 1) if fold_accs else 0,
-                    "max_dir_acc": round(max(fold_accs), 1) if fold_accs else 0,
-                }
-
-                # Validate feature groups: permutation test on the held-out set.
-                # Skip entirely when the validation window is thin (same threshold
-                # as the temporal-split floor above) — permutation tests on <2000
-                # rows or <7 distinct dates are pure noise and cause false-positive
-                # pruning that collapses 14d/30d models to ~4 features.
-                # The significance_level parameter (0.05) gates pruning further:
-                # a group must pass BOTH the statistical significance test (p < α)
-                # AND the practical significance test (drop_pp >= 0.5) to be kept.
-                # This prevents noisy-but-spurious correlations from surviving
-                # on marginal windows without fully skipping the check.
-                val_dates = val_set["date"].nunique() if "date" in val_set.columns else 0
-                need_retrain = False
-                if len(val_set) < 2000 or val_dates < 7:
-                    logger.info(
-                        f"  Skipping feature-group validation ({len(val_set)} rows, "
-                        f"{val_dates} dates — below minimum threshold)"
-                    )
-                else:
-                    try:
-                        X_val_np = X_val.values if hasattr(X_val, "values") else X_val
-                        y_val_np = y_val.values if hasattr(y_val, "values") else y_val
-                        fv = self._validate_feature_groups(
-                            X_val_np, y_val_np, self.feature_cols,
-                            horizon=horizon, n_shuffles=20, min_drop_pp=0.5,
-                            significance_level=0.05,
-                        )
-                        self.cv_results[horizon]["feature_validation"] = fv
-                        failed = [g for g, r in fv.items() if not r["passed"]]
-                        if failed:
-                            if self.prune_failed_groups and attempt == 0:
-                                failed_cols = set()
-                                for g in failed:
-                                    for f in fv[g]["features"]:
-                                        failed_cols.add(f)
-                                pre_count = len(self.feature_cols)
-                                self.feature_cols = [c for c in self.feature_cols
-                                                      if c not in failed_cols]
-                                # Safety net: if all features were pruned, fall
-                                # back to a minimal core set so LightGBM doesn't
-                                # crash with 0 columns.
-                                if not self.feature_cols and pre_count > 0:
-                                    safe = ["price_log", "price_lag_1d", "price_lag_3d",
-                                            "price_return_1d", "price_return_3d",
-                                            "price_return_7d", "price_std_7d"]
-                                    self.feature_cols = [c for c in safe if c in tdf.columns]
-                                    if not self.feature_cols:
-                                        self.feature_cols = tdf.select_dtypes(include=[np.number]).columns[:1].tolist()
-                                    logger.warning(
-                                        f"  All features pruned — falling back to "
-                                        f"{len(self.feature_cols)} core features as safety net"
-                                    )
-                                logger.warning(
-                                    f"  Pruned {len(failed_cols)} features from non-causal groups "
-                                    f"{failed} ({pre_count} -> {len(self.feature_cols)}). Retraining."
-                                )
-                                need_retrain = True
-                            else:
-                                logger.warning(
-                                    f"  Feature groups with no causal signal: {failed}. "
-                                    f"({'Auto-prune disabled' if not self.prune_failed_groups else 'Already re-trained.'})"
-                                )
-                    except Exception as e:
-                        logger.warning(f"  Feature validation skipped: {e}")
-
-                if not need_retrain:
-                    break
-
-            base_features = list(self.feature_cols)
-            excluded_groups = self.HORIZON_EXCLUDED_GROUPS.get(horizon, [])
-            if excluded_groups:
-                horizon_features = [
-                    c for c in base_features
-                    if _feature_group(c) not in excluded_groups
-                ]
-                logger.info(
-                    f"  {horizon}d: excluded {len(base_features) - len(horizon_features)} features "
-                    f"from groups {excluded_groups} "
-                    f"({len(base_features)} -> {len(horizon_features)} features)"
-                )
-                self.horizon_feature_cols[horizon] = horizon_features
-            else:
-                self.horizon_feature_cols[horizon] = base_features
-
-            _hz_elapsed = (datetime.now() - _hz_start).total_seconds()
-            logger.info(f"  Horizon {horizon}d done in {_hz_elapsed:.0f}s")
-            if self.cv_results.get(horizon):
-                cv = self.cv_results[horizon]
-                logger.info(f"  CV summary: mean={cv.get('mean_dir_acc', '?'):}% "
-                            f"std={cv.get('std_dir_acc', '?'):}% "
-                            f"range=[{cv.get('min_dir_acc', '?'):}%, {cv.get('max_dir_acc', '?'):}%]")
-            del tdf
+        if use_parallel:
+            logger.info(f"Training {len(self.HORIZONS)} horizons in parallel "
+                        f"({n_workers} workers on {os.cpu_count()} CPUs)")
+            with mp.get_context("fork").Pool(n_workers) as pool:
+                results = pool.map(_train_horizon_worker, [
+                    (horizon, df, self._base_feature_cols, self.model_dir,
+                     self.tuned_params.get(horizon, {}), max_rows)
+                    for horizon in self.HORIZONS
+                ])
+            for r in results:
+                self._merge_horizon_result(r)
+        else:
+            for hi, horizon in enumerate(self.HORIZONS, 1):
+                self._train_horizon_inline(horizon, df, max_rows)
 
         del df
 
@@ -2458,6 +2137,424 @@ class ItemForecaster:
         logger.info(f"\n{'='*60}")
         logger.info(f"TRAINING COMPLETE in {_train_elapsed:.0f}s ({_train_elapsed/60:.1f}min)")
         logger.info(f"{'='*60}")
+
+    def _train_horizon_inline(self, horizon: int, df: pd.DataFrame, max_rows: int = 300_000):
+        """Train all models for a single forecast horizon.
+
+        Encapsulates the horizon loop body so it can run either inline
+        (sequential) or in a child process (parallel via _train_horizon_worker).
+        Stores results directly into self.models, self.regime_models, etc.
+        """
+        logger.info(f"\n{'='*60}")
+        logger.info(f"HORIZON {horizon}d")
+        logger.info(f"{'='*60}")
+        _hz_start = datetime.now()
+
+        # Reset to the full correlation-pruned base set before each horizon.
+        # Without this, 3d's permutation-importance pruning permanently
+        # removes features from self.feature_cols, starving 7d/14d/30d
+        # of features they might have used.
+        self.feature_cols = list(self._base_feature_cols)
+
+        tdf = self.prepare_targets(df, horizon)
+
+        # Drop NaN targets (use percentage return as primary target)
+        tdf = tdf.dropna(subset=[f"target_return_{horizon}d"]).copy()
+        tdf = tdf.sort_values("date")
+
+        # Assign regime labels for regime-switching training
+        tdf["_regime"] = self._assign_regime_labels(tdf)
+
+        for attempt in range(2):
+            if attempt == 1:
+                logger.info(f"  Retry {horizon}d — pruned feature groups")
+
+            # Proper temporal walk-forward split (using actual data dates):
+            # Hold out the last VALIDATION_WINDOW_DAYS of calendar data.
+            max_date = pd.to_datetime(tdf["date"].max())
+            split_date = max_date - timedelta(days=self.VALIDATION_WINDOW_DAYS)
+            train_set = tdf[pd.to_datetime(tdf["date"]) < split_date]
+            val_set = tdf[pd.to_datetime(tdf["date"]) >= split_date]
+
+            # Safety guard only: the calendar window is already bounded by
+            # the stratified item subsample in build_training_data(). Sample
+            # randomly (never tail()) so we don't truncate the calendar
+            # window, which would silently disable expanding-window CV.
+            if len(train_set) > max_rows:
+                train_set = train_set.sample(
+                    n=max_rows, random_state=42).sort_values("date")
+
+            val_dates = val_set["date"].nunique() if "date" in val_set.columns else 0
+            if len(val_set) < 2000 or val_dates < 7:
+                logger.warning(
+                    f"  Validation set for {horizon}d has only {len(val_set)} rows "
+                    f"({val_dates} distinct dates); using last 20% of training data as fallback."
+                )
+                split_idx = int(len(tdf) * 0.8)
+                train_set = tdf.iloc[:split_idx]
+                val_set = tdf.iloc[split_idx:]
+
+            if attempt == 0:
+                logger.info(f"  {horizon}d: {len(train_set)} train, {len(val_set)} val")
+
+            # Replace INF with NaN before imputation (division-by-zero artifacts)
+            X_train_pre = train_set[self.feature_cols].replace([np.inf, -np.inf], np.nan)
+            feature_medians = X_train_pre.median()
+            self.feature_medians = feature_medians
+            X_train = X_train_pre.fillna(feature_medians)
+            y_train = train_set[f"target_return_{horizon}d"]
+
+            X_val = val_set[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
+            y_val = val_set[f"target_return_{horizon}d"]
+
+            # Sample weights: down-weight historically flat items so the
+            # model focuses on items with meaningful price movement.
+            train_weights = self._compute_sample_weights(train_set, horizon)
+            val_weights = self._compute_sample_weights(val_set, horizon)
+
+            # Build the binned Dataset once per horizon and reuse it across
+            # all quantiles and ensemble members. X/y and binning are
+            # identical for every quantile (only the objective's alpha
+            # changes), so rebuilding per fit just re-bins the same matrix.
+            ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
+            dtrain_kw = dict(params=ds_params)
+            if train_weights is not None:
+                dtrain_kw["weight"] = train_weights
+            dval_kw = dict(params=ds_params)
+            if val_weights is not None:
+                dval_kw["weight"] = val_weights
+            dtrain = lgb.Dataset(X_train, y_train, **dtrain_kw)
+            dval = lgb.Dataset(X_val, y_val, reference=dtrain, **dval_kw)
+
+            per_quantile_params = {}
+
+            # Determine boosting type per horizon: DART for weak/long
+            # horizons, GBDT for short horizons. DART's dropout
+            # regularization helps reduce overfitting on noisy
+            # longer-range signals.
+            boosting_type = self.BOOSTING_TYPE_MAP.get(horizon, "gbdt")
+            dart_msg = " (DART)" if boosting_type == "dart" else ""
+            logger.info(f"  Boosting type for {horizon}d: {boosting_type}{dart_msg}")
+
+            cached_hp = self.tuned_params.get(horizon, {})
+            reuse_hp = (os.environ.get("FORCE_HP_SEARCH") != "1"
+                        and all(q in cached_hp for q in self.QUANTILES))
+            if reuse_hp:
+                logger.info(f"  Reusing cached HP for {horizon}d (Optuna + CV skipped)...")
+                _warm_retrain = True
+                for q in self.QUANTILES:
+                    bp = dict(cached_hp[q])
+                    bp["max_bin"] = self.MAX_BIN
+                    bp["feature_pre_filter"] = False
+                    bp["device"] = "cuda" if _gpu_available() else "cpu"
+                    bp["boosting_type"] = boosting_type
+                    per_quantile_params[q] = bp
+            else:
+                _warm_retrain = False
+                skip_hp = horizon in self.SKIP_HP_HORIZONS
+                hz_trials = self.N_TRIALS_MAP.get(horizon, 15)
+                for q in self.QUANTILES:
+                    device = "cuda" if _gpu_available() else "cpu"
+                    base_params = {
+                        "device": device,
+                        "feature_pre_filter": False,
+                        "objective": "quantile",
+                        "alpha": q,
+                        "metric": "quantile",
+                        "boosting_type": boosting_type,
+                        "min_gain_to_split": 0.1,
+                        "feature_fraction": 0.7,
+                        "bagging_fraction": 0.7,
+                        "bagging_freq": 5,
+                        "max_bin": self.MAX_BIN,
+                        "verbosity": -1,
+                        "n_jobs": -1,
+                    }
+
+                    if skip_hp:
+                        logger.info(f"  Skipping HP search for {horizon}d (SKIP_HP_HORIZONS)...")
+                        best_params = None
+                    else:
+                        logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna, {boosting_type}, {hz_trials} trials)...")
+                        best_params = self._optuna_search_params(
+                            X_train, y_train, X_val, y_val, quantile=q,
+                            boosting_type=boosting_type,
+                            n_trials=hz_trials,
+                            horizon=horizon,
+                        )
+
+                    # Merge Optuna results into base params
+                    if best_params:
+                        merge_keys = ["num_leaves", "learning_rate", "lambda_l1",
+                                      "lambda_l2", "max_depth", "min_data_in_leaf",
+                                      "bagging_fraction"]
+                        if boosting_type == "dart":
+                            merge_keys += ["drop_rate", "max_drop", "skip_drop"]
+                        for k in merge_keys:
+                            if k in best_params:
+                                base_params[k] = best_params[k]
+                    else:
+                        base_params["num_leaves"] = 31
+                        base_params["learning_rate"] = 0.03
+                        base_params["lambda_l1"] = 0.5
+                        base_params["lambda_l2"] = 0.5
+                        base_params["max_depth"] = 5
+                        base_params["min_data_in_leaf"] = 15
+
+                    # Add DART-specific defaults if not set by Optuna
+                    if boosting_type == "dart":
+                        for k, v in self.DART_PARAMS.items():
+                            base_params.setdefault(k, v)
+
+                    per_quantile_params[q] = dict(base_params)
+                self.tuned_params[horizon] = {
+                    q: dict(per_quantile_params[q]) for q in self.QUANTILES
+                }
+
+            # Train ensemble models sequentially. LightGBM already uses all CPU
+            # cores internally via n_jobs=-1, so outer-loop parallelism would
+            # oversubscribe the CPU.
+            boost_rounds = self.DART_NUM_BOOST_ROUND if boosting_type == "dart" else 1000
+            for q in self.QUANTILES:
+                pq = per_quantile_params[q]
+                logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
+                _ens_start = datetime.now()
+                ensemble_models = []
+                for ei in range(self.N_ENSEMBLES):
+                    params = pq.copy()
+                    params["random_state"] = self.ENSEMBLE_SEEDS[ei]
+                    params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
+                    model = self._train_ensemble_member(params, dtrain, dval, boost_rounds)
+                    ensemble_models.append(model)
+
+                self.models[(horizon, q)] = ensemble_models
+                _ens_elapsed = (datetime.now() - _ens_start).total_seconds()
+                fi = self._get_feature_importance(ensemble_models[0])
+                logger.info(f"  Done in {_ens_elapsed:.0f}s — Top features: {fi['feature'].head(5).tolist()}")
+
+                # Residual stacking: train Ridge regression on ensemble
+                # residuals to correct systematic bias patterns.
+                if self.STACK_RESIDUALS and _sklearn_available and horizon in self.WEAK_HORIZONS:
+                    ensemble_pred = np.mean(
+                        [m.predict(X_val) for m in ensemble_models], axis=0
+                    )
+                    residual = y_val.values - ensemble_pred
+                    residual_model = Ridge(alpha=self.RESIDUAL_ALPHA, random_state=42)
+                    residual_model.fit(X_val.values, residual)
+                    self.residual_models[(horizon, q)] = residual_model
+                    r2 = np.corrcoef(residual, residual_model.predict(X_val.values))[0, 1] ** 2
+                    logger.info(f"  Residual model (Ridge α={self.RESIDUAL_ALPHA}) "
+                                 f"trained for {horizon}d p{int(q*100)}: "
+                                 f"R²={r2:.4f}")
+                elif self.STACK_RESIDUALS and not _sklearn_available and horizon in self.WEAK_HORIZONS:
+                    logger.warning(f"  sklearn not available — skipping residual stacking for {horizon}d")
+
+            # Train regime-specific models (optional: SKIP_REGIMES=1 to skip)
+            if os.environ.get("SKIP_REGIMES") == "1":
+                logger.info(f"  Regime models skipped (SKIP_REGIMES=1)")
+            else:
+                for regime in self.REGIMES:
+                    if regime == "global":
+                        continue
+                    r_train = train_set[train_set["_regime"] == regime]
+                    r_val = val_set[val_set["_regime"] == regime]
+                    MIN_REGIME_TRAIN = 500
+                    MIN_REGIME_VAL = 50
+                    if len(r_train) < MIN_REGIME_TRAIN or len(r_val) < MIN_REGIME_VAL:
+                        logger.info(f"  Skipping {regime} regime ({len(r_train)} train, {len(r_val)} val — "
+                                    f"below minimum)")
+                        continue
+
+                    # Use global HP params (reuse Optuna results from global)
+                    r_X_train = r_train[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
+                    r_y_train = r_train[f"target_return_{horizon}d"]
+                    r_X_val = r_val[self.feature_cols].replace([np.inf, -np.inf], np.nan).fillna(feature_medians)
+                    r_y_val = r_val[f"target_return_{horizon}d"]
+
+                    r_train_weights = self._compute_sample_weights(r_train, horizon)
+                    r_val_weights = self._compute_sample_weights(r_val, horizon)
+
+                    r_ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
+                    r_dtrain_kw = dict(params=r_ds_params)
+                    if r_train_weights is not None:
+                        r_dtrain_kw["weight"] = r_train_weights
+                    r_dval_kw = dict(params=r_ds_params)
+                    if r_val_weights is not None:
+                        r_dval_kw["weight"] = r_val_weights
+                    r_dtrain = lgb.Dataset(r_X_train, r_y_train, **r_dtrain_kw)
+                    r_dval = lgb.Dataset(r_X_val, r_y_val, reference=r_dtrain, **r_dval_kw)
+
+                    logger.info(f"  Training {regime} regime models ({horizon}d, "
+                                f"{len(r_train):,} train, {len(r_val):,} val)...")
+                    for q in self.QUANTILES:
+                        pq = per_quantile_params[q]
+                        r_ensemble = []
+                        for ei in range(self.N_ENSEMBLES):
+                            params = pq.copy()
+                            params["random_state"] = self.ENSEMBLE_SEEDS[ei]
+                            params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
+                            model = self._train_ensemble_member(params, r_dtrain, r_dval, boost_rounds)
+                            r_ensemble.append(model)
+                        self.regime_models[(regime, horizon, q)] = r_ensemble
+
+                    self.regime_feature_cols[(horizon, regime)] = list(self.feature_cols)
+                    logger.info(f"  {regime} regime models for {horizon}d done "
+                                f"({len(r_train)} train, {len(r_val)} val)")
+
+            # Expanding-window CV evaluation using the best hyperparams.
+            # Skip CV entirely on warm retrain (cached HPs) — the confidence
+            # thresholds and conformal q_hat from the previous training run
+            # (restored via load_models) remain valid as long as the
+            # distribution hasn't shifted (checked via concept drift).
+            if os.environ.get("SKIP_CV") == "1" or _warm_retrain:
+                if _warm_retrain:
+                    logger.info(f"  CV skipped (warm retrain — using cached thresholds)")
+                else:
+                    logger.info(f"  CV skipped (SKIP_CV=1); calibrating from single holdout")
+                oof_records, cv_metrics, nc_scores = [], [], []
+            else:
+                oof_records, cv_metrics, nc_scores = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
+
+            # Calibrate confidence thresholds on pooled OOF predictions from CV
+            # (more robust than a single 21-day holdout)
+            if oof_records:
+                records_df = pd.DataFrame(oof_records)
+                logger.info(f"  Calibrating on {len(records_df)} pooled OOF predictions "
+                            f"({len(cv_metrics)} folds)")
+                self._calibrate_confidence(horizon=horizon, records_df=records_df)
+
+                # Conformal quantile calibration: compute the (1-α)(1+1/n)
+                # quantile of nonconformity scores from pooled OOF predictions.
+                # This adjustment factor widens prediction intervals so that
+                # [p10 - q_hat, p90 + q_hat] achieves ~(1-2α) empirical coverage.
+                if nc_scores:
+                    nc_arr = np.array(nc_scores)
+                    n_cal = len(nc_arr)
+                    alpha = 0.10  # target 90% coverage for the conformal interval
+                    q_level = (1.0 - alpha) * (1.0 + 1.0 / max(n_cal, 1))
+                    q_level = min(q_level, 0.999)
+                    q_hat = float(np.quantile(nc_arr, q_level))
+                    self.conformal_calibration[horizon] = q_hat
+                    logger.info(f"  CQR calibration: q_hat={q_hat:.4f}pp "
+                                f"(n={n_cal}, α={alpha}, target coverage={(1-alpha)*100:.0f}%)")
+            elif os.environ.get("SKIP_CV") == "1":
+                logger.info("  CV skipped (SKIP_CV=1); fallback to single-split calibration")
+                self._calibrate_confidence(horizon=horizon, X_val=X_val, y_val=y_val, val_set=val_set)
+            else:
+                raise RuntimeError(
+                    f"CV produced no OOF records for {horizon}d horizon "
+                    f"but SKIP_CV is not set. This indicates a bug — "
+                    f"_cv_evaluate_horizon should have raised."
+                )
+
+            # Log CV fold-level metrics
+            fold_accs = [m["directional_accuracy"] for m in cv_metrics]
+            mean_acc = float(np.mean(fold_accs)) if fold_accs else float("nan")
+            std_acc = float(np.std(fold_accs)) if len(fold_accs) > 1 else 0.0
+            if cv_metrics:
+                logger.info(f"  CV ({len(cv_metrics)} folds): "
+                            f"mean={mean_acc:.1f}% sd={std_acc:.1f}% "
+                            f"range=[{min(fold_accs):.1f}%, {max(fold_accs):.1f}%]")
+            self.cv_results[horizon] = {
+                "fold_count": len(cv_metrics),
+                "per_fold": cv_metrics,
+                "mean_dir_acc": round(mean_acc, 1) if fold_accs else 0,
+                "std_dir_acc": round(std_acc, 1) if len(fold_accs) > 1 else 0,
+                "min_dir_acc": round(min(fold_accs), 1) if fold_accs else 0,
+                "max_dir_acc": round(max(fold_accs), 1) if fold_accs else 0,
+            }
+
+            # Validate feature groups: permutation test on the held-out set.
+            # Skip entirely when the validation window is thin (same threshold
+            # as the temporal-split floor above) — permutation tests on <2000
+            # rows or <7 distinct dates are pure noise and cause false-positive
+            # pruning that collapses 14d/30d models to ~4 features.
+            # The significance_level parameter (0.05) gates pruning further:
+            # a group must pass BOTH the statistical significance test (p < α)
+            # AND the practical significance test (drop_pp >= 0.5) to be kept.
+            # This prevents noisy-but-spurious correlations from surviving
+            # on marginal windows without fully skipping the check.
+            val_dates = val_set["date"].nunique() if "date" in val_set.columns else 0
+            need_retrain = False
+            if len(val_set) < 2000 or val_dates < 7:
+                logger.info(
+                    f"  Skipping feature-group validation ({len(val_set)} rows, "
+                    f"{val_dates} dates — below minimum threshold)"
+                )
+            else:
+                try:
+                    X_val_np = X_val.values if hasattr(X_val, "values") else X_val
+                    y_val_np = y_val.values if hasattr(y_val, "values") else y_val
+                    fv = self._validate_feature_groups(
+                        X_val_np, y_val_np, self.feature_cols,
+                        horizon=horizon, n_shuffles=20, min_drop_pp=0.5,
+                        significance_level=0.05,
+                    )
+                    self.cv_results[horizon]["feature_validation"] = fv
+                    failed = [g for g, r in fv.items() if not r["passed"]]
+                    if failed:
+                        if self.prune_failed_groups and attempt == 0:
+                            failed_cols = set()
+                            for g in failed:
+                                for f in fv[g]["features"]:
+                                    failed_cols.add(f)
+                            pre_count = len(self.feature_cols)
+                            self.feature_cols = [c for c in self.feature_cols
+                                                  if c not in failed_cols]
+                            # Safety net: if all features were pruned, fall
+                            # back to a minimal core set so LightGBM doesn't
+                            # crash with 0 columns.
+                            if not self.feature_cols and pre_count > 0:
+                                safe = ["price_log", "price_lag_1d", "price_lag_3d",
+                                        "price_return_1d", "price_return_3d",
+                                        "price_return_7d", "price_std_7d"]
+                                self.feature_cols = [c for c in safe if c in tdf.columns]
+                                if not self.feature_cols:
+                                    self.feature_cols = tdf.select_dtypes(include=[np.number]).columns[:1].tolist()
+                                logger.warning(
+                                    f"  All features pruned — falling back to "
+                                    f"{len(self.feature_cols)} core features as safety net"
+                                )
+                            logger.warning(
+                                f"  Pruned {len(failed_cols)} features from non-causal groups "
+                                f"{failed} ({pre_count} -> {len(self.feature_cols)}). Retraining."
+                            )
+                            need_retrain = True
+                        else:
+                            logger.warning(
+                                f"  Feature groups with no causal signal: {failed}. "
+                                f"({'Auto-prune disabled' if not self.prune_failed_groups else 'Already re-trained.'})"
+                            )
+                except Exception as e:
+                    logger.warning(f"  Feature validation skipped: {e}")
+
+            if not need_retrain:
+                break
+
+        base_features = list(self.feature_cols)
+        excluded_groups = self.HORIZON_EXCLUDED_GROUPS.get(horizon, [])
+        if excluded_groups:
+            horizon_features = [
+                c for c in base_features
+                if _feature_group(c) not in excluded_groups
+            ]
+            logger.info(
+                f"  {horizon}d: excluded {len(base_features) - len(horizon_features)} features "
+                f"from groups {excluded_groups} "
+                f"({len(base_features)} -> {len(horizon_features)} features)"
+            )
+            self.horizon_feature_cols[horizon] = horizon_features
+        else:
+            self.horizon_feature_cols[horizon] = base_features
+
+        _hz_elapsed = (datetime.now() - _hz_start).total_seconds()
+        logger.info(f"  Horizon {horizon}d done in {_hz_elapsed:.0f}s")
+        if self.cv_results.get(horizon):
+            cv = self.cv_results[horizon]
+            logger.info(f"  CV summary: mean={cv.get('mean_dir_acc', '?'):}% "
+                        f"std={cv.get('std_dir_acc', '?'):}% "
+                        f"range=[{cv.get('min_dir_acc', '?'):}%, {cv.get('max_dir_acc', '?'):}%]")
+        del tdf
 
     # ------------------------------------------------------------------
     # Prediction
