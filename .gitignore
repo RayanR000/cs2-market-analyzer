@@ -36,12 +36,6 @@ frontend/.turbo/
 *~
 .DS_Store
 
-# AI assistant working directories and config (local — not shared to GitHub)
-.claude/
-.opencode/
-opencode.json
-/AGENTS.md
-
 # Tooling (local dev artifacts)
 .impeccable/
 
