@@ -34,16 +34,10 @@ price-archive/ops/  — Parquet operational data (events, forecasts, accuracy, s
 
 ## Gotchas
 
-- **`daily_analysis` table was dropped** (migration 0015). Superseded by `item_forecasts` + Parquet.
-- **API client lives in `frontend/lib/api.ts`.** Update both backend router and this client when adding routes.
-- **Training data comes from Parquet, not Supabase.** `fetch_price_history(backfilled_only=True)` reads `price-archive/*.parquet` via DuckDB. DB is only queried for `is_backfilled` flag + events metadata (~2s).
-- **Operational tables migrated to `price-archive/ops/*.parquet`.** Events, forecasts, outcomes, accuracy, supply snapshots, social mentions, collection runs, and event impacts are now dual-written to Parquet. API routes read from Parquet first with DB fallback. Run `python scripts/migrate_to_parquet.py` to initialize. See `backend/db/parquet.py` for the utility module.
-- **Retrain bottleneck is Optuna, not I/O.** Data loading ~3 min; Optuna search was ~38 min (64% of total). After optimizing: `N_TRIALS_MAP[3]=20`, `MedianPruner` activated, `bagging_fraction` searched. Quick 3d validation: run `optuna_3d_search.py` with 200 items (~58s).
-- **`N_TRIALS_MAP[3]=20, [7]=15`** with `SKIP_HP_HORIZONS=[14,30]`. Warm-start params: depth=5, leaves=47, λ₂=1.5, lr=0.01. `bagging_fraction` is now searched (was fixed at 0.7). `MedianPruner` with `n_startup_trials=3, n_warmup_steps=5` kills unpromising trials early via `trial.report()` + `trial.should_prune()`.
-- **DART enabled for 14d/30d** (`BOOSTING_TYPE_MAP[14]=dart, [30]=dart`). Reduces `num_boost_round` from 1000→500 (via `DART_NUM_BOOST_ROUND`). Adds +0.5-2pp accuracy at same/faster speed. Early stopping disabled for DART (incompatible). `drop_rate`, `max_drop`, `skip_drop` searched during Optuna.
-- **Warm retrain auto-skips CV.** When `tuned_params` are cached, `_warm_retrain=True` skips the expanding-window CV step (~4 min saved). Confidence thresholds and conformal q_hat are restored from the previous run's `meta.json`.
-- **Regime-switching:** `forecaster.py` trains separate models per regime (bear/range/bull). Use `--compare-regime` in `forecast_prices.py` for A/B comparison. Adds ~23 min to retrain.
-- **Social sentiment features are non-functional:** VADER scores CS2 jargon as neutral. The 5 social features (`social_mentions_1d`, `social_mentions_7d`, `social_mention_velocity`, `social_sentiment_7d`, `social_score_7d`) don't rank in top 20 by gain importance. Collector runs 4×/day but features won't help prediction until VADER is replaced with ModernFinBERT.
+- **Training data from Parquet, not DB.** `fetch_price_history(backfilled_only=True)` reads `price-archive/*.parquet` via DuckDB. DB only used for `is_backfilled` flag + events metadata.
+- **Operational tables migrated to `price-archive/ops/*.parquet`.** API routes read Parquet first with DB fallback. See `backend/db/parquet.py`.
+- **API client at `frontend/lib/api.ts`.** Update both backend router and this client when adding routes.
+- **Social sentiment features are non-functional.** VADER scores CS2 jargon as neutral — features don't rank in top 20 by gain.
 
 ## Workflow Rules
 
