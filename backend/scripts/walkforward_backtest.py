@@ -75,20 +75,29 @@ def _load_parquet_items(con, backfilled_only=True):
 
 
 def _load_all_prices(con, items):
-    dfs = []
-    for item_slug, *_ in items:
-        rows = con.sql("""
-            SELECT item_slug AS item_id, CAST(day AS DATE) AS timestamp,
-                   mean_price AS price, volume
-            FROM read_parquet('""" + str(ARCHIVE_DIR) + """/prices-*.parquet')
-            WHERE item_slug = ?
-            ORDER BY day
-        """, params=[item_slug]).fetchall()
-        df = pd.DataFrame(rows, columns=["item_id", "timestamp", "price", "volume"])
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["date"] = df["timestamp"].dt.date
-        dfs.append(df)
-    return pd.concat(dfs, ignore_index=True)
+    """Load prices for all requested items in a single scan.
+
+    Previously issued one query per item (up to `max_items` full glob
+    scans of the multi-year Parquet archive) — this batches them into
+    one query with an IN-list, which the pq_files loop in
+    `_load_parquet_items` already proved is the correct pattern here.
+    """
+    slugs = [item_slug for item_slug, *_ in items]
+    if not slugs:
+        return pd.DataFrame(columns=["item_id", "timestamp", "price", "volume", "date"])
+
+    slug_list = ", ".join(f"'{s.replace(chr(39), chr(39) + chr(39))}'" for s in slugs)
+    rows = con.sql(f"""
+        SELECT item_slug AS item_id, CAST(day AS DATE) AS timestamp,
+               mean_price AS price, volume
+        FROM read_parquet('{ARCHIVE_DIR}/prices-*.parquet')
+        WHERE item_slug IN ({slug_list})
+        ORDER BY item_slug, day
+    """).fetchall()
+    df = pd.DataFrame(rows, columns=["item_id", "timestamp", "price", "volume"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["date"] = df["timestamp"].dt.date
+    return df
 
 
 def _compute_metrics(y_true, y_low, y_mid, y_high, current_prices):

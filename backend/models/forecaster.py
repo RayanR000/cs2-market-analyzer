@@ -1777,23 +1777,20 @@ class ItemForecaster:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _train_ensemble_member(params: dict,
-                                X_train, y_train, X_val, y_val,
-                                train_weights, val_weights, ds_params,
+    def _train_ensemble_member(params: dict, dtrain: lgb.Dataset,
+                                dval: lgb.Dataset,
                                 num_boost_round: int = 1000) -> lgb.Booster:
-        """Train a single ensemble member with its own Dataset copy.
-        Constructs a fresh lgb.Dataset per worker to avoid race conditions
-        from lazy binning on shared Datasets across threads.
+        """Train a single ensemble member on a pre-constructed Dataset.
+
+        Callers MUST call `dtrain.construct()` / `dval.construct()`
+        synchronously (single-threaded) before submitting this to a
+        ThreadPoolExecutor — LightGBM's Dataset binning is lazy on first
+        touch, and concurrent first-touch across threads is a data race.
+        Forcing construction up front lets every ensemble member safely
+        share one binned Dataset (read-only) instead of re-binning the
+        same matrix per member.
         Uses early_stopping for GBDT; DART disables it internally.
         """
-        dtrain_kw = dict(params=ds_params.copy())
-        if train_weights is not None:
-            dtrain_kw["weight"] = train_weights
-        dval_kw = dict(params=ds_params.copy())
-        if val_weights is not None:
-            dval_kw["weight"] = val_weights
-        dtrain = lgb.Dataset(X_train, y_train, **dtrain_kw)
-        dval = lgb.Dataset(X_val, y_val, reference=dtrain, **dval_kw)
         callbacks = [lgb.log_evaluation(0)]
         if params.get("boosting_type") != "dart":
             callbacks.insert(0, lgb.early_stopping(50))
@@ -2270,6 +2267,11 @@ class ItemForecaster:
                 dval_kw["weight"] = val_weights
             dtrain = lgb.Dataset(X_train, y_train, **dtrain_kw)
             dval = lgb.Dataset(X_val, y_val, reference=dtrain, **dval_kw)
+            # Construct eagerly (single-threaded) so the ensemble
+            # ThreadPoolExecutor below only ever reads an already-binned
+            # Dataset — construction is where the lazy-init race lives.
+            dtrain.construct()
+            dval.construct()
 
             per_quantile_params = {}
 
@@ -2298,9 +2300,11 @@ class ItemForecaster:
                 _warm_retrain = False
                 skip_hp = horizon in self.SKIP_HP_HORIZONS
                 hz_trials = self.N_TRIALS_MAP.get(horizon, 15)
+                device = "cuda" if _gpu_available() else "cpu"
+
+                base_params_by_q = {}
                 for q in self.QUANTILES:
-                    device = "cuda" if _gpu_available() else "cpu"
-                    base_params = {
+                    base_params_by_q[q] = {
                         "device": device,
                         "feature_pre_filter": False,
                         "objective": "quantile",
@@ -2317,17 +2321,33 @@ class ItemForecaster:
                         "n_jobs": -1,
                     }
 
-                    if skip_hp:
-                        logger.info(f"  Skipping HP search for {horizon}d (SKIP_HP_HORIZONS)...")
-                        best_params = None
-                    else:
-                        logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} (Optuna, {boosting_type}, {hz_trials} trials)...")
-                        best_params = self._optuna_search_params(
+                if skip_hp:
+                    logger.info(f"  Skipping HP search for {horizon}d (SKIP_HP_HORIZONS)...")
+                    best_params_by_q = {q: None for q in self.QUANTILES}
+                else:
+                    # NOTE: previously tried running the 3 quantiles' Optuna
+                    # studies concurrently via a ThreadPoolExecutor. That
+                    # deadlocked in practice — nesting a thread pool (this
+                    # one) around per-trial LightGBM training, which itself
+                    # runs in another nested thread pool with OpenMP
+                    # (n_jobs>1), hung one horizon's worker process
+                    # indefinitely (0s of CPU time over 15+ minutes) on
+                    # macOS/libomp. Reverted to sequential search — still
+                    # correct and safe, just not faster.
+                    best_params_by_q = {}
+                    for q in self.QUANTILES:
+                        logger.info(f"  Searching hyperparams for {horizon}d p{int(q*100)} "
+                                    f"(Optuna, {boosting_type}, {hz_trials} trials)...")
+                        best_params_by_q[q] = self._optuna_search_params(
                             X_train, y_train, X_val, y_val, quantile=q,
                             boosting_type=boosting_type,
                             n_trials=hz_trials,
                             horizon=horizon,
                         )
+
+                for q in self.QUANTILES:
+                    base_params = base_params_by_q[q]
+                    best_params = best_params_by_q[q]
 
                     # Merge Optuna results into base params
                     if best_params:
@@ -2357,14 +2377,21 @@ class ItemForecaster:
                 }
 
             # Train ensemble members with capped concurrency to avoid CPU
-            # oversubscription. When running parallel horizons (horizon_workers > 1),
-            # fall back to serial ensemble training with single-threaded LightGBM.
+            # oversubscription. When horizons also run in parallel
+            # (horizon_workers > 1), split the CPU budget evenly across
+            # horizon processes first, then across ensemble members within
+            # this process — instead of collapsing to fully serial, which
+            # left most cores idle. The Dataset race this used to guard
+            # against is now fixed at the source (construct() before the
+            # pool starts), so concurrent members are safe again.
+            cpu_count = os.cpu_count() or 4
             if horizon_workers > 1:
-                n_workers = 1
-                cpu_per_worker = 1
+                cpu_budget = max(1, cpu_count // horizon_workers)
+                n_workers = min(self.N_ENSEMBLES, cpu_budget)
+                cpu_per_worker = max(1, cpu_budget // n_workers)
             else:
-                n_workers = min(self.N_ENSEMBLES, max(1, (os.cpu_count() or 4) // 2))
-                cpu_per_worker = max(1, (os.cpu_count() or 4) // n_workers)
+                n_workers = min(self.N_ENSEMBLES, max(1, cpu_count // 2))
+                cpu_per_worker = max(1, cpu_count // n_workers)
             boost_rounds = self.DART_NUM_BOOST_ROUND if boosting_type == "dart" else 1000
             for q in self.QUANTILES:
                 pq = per_quantile_params[q]
@@ -2379,10 +2406,7 @@ class ItemForecaster:
                         p["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
                         p["n_jobs"] = cpu_per_worker
                         futures.append(pool.submit(
-                            self._train_ensemble_member, p,
-                            X_train, y_train, X_val, y_val,
-                            train_weights, val_weights, ds_params, boost_rounds,
-                        ))
+                            self._train_ensemble_member, p, dtrain, dval, boost_rounds))
                     for f in futures:
                         try:
                             ensemble_models.append(f.result(timeout=1800))
@@ -2442,6 +2466,19 @@ class ItemForecaster:
                     r_val_weights = self._compute_sample_weights(r_val, horizon)
 
                     r_ds_params = {"max_bin": self.MAX_BIN, "feature_pre_filter": False}
+                    r_dtrain_kw = dict(params=r_ds_params)
+                    if r_train_weights is not None:
+                        r_dtrain_kw["weight"] = r_train_weights
+                    r_dval_kw = dict(params=r_ds_params)
+                    if r_val_weights is not None:
+                        r_dval_kw["weight"] = r_val_weights
+                    r_dtrain = lgb.Dataset(r_X_train, r_y_train, **r_dtrain_kw)
+                    r_dval = lgb.Dataset(r_X_val, r_y_val, reference=r_dtrain, **r_dval_kw)
+                    # Construct eagerly for the same reason as the global
+                    # dtrain/dval above: avoid concurrent lazy-binning
+                    # across the ensemble ThreadPoolExecutor.
+                    r_dtrain.construct()
+                    r_dval.construct()
 
                     logger.info(f"  Training {regime} regime models ({horizon}d, "
                                 f"{len(r_train):,} train, {len(r_val):,} val)...")
@@ -2457,9 +2494,7 @@ class ItemForecaster:
                                 p["n_jobs"] = cpu_per_worker
                                 futures.append(pool.submit(
                                     self._train_ensemble_member, p,
-                                    r_X_train, r_y_train, r_X_val, r_y_val,
-                                    r_train_weights, r_val_weights, r_ds_params, boost_rounds,
-                                ))
+                                    r_dtrain, r_dval, boost_rounds))
                             for f in futures:
                                 try:
                                     r_ensemble.append(f.result(timeout=1800))
