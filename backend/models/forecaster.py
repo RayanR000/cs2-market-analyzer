@@ -99,8 +99,8 @@ class ItemForecaster:
     # carry stronger signal than 3d/7d — DART's dropout overhead is not
     # justified). DART left available for future experiments.
     WEAK_HORIZONS = [14, 30]
-    BOOSTING_TYPE_MAP = {3: "gbdt", 7: "gbdt", 14: "gbdt", 30: "gbdt"}
-    N_TRIALS_MAP = {3: 10, 7: 15}
+    BOOSTING_TYPE_MAP = {3: "gbdt", 7: "gbdt", 14: "dart", 30: "dart"}
+    N_TRIALS_MAP = {3: 50, 7: 15, 14: 15, 30: 15}
     SKIP_HP_HORIZONS = [14, 30]
     DART_PARAMS = {
         "drop_rate": 0.1,
@@ -1583,7 +1583,7 @@ class ItemForecaster:
                 "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 5, 30, step=5),
                 "min_gain_to_split": 0.1,
                 "feature_fraction": 0.7,
-                "bagging_fraction": 0.7,
+                "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 1.0, step=0.1),
                 "bagging_freq": 5,
             }
             # DART-specific hyperparameters
@@ -1591,12 +1591,18 @@ class ItemForecaster:
                 params["drop_rate"] = trial.suggest_float("drop_rate", 0.05, 0.3, log=False)
                 params["max_drop"] = trial.suggest_int("max_drop", 10, 100, step=10)
                 params["skip_drop"] = trial.suggest_float("skip_drop", 0.2, 0.8, log=False)
+            opt_callbacks = [lgb.log_evaluation(0)]
+            if boosting_type != "dart":
+                opt_callbacks.insert(0, lgb.early_stopping(20))
             model = lgb.train(
                 params, dtrain,
                 num_boost_round=200,
                 valid_sets=[dval],
-                callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)]
+                callbacks=opt_callbacks,
             )
+            trial.report(model.best_score["valid_0"]["quantile"], 0)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
             return model.best_score["valid_0"]["quantile"]
 
         sampler = optuna.samplers.TPESampler(seed=42)
@@ -1613,6 +1619,7 @@ class ItemForecaster:
                 "lambda_l2": 1.5,
                 "max_depth": 5,
                 "min_data_in_leaf": 15,
+                "bagging_fraction": 0.7,
             })
 
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
@@ -1625,6 +1632,7 @@ class ItemForecaster:
             "lambda_l2": best.params["lambda_l2"],
             "max_depth": best.params["max_depth"],
             "min_data_in_leaf": best.params["min_data_in_leaf"],
+            "bagging_fraction": best.params.get("bagging_fraction", 0.7),
         }
 
         logger.info(
@@ -1700,13 +1708,19 @@ class ItemForecaster:
 
     @staticmethod
     def _train_ensemble_member(params: dict, dtrain: lgb.Dataset,
-                                dval: lgb.Dataset) -> lgb.Booster:
-        """Train a single ensemble member (sequential)."""
+                                dval: lgb.Dataset,
+                                num_boost_round: int = 1000) -> lgb.Booster:
+        """Train a single ensemble member.
+        Uses early_stopping for GBDT; DART disables it internally.
+        """
+        callbacks = [lgb.log_evaluation(0)]
+        if params.get("boosting_type") != "dart":
+            callbacks.insert(0, lgb.early_stopping(50))
         return lgb.train(
             params, dtrain,
-            num_boost_round=1000,
+            num_boost_round=num_boost_round,
             valid_sets=[dval],
-            callbacks=[lgb.early_stopping(50), lgb.log_evaluation(0)]
+            callbacks=callbacks,
         )
 
     @staticmethod
@@ -2120,7 +2134,8 @@ class ItemForecaster:
                 reuse_hp = (os.environ.get("FORCE_HP_SEARCH") != "1"
                             and all(q in cached_hp for q in self.QUANTILES))
                 if reuse_hp:
-                    logger.info(f"  Reusing cached HP for {horizon}d (Optuna skipped)...")
+                    logger.info(f"  Reusing cached HP for {horizon}d (Optuna + CV skipped)...")
+                    _warm_retrain = True
                     for q in self.QUANTILES:
                         bp = dict(cached_hp[q])
                         bp["max_bin"] = self.MAX_BIN
@@ -2129,6 +2144,7 @@ class ItemForecaster:
                         bp["boosting_type"] = boosting_type
                         per_quantile_params[q] = bp
                 else:
+                    _warm_retrain = False
                     skip_hp = horizon in self.SKIP_HP_HORIZONS
                     hz_trials = self.N_TRIALS_MAP.get(horizon, 15)
                     for q in self.QUANTILES:
@@ -2164,7 +2180,8 @@ class ItemForecaster:
                         # Merge Optuna results into base params
                         if best_params:
                             merge_keys = ["num_leaves", "learning_rate", "lambda_l1",
-                                          "lambda_l2", "max_depth", "min_data_in_leaf"]
+                                          "lambda_l2", "max_depth", "min_data_in_leaf",
+                                          "bagging_fraction"]
                             if boosting_type == "dart":
                                 merge_keys += ["drop_rate", "max_drop", "skip_drop"]
                             for k in merge_keys:
@@ -2188,7 +2205,11 @@ class ItemForecaster:
                         q: dict(per_quantile_params[q]) for q in self.QUANTILES
                     }
 
-                # Train ensemble models (sequential — LightGBM internal threading handles CPU)
+                # Train ensemble models sequentially. LightGBM already uses all CPU
+                # cores internally via n_jobs=-1, so outer-loop parallelism would
+                # oversubscribe the CPU. For machines with 16+ cores, consider
+                # ProcessPoolExecutor (Dataset objects are not thread-safe).
+                boost_rounds = self.DART_NUM_BOOST_ROUND if boosting_type == "dart" else 1000
                 for q in self.QUANTILES:
                     pq = per_quantile_params[q]
                     logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
@@ -2198,7 +2219,7 @@ class ItemForecaster:
                         params = pq.copy()
                         params["random_state"] = self.ENSEMBLE_SEEDS[ei]
                         params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                        model = self._train_ensemble_member(params, dtrain, dval)
+                        model = self._train_ensemble_member(params, dtrain, dval, boost_rounds)
                         ensemble_models.append(model)
 
                     self.models[(horizon, q)] = ensemble_models
@@ -2267,7 +2288,7 @@ class ItemForecaster:
                                 params = pq.copy()
                                 params["random_state"] = self.ENSEMBLE_SEEDS[ei]
                                 params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                                model = self._train_ensemble_member(params, r_dtrain, r_dval)
+                                model = self._train_ensemble_member(params, r_dtrain, r_dval, boost_rounds)
                                 r_ensemble.append(model)
                             self.regime_models[(regime, horizon, q)] = r_ensemble
 
@@ -2275,9 +2296,16 @@ class ItemForecaster:
                         logger.info(f"  {regime} regime models for {horizon}d done "
                                     f"({len(r_train)} train, {len(r_val)} val)")
 
-                # Expanding-window CV evaluation using the best hyperparams
-                if os.environ.get("SKIP_CV") == "1":
-                    logger.info(f"  CV skipped (SKIP_CV=1); calibrating from single holdout")
+                # Expanding-window CV evaluation using the best hyperparams.
+                # Skip CV entirely on warm retrain (cached HPs) — the confidence
+                # thresholds and conformal q_hat from the previous training run
+                # (restored via load_models) remain valid as long as the
+                # distribution hasn't shifted (checked via concept drift).
+                if os.environ.get("SKIP_CV") == "1" or _warm_retrain:
+                    if _warm_retrain:
+                        logger.info(f"  CV skipped (warm retrain — using cached thresholds)")
+                    else:
+                        logger.info(f"  CV skipped (SKIP_CV=1); calibrating from single holdout")
                     oof_records, cv_metrics, nc_scores = [], [], []
                 else:
                     oof_records, cv_metrics, nc_scores = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
