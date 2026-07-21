@@ -102,6 +102,10 @@ def _upsert_accuracy(db, rows):
             db.add(PredictionAccuracy(**row))
     db.commit()
 
+    if rows:
+        from db.parquet import append_table
+        append_table("prediction_accuracy", rows, ["prediction_type", "evaluation_date", "horizon_days", "model_version"])
+
 
 def _load_actual_prices(db, item_ids, dates):
     """Load actual prices from Parquet files (DuckDB).
@@ -226,6 +230,10 @@ def _store_forecast_outcomes(db, outcomes):
     db.bulk_insert_mappings(ForecastOutcome, outcomes)
 
     db.commit()
+
+    from db.parquet import append_table
+    append_table("forecast_outcomes", outcomes, ["forecast_id"])
+
     logger.info(f"  Stored {len(outcomes)} forecast outcome records ({len(existing_ids)} replaced, {len(outcomes) - len(existing_ids)} new)")
 
 

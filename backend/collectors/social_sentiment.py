@@ -172,6 +172,7 @@ def collect_social_mentions(db) -> dict:
     total_mentions = 0
     inserted = 0
     now = utcnow_naive()
+    parquet_rows = []
 
     for subreddit, limit in SUBREDDITS.items():
         posts = fetch_subreddit_posts(subreddit, limit=limit)
@@ -215,6 +216,18 @@ def collect_social_mentions(db) -> dict:
                             "collected_at": now,
                         }
                     )
+                    parquet_rows.append({
+                        "item_id": item_id,
+                        "source": "reddit",
+                        "post_id": post["id"],
+                        "subreddit": subreddit,
+                        "post_title": post["title"][:500] if post["title"] else "",
+                        "post_score": post["score"],
+                        "post_url": post["url"][:500] if post["url"] else "",
+                        "sentiment_score": sentiment,
+                        "mentioned_at": post["timestamp"],
+                        "collected_at": now,
+                    })
                     inserted += 1
                 except Exception as e:
                     logger.warning(
@@ -223,6 +236,10 @@ def collect_social_mentions(db) -> dict:
                     )
 
         db.commit()
+
+    if parquet_rows:
+        from db.parquet import append_table
+        append_table("social_mentions", parquet_rows, ["item_id", "source", "post_id"])
 
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
     logger.info(

@@ -413,6 +413,21 @@ class DataPipeline:
             duration_seconds = (end_time - start_time).total_seconds()
             total_collected = primary_items_collected + fallback_items_collected
 
+            source_breakdown = {
+                'aggregator': primary_items_collected,
+                'historical_fallback': fallback_items_collected,
+                'aggregator_steam_7d': sum(1 for r in price_records if r.source == 'aggregator_steam_7d'),
+                'aggregator_steam_30d': sum(1 for r in price_records if r.source == 'aggregator_steam_30d'),
+                'aggregator_steam_90d': sum(1 for r in price_records if r.source == 'aggregator_steam_90d'),
+                'aggregator_skinport': sum(1 for r in price_records if r.source == 'aggregator_skinport'),
+                'aggregator_buff163': sum(1 for r in price_records if r.source == 'aggregator_buff163'),
+                'aggregator_buff163_buy': sum(1 for r in price_records if r.source == 'aggregator_buff163_buy'),
+                'aggregator_csfloat': sum(1 for r in price_records if r.source == 'aggregator_csfloat'),
+                'aggregator_csmoney': sum(1 for r in price_records if r.source == 'aggregator_csmoney'),
+                'aggregator_csgotrader': sum(1 for r in price_records if r.source == 'aggregator_csgotrader'),
+                'aggregator_youpin': sum(1 for r in price_records if r.source == 'aggregator_youpin'),
+            }
+
             collection_run = CollectionRun(
                 started_at=start_time,
                 finished_at=end_time,
@@ -421,23 +436,27 @@ class DataPipeline:
                 successful=total_collected,
                 failed=errors_count,
                 duration_seconds=duration_seconds,
-                source_breakdown={
-                    'aggregator': primary_items_collected,
-                    'historical_fallback': fallback_items_collected,
-                    'aggregator_steam_7d': sum(1 for r in price_records if r.source == 'aggregator_steam_7d'),
-                    'aggregator_steam_30d': sum(1 for r in price_records if r.source == 'aggregator_steam_30d'),
-                    'aggregator_steam_90d': sum(1 for r in price_records if r.source == 'aggregator_steam_90d'),
-                    'aggregator_skinport': sum(1 for r in price_records if r.source == 'aggregator_skinport'),
-                    'aggregator_buff163': sum(1 for r in price_records if r.source == 'aggregator_buff163'),
-                    'aggregator_buff163_buy': sum(1 for r in price_records if r.source == 'aggregator_buff163_buy'),
-                    'aggregator_csfloat': sum(1 for r in price_records if r.source == 'aggregator_csfloat'),
-                    'aggregator_csmoney': sum(1 for r in price_records if r.source == 'aggregator_csmoney'),
-                    'aggregator_csgotrader': sum(1 for r in price_records if r.source == 'aggregator_csgotrader'),
-                    'aggregator_youpin': sum(1 for r in price_records if r.source == 'aggregator_youpin'),
-                }
+                source_breakdown=source_breakdown,
             )
             self.db_session.add(collection_run)
             self.db_session.commit()
+
+            try:
+                from db.parquet import append_table
+                import json
+                append_table("collection_runs", [{
+                    "started_at": start_time,
+                    "finished_at": end_time,
+                    "status": "completed",
+                    "total_items": len(items),
+                    "successful": total_collected,
+                    "failed": errors_count,
+                    "duration_seconds": duration_seconds,
+                    "error_message": None,
+                    "source_breakdown": json.dumps(source_breakdown),
+                }], ["id"])
+            except Exception as pq_err:
+                logger.warning("Parquet write for collection_runs failed: %s", pq_err)
 
             if total_collected == 0:
                 logger.error(
@@ -475,6 +494,7 @@ class DataPipeline:
             duration_seconds = (end_time - start_time).total_seconds()
 
             # Try to record failed run
+            error_text = str(e)[:1000]
             try:
                 from database import CollectionRun
                 failed_run = CollectionRun(
@@ -485,9 +505,7 @@ class DataPipeline:
                     successful=0,
                     failed=1,
                     duration_seconds=duration_seconds,
-                    # error_message is VARCHAR(1000); oversized values abort
-                    # the failure record itself
-                    error_message=str(e)[:1000]
+                    error_message=error_text,
                 )
                 # discard the failed transaction so this insert can commit
                 self.db_session.rollback()
@@ -495,6 +513,23 @@ class DataPipeline:
                 self.db_session.commit()
             except Exception as record_error:
                 logger.error(f"Could not record failed run: {record_error}")
+
+            try:
+                from db.parquet import append_table
+                import json
+                append_table("collection_runs", [{
+                    "started_at": start_time,
+                    "finished_at": end_time,
+                    "status": "failed",
+                    "total_items": 0,
+                    "successful": 0,
+                    "failed": 1,
+                    "duration_seconds": duration_seconds,
+                    "error_message": error_text,
+                    "source_breakdown": None,
+                }], ["id"])
+            except Exception as pq_err:
+                logger.warning("Parquet write for collection_runs (failed) failed: %s", pq_err)
 
             logger.error(f"❌ Aggregator collection failed: {e}", exc_info=True)
             return {"status": "failed", "error": str(e), "duration_seconds": duration_seconds}

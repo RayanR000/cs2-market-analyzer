@@ -883,7 +883,7 @@ class ItemForecaster:
     # ── Supply-depth features (sell_listings, skinport_quantity) ──────
 
     def _fetch_supply_snapshots(self) -> pd.DataFrame:
-        """Load daily supply snapshots from DB.
+        """Load daily supply snapshots from DB (or Parquet fallback).
 
         Returns DataFrame with columns:
           item_id, date, sell_listings, skinport_quantity

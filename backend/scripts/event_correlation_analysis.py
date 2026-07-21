@@ -210,8 +210,8 @@ def _compute_impacts(db, event: Event, item_ids: list[int]):
     return impacts
 
 
-def _upsert_event_impacts(db, impacts: list[dict]):
-    """Write event_impacts rows."""
+def _upsert_event_impacts(db, impacts: list[dict], event_type: str = "", event_description: str = "", event_timestamp=None):
+    """Write event_impacts rows to DB and Parquet."""
     written = 0
     for row in impacts:
         existing = (
@@ -229,6 +229,32 @@ def _upsert_event_impacts(db, impacts: list[dict]):
             db.add(EventImpact(**row))
         written += 1
     db.commit()
+
+    if impacts:
+        denorm_rows = []
+        for r in impacts:
+            denorm_rows.append({
+                "event_id": r["event_id"],
+                "item_id": r["item_id"],
+                "event_type": event_type,
+                "event_description": event_description,
+                "event_timestamp": event_timestamp,
+                "price_day_before": r.get("price_day_before"),
+                "price_day_1": r.get("price_day_1"),
+                "price_day_3": r.get("price_day_3"),
+                "price_day_7": r.get("price_day_7"),
+                "impact_pct_1day": r.get("impact_pct_1day"),
+                "impact_pct_3day": r.get("impact_pct_3day"),
+                "impact_pct_7day": r.get("impact_pct_7day"),
+                "peak_impact_pct": r.get("peak_impact_pct"),
+                "peak_impact_day": r.get("peak_impact_day"),
+                "duration_days": r.get("duration_days"),
+                "z_score": r.get("z_score"),
+                "confidence_score": None,
+            })
+        from db.parquet import append_table
+        append_table("event_impacts_denorm", denorm_rows, ["event_id", "item_id"])
+
     return written
 
 
@@ -408,6 +434,24 @@ def _compute_and_upsert_correlations(db, event: Event, db_item_ids: list[int],
             db.add(EventCorrelation(**data))
         written += 1
     db.commit()
+
+    if written:
+        try:
+            from db.parquet import read_table, ensure_ops_dir
+            df = read_table("event_impacts_denorm")
+            if not df.empty:
+                confidence_map = {
+                    (r["event_id"], r["item_id"]): r.get("confidence_score")
+                    for r in [data]
+                }
+                for idx in df.index:
+                    key = (df.at[idx, "event_id"], df.at[idx, "item_id"])
+                    if key in confidence_map:
+                        df.at[idx, "confidence_score"] = confidence_map[key]
+                df.to_parquet(ensure_ops_dir() / "event_impacts_denorm.parquet", index=False)
+        except Exception as pq_err:
+            logger.warning("Parquet update for event_impacts_denorm failed: %s", pq_err)
+
     return written
 
 
@@ -445,7 +489,12 @@ def run_analysis(days_back: int = 90):
                 logger.info(f"  No price data found for event #{event.id}, skipping")
                 continue
 
-            n_impacts = _upsert_event_impacts(db, impacts)
+            n_impacts = _upsert_event_impacts(
+                db, impacts,
+                event_type=event.type,
+                event_description=event.description,
+                event_timestamp=event.timestamp,
+            )
             total_impacts += n_impacts
             logger.info(f"  Wrote {n_impacts} event_impacts")
 

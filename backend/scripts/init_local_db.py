@@ -103,6 +103,18 @@ def populate_events(db):
         db.add_all(to_insert)
         db.commit()
         logger.info(f"Inserted {len(to_insert)} new events")
+
+        from db.parquet import append_table
+        parquet_rows = []
+        for ev in to_insert:
+            parquet_rows.append({
+                "id": ev.id,
+                "type": ev.type,
+                "timestamp": ev.timestamp,
+                "description": ev.description,
+                "created_at": ev.created_at,
+            })
+        append_table("events", parquet_rows, ["id"])
     else:
         logger.info("No new events to insert")
 

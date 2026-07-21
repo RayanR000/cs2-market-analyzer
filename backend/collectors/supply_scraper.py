@@ -203,7 +203,7 @@ class SupplyScraper:
     # ── Storage ───────────────────────────────────────────────────────
 
     def store_snapshots(self, steam_data: Dict[str, int]):
-        """Write today's supply snapshots into the database.
+        """Write today's supply snapshots into DB + Parquet.
 
         Uses the item name → id mapping to resolve hash names.
         Upsert semantics: INSERT OR REPLACE on (item_id, snapshot_date).
@@ -220,6 +220,7 @@ class SupplyScraper:
         logger.info(f"  Name→id map: {len(name_ids):,} items")
 
         written = 0
+        parquet_rows = []
         for h_name, listings in steam_data.items():
             item_id = name_ids.get(h_name)
             if item_id is None:
@@ -245,9 +246,22 @@ class SupplyScraper:
                     source="steam_burst",
                 )
                 self.db.add(snap)
+            parquet_rows.append({
+                "item_id": item_id,
+                "snapshot_date": today,
+                "sell_listings": listings,
+                "skinport_quantity": None,
+                "source": "steam_burst",
+                "created_at": utcnow_naive(),
+            })
             written += 1
 
         self.db.commit()
+
+        if parquet_rows:
+            from db.parquet import append_table
+            append_table("supply_snapshots", parquet_rows, ["item_id", "snapshot_date"])
+
         logger.info(f"  Stored {written:,} Steam snapshots")
 
     # ── Full run ──────────────────────────────────────────────────────

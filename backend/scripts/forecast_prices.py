@@ -121,6 +121,9 @@ def _write_forecasts_to_db(db, results, model_version, slug_to_id, today):
             db.execute(stmt)
             db.commit()
 
+        from db.parquet import append_table
+        append_table("item_forecasts", forecast_rows, ["item_id", "forecast_date", "horizon_days"])
+
     return len(forecast_rows)
 
 
