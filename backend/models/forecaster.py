@@ -34,6 +34,11 @@ PRICE_TIER_BOUNDARIES = [(0, 1, "<$1"), (1, 5, "$1-5"), (5, 20, "$5-20"),
                          (20, 100, "$20-100"), (100, float("inf"), ">$100")]
 BIAS_EWMA_ALPHA = 0.3
 
+# Direction upweight: multiplier for positive-return samples during training.
+# Counteracts the model's conservative bias (underpredicts "up" by ~2×).
+# Applied in _compute_sample_weights before normalization.
+DIRECTION_UPWEIGHT = 1.5
+
 
 def _gpu_available() -> bool:
     try:
@@ -190,6 +195,7 @@ class ItemForecaster:
                 self.bias_ewma_state = {int(k): v for k, v in data.get("ewma_state", {}).items()}
                 logger.info(f"  Loaded bias corrections for {len(self.bias_corrections)} horizons, "
                             f"thresholds for {len(self.bias_thresholds)} horizons")
+                self._fill_missing_threshold_defaults()
             except (json.JSONDecodeError, ValueError, KeyError) as e:
                 logger.warning(f"  Corrupt bias_corrections.json ({e}), using defaults")
                 self._set_default_bias_corrections()
@@ -219,6 +225,19 @@ class ItemForecaster:
                     "t_up": DIRECTION_FLAT_TOLERANCE_PCT,
                 }
         self.bias_ewma_state = {h: {} for h in self.HORIZONS}
+
+    def _fill_missing_threshold_defaults(self):
+        defaults = {"t_down": -DIRECTION_FLAT_TOLERANCE_PCT, "t_up": DIRECTION_FLAT_TOLERANCE_PCT}
+        filled = 0
+        for h in self.HORIZONS:
+            if h not in self.bias_thresholds:
+                self.bias_thresholds[h] = {}
+            for _, _, label in PRICE_TIER_BOUNDARIES:
+                if label not in self.bias_thresholds[h]:
+                    self.bias_thresholds[h][label] = dict(defaults)
+                    filled += 1
+        if filled:
+            logger.info(f"  Filled {filled} missing tier defaults in bias_thresholds")
 
     def update_bias_corrections_from_outcomes(self):
         """Query forecast_outcomes, compute per-tier threshold-based bias
@@ -261,7 +280,7 @@ class ItemForecaster:
 
         # Safety constants for threshold fitting
         MIN_THRESHOLD_SAMPLE = 100       # require this many rows to trust percentile fit
-        MIN_FLAT_MARGIN = 0.3            # minimum flat-zone width in percentage points
+        MIN_FLAT_MARGIN = 0.15           # minimum flat-zone width in percentage points
         DFLT_T_DOWN = -DIRECTION_FLAT_TOLERANCE_PCT
         DFLT_T_UP = DIRECTION_FLAT_TOLERANCE_PCT
 
@@ -277,8 +296,8 @@ class ItemForecaster:
             # Skip if predicted mid_ret distribution is too narrow — the
             # model produces no usable directional signal for this tier/horizon.
             iqr = float(np.percentile(mid_rets, 75) - np.percentile(mid_rets, 25))
-            if iqr < 0.5:
-                logger.info(f"  Threshold[{horizon}d, {tier}]: skipping (mid_ret IQR={iqr:.2f} < 0.5)")
+            if iqr < 0.25:
+                logger.info(f"  Threshold[{horizon}d, {tier}]: skipping (mid_ret IQR={iqr:.2f} < 0.25)")
                 continue
 
             actual_up = (g["direction_actual"] == "up").mean()
@@ -1969,6 +1988,9 @@ class ItemForecaster:
         get down-weighted. Uses 30-day rolling std of daily returns as the
         weight signal, clipped to [0.1, 99th percentile].
 
+        Positive-return samples are additionally upweighted by DIRECTION_UPWEIGHT
+        to counter the model's conservative bias (underpredicts "up" by ~2×).
+
         This prevents the ~41% of historically flat items from dominating
         the loss even after dead-item filtering removes the extreme cases.
         """
@@ -1978,6 +2000,13 @@ class ItemForecaster:
             lambda x: x.pct_change().rolling(30, min_periods=5).std()
         ).fillna(1.0).values
         vol = np.clip(vol, 0.1, np.percentile(vol, 99))
+
+        target_col = f"target_return_{horizon}d"
+        if target_col in tdf.columns and DIRECTION_UPWEIGHT != 1.0:
+            target_vals = tdf[target_col].values
+            direction_mult = np.where(target_vals > 0, DIRECTION_UPWEIGHT, 1.0)
+            vol = vol * direction_mult
+
         vol = vol / max(np.mean(vol), 1e-8)
         return vol.astype(np.float32)
 
@@ -2599,7 +2628,7 @@ class ItemForecaster:
             *[set(cols) for cols in self.horizon_feature_cols.values()]
         )) if self.horizon_feature_cols else self.feature_cols
 
-        latest_clean = latest_rows[all_feature_cols].replace([np.inf, -np.inf], np.nan)
+        latest_clean = latest_rows.reindex(columns=all_feature_cols, fill_value=0).replace([np.inf, -np.inf], np.nan)
         if not self.feature_medians.empty:
             medians_aligned = self.feature_medians.reindex(all_feature_cols)
             medians_aligned = medians_aligned.where(medians_aligned.notna(), latest_clean.median())

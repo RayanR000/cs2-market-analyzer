@@ -569,7 +569,7 @@ def main():
     args = list(sys.argv[1:])
     types = None
     min_price = 0.0
-    update_bias = False
+    update_bias = True
     i = 0
     while i < len(args):
         if args[i] == "--type" and i + 1 < len(args):

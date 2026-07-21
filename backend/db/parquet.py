@@ -48,7 +48,20 @@ def _table_path(table: str) -> Path:
 # Core helpers
 # ---------------------------------------------------------------------------
 
+def _coerce_dates(df: pd.DataFrame) -> pd.DataFrame:
+    for col in df.columns:
+        if df[col].dtype == object:
+            non_null = df[col].dropna()
+            if len(non_null) > 0 and hasattr(non_null.iloc[0], "isoformat"):
+                try:
+                    df[col] = pd.to_datetime(df[col])
+                except (ValueError, TypeError):
+                    pass
+    return df
+
+
 def _append_parquet(path: Path, new_data: pd.DataFrame, dedup_keys: list[str]):
+    new_data = _coerce_dates(new_data)
     old_data = None
     if path.exists():
         con = duckdb.connect()
