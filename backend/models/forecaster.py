@@ -11,6 +11,7 @@ import multiprocessing as mp
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone, date
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
@@ -148,7 +149,7 @@ class ItemForecaster:
     WEAK_HORIZONS = [14, 30]
     BOOSTING_TYPE_MAP = {3: "gbdt", 7: "gbdt", 14: "dart", 30: "dart"}
     N_TRIALS_MAP = {3: 50, 7: 15, 14: 15, 30: 15}
-    SKIP_HP_HORIZONS = [14, 30]
+    SKIP_HP_HORIZONS = [3, 14, 30]
     DART_PARAMS = {
         "drop_rate": 0.1,
         "max_drop": 50,
@@ -1596,6 +1597,7 @@ class ItemForecaster:
                 lambda_l2 away from 0, based on prior search results).
         """
         import optuna
+        from optuna.integration import LightGBMPruningCallback
 
         # Build the binned Dataset once and reuse across all trials. Only tree
         # params (num_leaves, learning_rate, ...) vary between trials; the data
@@ -1630,30 +1632,34 @@ class ItemForecaster:
                 "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 5, 30, step=5),
                 "min_gain_to_split": 0.1,
                 "feature_fraction": 0.7,
-                "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 1.0, step=0.1),
-                "bagging_freq": 5,
+                "data_sample_strategy": "goss",
+                "top_rate": 0.2,
+                "other_rate": 0.1,
             }
             # DART-specific hyperparameters
             if boosting_type == "dart":
                 params["drop_rate"] = trial.suggest_float("drop_rate", 0.05, 0.3, log=False)
                 params["max_drop"] = trial.suggest_int("max_drop", 10, 100, step=10)
                 params["skip_drop"] = trial.suggest_float("skip_drop", 0.2, 0.8, log=False)
-            opt_callbacks = [lgb.log_evaluation(0)]
+            _num_rounds = 100 if horizon == 7 else 200
+            opt_callbacks = [
+                lgb.log_evaluation(0),
+                LightGBMPruningCallback(trial, "quantile"),
+            ]
             if boosting_type != "dart":
                 opt_callbacks.insert(0, lgb.early_stopping(20))
             model = lgb.train(
                 params, dtrain,
-                num_boost_round=200,
+                num_boost_round=_num_rounds,
                 valid_sets=[dval],
                 callbacks=opt_callbacks,
             )
-            trial.report(model.best_score["valid_0"]["quantile"], 0)
-            if trial.should_prune():
-                raise optuna.TrialPruned()
             return model.best_score["valid_0"]["quantile"]
 
         sampler = optuna.samplers.TPESampler(seed=42)
-        pruner = optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=5)
+        pruner = optuna.pruners.HyperbandPruner(
+            min_resource=5, max_resource=200, reduction_factor=3
+        )
         study = optuna.create_study(direction="minimize", sampler=sampler, pruner=pruner)
 
         # Warm-start with the known winning params (from prior 50-trial search),
@@ -1666,7 +1672,6 @@ class ItemForecaster:
                 "lambda_l2": 1.5,
                 "max_depth": 5,
                 "min_data_in_leaf": 15,
-                "bagging_fraction": 0.7,
             })
 
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
@@ -1679,7 +1684,6 @@ class ItemForecaster:
             "lambda_l2": best.params["lambda_l2"],
             "max_depth": best.params["max_depth"],
             "min_data_in_leaf": best.params["min_data_in_leaf"],
-            "bagging_fraction": best.params.get("bagging_fraction", 0.7),
         }
 
         logger.info(
@@ -2264,8 +2268,9 @@ class ItemForecaster:
                         "boosting_type": boosting_type,
                         "min_gain_to_split": 0.1,
                         "feature_fraction": 0.7,
-                        "bagging_fraction": 0.7,
-                        "bagging_freq": 5,
+                        "data_sample_strategy": "goss",
+                        "top_rate": 0.2,
+                        "other_rate": 0.1,
                         "max_bin": self.MAX_BIN,
                         "verbosity": -1,
                         "n_jobs": -1,
@@ -2286,18 +2291,17 @@ class ItemForecaster:
                     # Merge Optuna results into base params
                     if best_params:
                         merge_keys = ["num_leaves", "learning_rate", "lambda_l1",
-                                      "lambda_l2", "max_depth", "min_data_in_leaf",
-                                      "bagging_fraction"]
+                                      "lambda_l2", "max_depth", "min_data_in_leaf"]
                         if boosting_type == "dart":
                             merge_keys += ["drop_rate", "max_drop", "skip_drop"]
                         for k in merge_keys:
                             if k in best_params:
                                 base_params[k] = best_params[k]
                     else:
-                        base_params["num_leaves"] = 31
-                        base_params["learning_rate"] = 0.03
-                        base_params["lambda_l1"] = 0.5
-                        base_params["lambda_l2"] = 0.5
+                        base_params["num_leaves"] = 47
+                        base_params["learning_rate"] = 0.01
+                        base_params["lambda_l1"] = 0.0
+                        base_params["lambda_l2"] = 1.5
                         base_params["max_depth"] = 5
                         base_params["min_data_in_leaf"] = 15
 
@@ -2311,21 +2315,26 @@ class ItemForecaster:
                     q: dict(per_quantile_params[q]) for q in self.QUANTILES
                 }
 
-            # Train ensemble models sequentially. LightGBM already uses all CPU
-            # cores internally via n_jobs=-1, so outer-loop parallelism would
-            # oversubscribe the CPU.
+            # Train ensemble members in parallel with capped concurrency to
+            # avoid CPU oversubscription (each member uses n_jobs internally).
+            n_workers = min(self.N_ENSEMBLES, max(1, (os.cpu_count() or 4) // 2))
+            cpu_per_worker = max(1, (os.cpu_count() or 4) // n_workers)
             boost_rounds = self.DART_NUM_BOOST_ROUND if boosting_type == "dart" else 1000
             for q in self.QUANTILES:
                 pq = per_quantile_params[q]
-                logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
+                logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members, {n_workers} workers)...")
                 _ens_start = datetime.now()
                 ensemble_models = []
-                for ei in range(self.N_ENSEMBLES):
-                    params = pq.copy()
-                    params["random_state"] = self.ENSEMBLE_SEEDS[ei]
-                    params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                    model = self._train_ensemble_member(params, dtrain, dval, boost_rounds)
-                    ensemble_models.append(model)
+                with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                    futures = []
+                    for ei in range(self.N_ENSEMBLES):
+                        p = pq.copy()
+                        p["random_state"] = self.ENSEMBLE_SEEDS[ei]
+                        p["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
+                        p["n_jobs"] = cpu_per_worker
+                        futures.append(pool.submit(self._train_ensemble_member, p, dtrain, dval, boost_rounds))
+                    for f in futures:
+                        ensemble_models.append(f.result())
 
                 self.models[(horizon, q)] = ensemble_models
                 _ens_elapsed = (datetime.now() - _ens_start).total_seconds()
@@ -2350,8 +2359,11 @@ class ItemForecaster:
                     logger.warning(f"  sklearn not available — skipping residual stacking for {horizon}d")
 
             # Train regime-specific models (optional: SKIP_REGIMES=1 to skip)
-            if os.environ.get("SKIP_REGIMES") == "1":
-                logger.info(f"  Regime models skipped (SKIP_REGIMES=1)")
+            if os.environ.get("SKIP_REGIMES") == "1" or _warm_retrain:
+                if _warm_retrain:
+                    logger.info(f"  Regime models skipped (warm retrain)")
+                else:
+                    logger.info(f"  Regime models skipped (SKIP_REGIMES=1)")
             else:
                 for regime in self.REGIMES:
                     if regime == "global":
@@ -2389,12 +2401,16 @@ class ItemForecaster:
                     for q in self.QUANTILES:
                         pq = per_quantile_params[q]
                         r_ensemble = []
-                        for ei in range(self.N_ENSEMBLES):
-                            params = pq.copy()
-                            params["random_state"] = self.ENSEMBLE_SEEDS[ei]
-                            params["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                            model = self._train_ensemble_member(params, r_dtrain, r_dval, boost_rounds)
-                            r_ensemble.append(model)
+                        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                            futures = []
+                            for ei in range(self.N_ENSEMBLES):
+                                p = pq.copy()
+                                p["random_state"] = self.ENSEMBLE_SEEDS[ei]
+                                p["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
+                                p["n_jobs"] = cpu_per_worker
+                                futures.append(pool.submit(self._train_ensemble_member, p, r_dtrain, r_dval, boost_rounds))
+                            for f in futures:
+                                r_ensemble.append(f.result())
                         self.regime_models[(regime, horizon, q)] = r_ensemble
 
                     self.regime_feature_cols[(horizon, regime)] = list(self.feature_cols)
@@ -2476,7 +2492,9 @@ class ItemForecaster:
             # on marginal windows without fully skipping the check.
             val_dates = val_set["date"].nunique() if "date" in val_set.columns else 0
             need_retrain = False
-            if len(val_set) < 2000 or val_dates < 7:
+            if _warm_retrain:
+                logger.info("  Skipping feature-group validation (warm retrain)")
+            elif len(val_set) < 2000 or val_dates < 7:
                 logger.info(
                     f"  Skipping feature-group validation ({len(val_set)} rows, "
                     f"{val_dates} dates — below minimum threshold)"
