@@ -87,6 +87,7 @@ git log origin/data-archive --oneline -5
 - Forecast chains off aggregator automatically, ~2-5 min (predict-only) or ~53 min (Monday retrain with regime models)
 - Backtest chains off forecast automatically, ~1-2 min
 - A/B regime comparison: `python scripts/forecast_prices.py --compare-regime` (writes `lgbm-v3-regime` + `lgbm-v3-global-only` forecasts, runs backtest)
+- The price-forecast workflow has `timeout-minutes: 180` as the last-resort safety net — if the code-level hang protections (30 min ensemble timeout, 2h horizon pool timeout, 10 min Optuna/CV timeout) are all bypassed, GHA kills the run after 3 hours
 - All tables (`item_forecasts`, `prediction_accuracy`, etc.) stay bounded by UPSERT
 - Parquet archive on `data-archive` grows by ~300 KB/day
 

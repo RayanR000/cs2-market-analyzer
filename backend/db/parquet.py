@@ -61,22 +61,35 @@ def _coerce_dates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _append_parquet(path: Path, new_data: pd.DataFrame, dedup_keys: list[str]):
+    """Append new_data to an existing Parquet file, deduplicating on dedup_keys.
+
+    Uses DuckDB-native operations to avoid loading the full file into Python
+    memory. The dedup is performed within DuckDB's engine via anti-join.
+    """
     new_data = _coerce_dates(new_data)
-    old_data = None
-    if path.exists():
-        con = duckdb.connect()
-        try:
-            old_data = con.sql(f"SELECT * FROM read_parquet('{path}')").fetchdf()
-        finally:
-            con.close()
+    if not path.exists():
+        new_data.to_parquet(path, index=False)
+        return
 
-    if old_data is not None and not old_data.empty:
-        combined = pd.concat([old_data, new_data], ignore_index=True)
-        combined = combined.drop_duplicates(subset=dedup_keys, keep="last")
-    else:
-        combined = new_data
-
-    combined.to_parquet(path, index=False)
+    con = duckdb.connect()
+    try:
+        con.register("_new", new_data)
+        dedup_conditions = " AND ".join(
+            f"_existing.{k} = _new.{k}" for k in dedup_keys
+        )
+        con.execute(f"""
+            COPY (
+                SELECT * FROM _new
+                UNION ALL
+                SELECT * FROM read_parquet('{path}') _existing
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM _new
+                    WHERE {dedup_conditions}
+                )
+            ) TO '{path}' (FORMAT PARQUET)
+        """)
+    finally:
+        con.close()
 
 
 def read_table(table: str, columns: Optional[list[str]] = None) -> pd.DataFrame:

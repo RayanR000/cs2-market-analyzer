@@ -5,6 +5,7 @@ using price history, technical indicators, events, and item metadata.
 """
 
 import os
+import sys
 import json
 import logging
 import multiprocessing as mp
@@ -48,8 +49,22 @@ def _gpu_available() -> bool:
         result = subprocess.run(
             ["nvidia-smi"], capture_output=True, text=True, timeout=5
         )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        if result.returncode != 0:
+            return False
+        # Verify LightGBM was compiled with CUDA by probing in a subprocess.
+        # Directly calling lgb.train with device="cuda" can segfault if the
+        # pip wheel is CPU-only, and that crash can't be caught in-process.
+        _probe_code = (
+            "import numpy as np; import lightgbm as lgb;"
+            "ds=lgb.Dataset(np.array([[0.0]]), label=np.array([0.0]));"
+            "lgb.train({'device':'cuda','num_threads':1,'verbosity':-1},ds,num_boost_round=1)"
+        )
+        probe = subprocess.run(
+            [sys.executable, "-c", _probe_code],
+            capture_output=True, text=True, timeout=30,
+        )
+        return probe.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
         return False
 
 
@@ -80,11 +95,16 @@ def _feature_group(name: str) -> str:
 def _train_horizon_worker(args):
     """Train a single horizon in a child process (multiprocessing worker).
 
-    Uses fork so the parent's memory (imports, DataFrames) is shared
-    via copy-on-write. Each child creates its own ItemForecaster since
-    the horizon training body is self-contained (doesn't query DB after
+    Uses the spawn context on Windows (fork unavailable) or fork elsewhere
+    for copy-on-write efficiency. Each child creates its own ItemForecaster
+    since the horizon training body is self-contained (doesn't query DB after
     build_training_data). Models are serialized to strings for pickling.
+
+    CUDA is disabled in the worker process because the parent's GPU check
+    may not reflect the worker's LightGBM build (e.g. CPU-only pip wheel
+    on a machine with nvidia-smi). Workers always train on CPU.
     """
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
     horizon, df, base_feature_cols, model_dir, existing_tuned_params, max_rows = args
 
     fc = ItemForecaster(db_session=None, model_dir=model_dir)
@@ -512,19 +532,16 @@ class ItemForecaster:
 
                 slug_join = "JOIN _backfilled b ON sub.item_slug = b.slug" if backfilled_slugs is not None else ""
 
-                rows = con.sql(f"""
+                df = con.sql(f"""
                     SELECT item_slug, day, mean_price AS price, volume, source
                     FROM ({union_sql}) sub
                     {slug_join}
                     WHERE day >= ?
                       AND (source IS NULL OR source NOT LIKE 'historical_fallback:%')
                     ORDER BY item_slug, day, source
-                """, params=[cutoff]).fetchall()
-                logger.info(f"  DuckDB query returned {len(rows):,} rows")
-                # Column order MUST match the SELECT above
-                # (item_slug, day, mean_price, volume, source).
-                df = pd.DataFrame(rows, columns=["item_id", "timestamp", "price", "volume", "source"])
-                del rows  # free memory
+                """, params=[cutoff]).fetchdf()
+                logger.info(f"  DuckDB query returned {len(df):,} rows")
+                df = df.rename(columns={"item_slug": "item_id", "day": "timestamp"})
                 logger.info(f"  DataFrame created, converting types...")
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 df["date"] = df["timestamp"].dt.date
@@ -1648,12 +1665,14 @@ class ItemForecaster:
             ]
             if boosting_type != "dart":
                 opt_callbacks.insert(0, lgb.early_stopping(20))
-            model = lgb.train(
-                params, dtrain,
-                num_boost_round=_num_rounds,
-                valid_sets=[dval],
-                callbacks=opt_callbacks,
-            )
+            with ThreadPoolExecutor(max_workers=1) as _opt_pool:
+                _opt_future = _opt_pool.submit(
+                    lgb.train, params, dtrain,
+                    num_boost_round=_num_rounds,
+                    valid_sets=[dval],
+                    callbacks=opt_callbacks,
+                )
+                model = _opt_future.result(timeout=600)
             return model.best_score["valid_0"]["quantile"]
 
         sampler = optuna.samplers.TPESampler(seed=42)
@@ -2122,12 +2141,19 @@ class ItemForecaster:
         if use_parallel:
             logger.info(f"Training {len(self.HORIZONS)} horizons in parallel "
                         f"({n_workers} workers on {os.cpu_count()} CPUs)")
-            with mp.get_context("fork").Pool(n_workers) as pool:
-                results = pool.map(_train_horizon_worker, [
+            # Use spawn on Windows (fork unavailable), fork elsewhere for
+            # copy-on-write efficiency. Fork+OpenMP can deadlock on macOS
+            # but is generally safe on Linux; the timeout below provides a
+            # safety net if a worker hangs.
+            _mp_ctx = "spawn" if os.name == "nt" else "fork"
+            pool_ctx = mp.get_context(_mp_ctx)
+            with pool_ctx.Pool(n_workers) as pool:
+                async_result = pool.map_async(_train_horizon_worker, [
                     (horizon, df, self._base_feature_cols, self.model_dir,
                      self.tuned_params.get(horizon, {}), max_rows)
                     for horizon in self.HORIZONS
                 ])
+                results = async_result.get(timeout=7200)  # 2h wall-clock for all horizons
             for r in results:
                 self._merge_horizon_result(r)
         else:
@@ -2334,7 +2360,12 @@ class ItemForecaster:
                         p["n_jobs"] = cpu_per_worker
                         futures.append(pool.submit(self._train_ensemble_member, p, dtrain, dval, boost_rounds))
                     for f in futures:
-                        ensemble_models.append(f.result())
+                        try:
+                            ensemble_models.append(f.result(timeout=1800))
+                        except TimeoutError:
+                            logger.error(f"  {horizon}d p{int(q*100)} ensemble training "
+                                         f"timed out (>1800s) — possible LightGBM hang")
+                            raise
 
                 self.models[(horizon, q)] = ensemble_models
                 _ens_elapsed = (datetime.now() - _ens_start).total_seconds()
@@ -2410,7 +2441,12 @@ class ItemForecaster:
                                 p["n_jobs"] = cpu_per_worker
                                 futures.append(pool.submit(self._train_ensemble_member, p, r_dtrain, r_dval, boost_rounds))
                             for f in futures:
-                                r_ensemble.append(f.result())
+                                try:
+                                    r_ensemble.append(f.result(timeout=1800))
+                                except TimeoutError:
+                                    logger.error(f"  {regime} regime {horizon}d p{int(q*100)} "
+                                                 f"training timed out (>1800s)")
+                                    raise
                         self.regime_models[(regime, horizon, q)] = r_ensemble
 
                     self.regime_feature_cols[(horizon, regime)] = list(self.feature_cols)
@@ -3084,12 +3120,14 @@ class ItemForecaster:
                 params["n_jobs"] = -1
                 params["random_state"] = 42
 
-                model = lgb.train(
-                    params, dtrain,
-                    num_boost_round=200,
-                    valid_sets=[dval],
-                    callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)]
-                )
+                with ThreadPoolExecutor(max_workers=1) as _cv_pool:
+                    _cv_future = _cv_pool.submit(
+                        lgb.train, params, dtrain,
+                        num_boost_round=200,
+                        valid_sets=[dval],
+                        callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)]
+                    )
+                    model = _cv_future.result(timeout=600)
                 lgb_preds.append(model.predict(X_val))
 
                 pred = lgb_preds[0]
@@ -3595,13 +3633,19 @@ class ItemForecaster:
                     for ei in range(n_ensembles):
                         path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}_e{ei}.txt")
                         if os.path.exists(path):
-                            ensemble.append(lgb.Booster(model_file=path))
+                            try:
+                                ensemble.append(lgb.Booster(model_file=path))
+                            except (lgb.basic.LightGBMError, Exception) as e:
+                                logger.warning(f"  Corrupt model {path}, skipping: {e}")
                     if ensemble:
                         self.models[(horizon, q)] = ensemble
                 else:
                     path = os.path.join(self.model_dir, f"lgb_{horizon}d_q{int(q*100)}.txt")
                     if os.path.exists(path):
-                        self.models[(horizon, q)] = lgb.Booster(model_file=path)
+                        try:
+                            self.models[(horizon, q)] = lgb.Booster(model_file=path)
+                        except (lgb.basic.LightGBMError, Exception) as e:
+                            logger.warning(f"  Corrupt model {path}, skipping: {e}")
 
         # Load regime-specific models
         trained_regimes = meta.get("trained_regimes", [])
@@ -3627,7 +3671,10 @@ class ItemForecaster:
                             f"lgb_{horizon}d_q{int(q*100)}_{regime}_e{ei}.txt"
                         )
                         if os.path.exists(path):
-                            ensemble.append(lgb.Booster(model_file=path))
+                            try:
+                                ensemble.append(lgb.Booster(model_file=path))
+                            except (lgb.basic.LightGBMError, Exception) as e:
+                                logger.warning(f"  Corrupt regime model {path}, skipping: {e}")
                     if ensemble:
                         self.regime_models[(regime, horizon, q)] = ensemble
 

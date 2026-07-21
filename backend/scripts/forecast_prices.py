@@ -100,6 +100,17 @@ def _write_forecasts_to_db(db, results, model_version, slug_to_id, today):
     if forecast_rows:
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        # Verify DB connection is still alive before the batch insert loop.
+        # Training can take >1h, and the connection may have gone stale.
+        try:
+            db.execute(text("SELECT 1"))
+        except Exception:
+            logger.warning("  DB connection stale, reconnecting...")
+            db.close()
+            from database import SessionLocal
+            db = SessionLocal()
+
         bind = db.get_bind()
         is_sqlite = bind is not None and bind.dialect.name == "sqlite"
         insert_stmt = sqlite_insert if is_sqlite else pg_insert
@@ -118,8 +129,17 @@ def _write_forecasts_to_db(db, results, model_version, slug_to_id, today):
                 index_elements=["item_id", "forecast_date", "horizon_days"],
                 set_=update_cols,
             )
-            db.execute(stmt)
-            db.commit()
+            try:
+                db.execute(stmt)
+                db.commit()
+            except Exception as e:
+                logger.warning(f"  Batch insert failed, reconnecting and retrying: {e}")
+                db.rollback()
+                db.close()
+                from database import SessionLocal
+                db = SessionLocal()
+                db.execute(stmt)
+                db.commit()
 
         from db.parquet import append_table
         append_table("item_forecasts", forecast_rows, ["item_id", "forecast_date", "horizon_days"])

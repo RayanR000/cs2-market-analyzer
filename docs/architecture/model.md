@@ -151,6 +151,12 @@ Confidence calibration uses pooled out-of-fold predictions across all folds. Add
 - Predict-only Tue-Sun: load saved models (global + regime both loaded)
 - Drift-triggered: auto-retrain if directional accuracy drops below 60% on 7-day sliding window
 
+### Platform-specific training
+
+**Multiprocessing context:** On Linux/macOS, workers use `fork` for copy-on-write memory sharing. On Windows (where `fork` is unavailable), workers use `spawn`. The context is selected automatically in `_train_horizon_worker` — no flag needed.
+
+**CUDA detection:** `_gpu_available()` probes GPU availability via a subprocess that runs a minimal `lgb.train(device="cuda")` call. A subprocess is required because calling `lgb.train(device="cuda")` in-process segfaults if the LightGBM pip wheel is CPU-only (the crash can't be caught via `try/except`). The subprocess also isolates the crash from the parent process if the CUDA runtime has issues. Workers always train on CPU regardless of the parent's GPU state — `os.environ["CUDA_VISIBLE_DEVICES"] = ""` is set in every worker to prevent accidental GPU usage when the GPU-probe subprocess succeeded but the worker's LightGBM build was compiled without CUDA support.
+
 ### Boosting Strategy
 
 Short horizons (3d, 7d) use standard **GBDT**. Longer horizons (14d, 30d) use **DART** (Dropout Additive Regression Trees) to reduce overfitting. DART uses 500 boost rounds (vs 1000 for GBDT) and adds three Optuna-tuned hyperparameters (`drop_rate`, `max_drop`, `skip_drop`).
