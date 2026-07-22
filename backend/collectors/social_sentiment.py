@@ -2,7 +2,8 @@
 Reddit social sentiment collector for CS2 skin mentions.
 
 Monitors CS2-related subreddits for skin name mentions in post titles,
-scores sentiment via VADER, and stores results in the social_mentions table.
+scores sentiment via FinBERT ONNX INT8, and stores results in the
+social_mentions table.
 
 Run directly:
     python -m collectors.social_sentiment
@@ -17,21 +18,78 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
+import onnxruntime as ort
 import requests
 from bs4 import BeautifulSoup
 from sqlalchemy import text
+from transformers import AutoTokenizer
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from database import SessionLocal, utcnow_naive
 
-try:
-    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-    _vader = SentimentIntensityAnalyzer()
-except ImportError:
-    _vader = None
-
 logger = logging.getLogger("social_sentiment")
+
+_FINBERT_CACHE = Path.home() / ".cache" / "finbert-int8"
+
+
+class FinbertScorer:
+    """FinBERT sentiment scorer using ONNX INT8 for CPU efficiency.
+
+    Loads the pre-exported and quantized model from ~/.cache/finbert-int8/.
+    Falls back to 0.0 if model is unavailable.
+    """
+
+    def __init__(self):
+        self.tokenizer = None
+        self.session = None
+        self._load()
+
+    def _load(self):
+        onnx_path = _FINBERT_CACHE / "model_int8.onnx"
+        if not onnx_path.exists():
+            onnx_path = _FINBERT_CACHE / "model.onnx"
+        if not onnx_path.exists():
+            logger.warning("FinBERT ONNX model not found at %s", _FINBERT_CACHE)
+            return
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(str(_FINBERT_CACHE))
+            self.session = ort.InferenceSession(
+                str(onnx_path),
+                providers=["CPUExecutionProvider"],
+            )
+            logger.info("FinBERT ONNX INT8 scorer ready (%s, %.0f MB)",
+                        onnx_path.name, onnx_path.stat().st_size / 1e6)
+        except Exception as e:
+            logger.warning("Failed to load FinBERT ONNX model: %s", e)
+
+    def score(self, text: str) -> float:
+        """Return sentiment score in [-1, 1] using FinBERT."""
+        if self.session is None or self.tokenizer is None:
+            return 0.0
+        try:
+            inp = self.tokenizer(
+                text, return_tensors="np", truncation=True, max_length=128,
+            )
+            logits = self.session.run(None, {
+                "input_ids": inp["input_ids"],
+                "attention_mask": inp["attention_mask"],
+            })[0][0]
+            exp = np.exp(logits - np.max(logits))
+            probs = exp / exp.sum()
+            return float(probs[2] - probs[0])
+        except Exception as e:
+            logger.warning("FinBERT scoring error: %s", e)
+            return 0.0
+
+
+_finbert = FinbertScorer()
+
+
+def score_sentiment(text: str) -> float:
+    """Return sentiment score in [-1, 1]."""
+    return _finbert.score(text)
 
 SUBREDDITS = {
     "GlobalOffensiveTrade": 150,
@@ -142,10 +200,8 @@ def fetch_subreddit_posts(subreddit: str, limit: int = 100) -> list[dict]:
 
 
 def score_sentiment(text: str) -> float:
-    """Return VADER compound sentiment score (-1 to 1)."""
-    if _vader is None:
-        return 0.0
-    return _vader.polarity_scores(text)["compound"]
+    """Return sentiment score in [-1, 1] using FinBERT ONNX INT8."""
+    return _finbert.score(text)
 
 
 def collect_social_mentions(db) -> dict:

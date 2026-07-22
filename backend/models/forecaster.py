@@ -1678,6 +1678,7 @@ class ItemForecaster:
         df = self._add_event_features(df, events_df)
         df = self._add_item_metadata_features(df)
         df = self._add_supply_side_features(df)
+        df = self._add_social_features(df)
         return df
 
     # ------------------------------------------------------------------

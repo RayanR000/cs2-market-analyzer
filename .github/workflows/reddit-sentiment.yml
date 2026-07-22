@@ -40,6 +40,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Restore FinBERT ONNX INT8 model (cache)
+        id: cache-finbert
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/finbert-int8
+          key: finbert-int8-v1
+
+      - name: Export FinBERT model (cache miss, first run)
+        if: steps.cache-finbert.outputs.cache-hit != 'true'
+        working-directory: ./backend
+        run: |
+          pip install torch onnxscript
+          python -m collectors.export_finbert_onnx
+
       - name: Run Reddit social sentiment collection
         working-directory: ./backend
         env:
