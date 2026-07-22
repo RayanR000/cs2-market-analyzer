@@ -2415,8 +2415,9 @@ class ItemForecaster:
                     self.conformal_calibration[horizon] = q_hat
                     logger.info(f"  CQR calibration: q_hat={q_hat:.4f}pp "
                                 f"(n={n_cal}, α={alpha}, target coverage={(1-alpha)*100:.0f}%)")
-            elif _skip_cv:
-                logger.info("  CV skipped (SKIP_CV=1, GBDT horizon); fallback to single-split calibration")
+            elif _skip_cv or _warm_retrain:
+                if _skip_cv:
+                    logger.info("  CV skipped (SKIP_CV=1, GBDT horizon); fallback to single-split calibration")
                 self._calibrate_confidence(horizon=horizon, X_val=X_val, y_val=y_val, val_set=val_set)
             else:
                 raise RuntimeError(
@@ -2495,11 +2496,21 @@ class ItemForecaster:
                                     f"  All features pruned — falling back to "
                                     f"{len(self.feature_cols)} core features as safety net"
                                 )
-                            logger.warning(
-                                f"  Pruned {len(failed_cols)} features from non-causal groups "
-                                f"{failed} ({pre_count} -> {len(self.feature_cols)}). Retraining."
+                            price_passed = (
+                                "price_technicals" in fv and fv["price_technicals"]["passed"]
                             )
-                            need_retrain = True
+                            if price_passed:
+                                logger.warning(
+                                    f"  Pruned {len(failed_cols)} features from groups {failed} "
+                                    f"({pre_count} -> {len(self.feature_cols)}). "
+                                    f"price_technicals intact — skipping retrain (no accuracy gain)."
+                                )
+                            else:
+                                logger.warning(
+                                    f"  Pruned {len(failed_cols)} features from groups {failed} "
+                                    f"({pre_count} -> {len(self.feature_cols)}). Retraining."
+                                )
+                                need_retrain = True
                         else:
                             logger.warning(
                                 f"  Feature groups with no causal signal: {failed}. "
@@ -2513,7 +2524,7 @@ class ItemForecaster:
 
         base_features = list(self.feature_cols)
         excluded_groups = self.HORIZON_EXCLUDED_GROUPS.get(horizon, [])
-        if excluded_groups:
+        if excluded_groups and not _warm_retrain:
             horizon_features = [
                 c for c in base_features
                 if _feature_group(c) not in excluded_groups
@@ -3046,11 +3057,14 @@ class ItemForecaster:
                 params["n_jobs"] = -1
                 params["random_state"] = 42
 
+                fold_callbacks = [lgb.log_evaluation(0)]
+                if self.BOOSTING_TYPE_MAP.get(horizon) != "dart":
+                    fold_callbacks.insert(0, lgb.early_stopping(20))
                 model = lgb.train(
                     params, dtrain,
                     num_boost_round=200,
                     valid_sets=[dval],
-                    callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)],
+                    callbacks=fold_callbacks,
                 )
                 lgb_preds.append(model.predict(X_val))
 

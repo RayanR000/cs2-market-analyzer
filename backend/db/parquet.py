@@ -74,14 +74,26 @@ def _append_parquet(path: Path, new_data: pd.DataFrame, dedup_keys: list[str]):
     con = duckdb.connect()
     try:
         con.register("_new", new_data)
+        # Align columns between new and existing data to handle schema drift
+        existing_cols = [
+            r[0] for r in con.execute(
+                f"DESCRIBE SELECT * FROM read_parquet('{path}')"
+            ).fetchall()
+        ]
+        common_cols = [c for c in new_data.columns if c in existing_cols]
+        if not common_cols:
+            common_cols = list(new_data.columns)
+        col_list = ", ".join(common_cols)
         dedup_conditions = " AND ".join(
-            f"_existing.{k} = _new.{k}" for k in dedup_keys
+            f"_existing.{k} = _new.{k}" for k in dedup_keys if k in common_cols
         )
+        if not dedup_conditions:
+            dedup_conditions = "1=0"
         con.execute(f"""
             COPY (
-                SELECT * FROM _new
+                SELECT {col_list} FROM _new
                 UNION ALL
-                SELECT * FROM read_parquet('{path}') _existing
+                SELECT {col_list} FROM read_parquet('{path}') _existing
                 WHERE NOT EXISTS (
                     SELECT 1 FROM _new
                     WHERE {dedup_conditions}

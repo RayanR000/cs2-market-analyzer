@@ -2,22 +2,22 @@
 
 ## Overview
 
-Two-layer `ItemForecaster` containing **~144 LightGBM models** — a global ensemble and per-regime ensembles:
+Two-layer `ItemForecaster` containing **36–144 LightGBM models** — a global ensemble and optional per-regime ensembles:
 
 ### Global models (always available)
 
 ```
-3d horizon:  3 quantiles (p10, p50, p90) × 6 ensemble members
-7d horizon:  3 quantiles (p10, p50, p90) × 6 ensemble members
-14d horizon: 3 quantiles (p10, p50, p90) × 6 ensemble members
-30d horizon: 3 quantiles (p10, p50, p90) × 6 ensemble members
+3d horizon:  3 quantiles (p10, p50, p90) × 3 ensemble members
+7d horizon:  3 quantiles (p10, p50, p90) × 3 ensemble members
+14d horizon: 3 quantiles (p10, p50, p90) × 3 ensemble members
+30d horizon: 3 quantiles (p10, p50, p90) × 3 ensemble members
 ```
 
-72 total. Predictions averaged across ensemble members per quantile. p10/p90 provide the interval, p50 is the point prediction.
+36 total. Predictions averaged across ensemble members per quantile. p10/p90 provide the interval, p50 is the point prediction.
 
 ### Regime-specific models (trained per regime)
 
-Separate ensembles for each detectable market regime (bear / range / bull), each with the same 72-model structure. Trained alongside global models when data volume permits. At prediction time, the current regime is detected and regime-specific models are preferred.
+Separate ensembles for each detectable market regime (bear / range / bull), each with the same 36-model structure. Trained alongside global models when data volume permits. At prediction time, the current regime is detected and regime-specific models are preferred.
 
 | Regime | Detection | Typical status |
 |--------|-----------|----------------|
@@ -38,13 +38,15 @@ Market regimes (bear/range/bull) have fundamentally different price dynamics. A 
 
 ### Training
 
-In `train()`, after global models complete:
+In `train()`, after global models complete (skipped entirely when `SKIP_REGIMES=1` or on warm retrain):
 
 1. **Label assignment:** `_assign_regime_label()` tags each row by `market_return_30d` → bear/range/bull
 2. **Per-regime training:** `_assign_regime_labels()` groups data by regime, calls `_train_horizon_ensemble()` with regime-specific subset
 3. **Skip threshold:** regime skipped if <500 train or <50 val rows (bear often skipped for short horizons)
 4. **Hyperparameters:** reuse global `tuned_params` (no separate Optuna per regime)
 5. **Storage:** regime models saved to `self.regime_models[(regime, horizon, q)]` — parallel to `self.models[(horizon, q)]`
+
+Regime models are disabled by default (warm retrain) and must be explicitly enabled via `SKIP_REGIMES=0`. See `docs/architecture/model-optimization.md` Tier-1 #2.
 
 ### Prediction
 
@@ -144,10 +146,10 @@ Fold 5: train [0..680d] → val [681..701d]
 Confidence calibration uses pooled out-of-fold predictions across all folds. Added Jul 2026 (was single 21-day holdout, which was sensitive to specific events in that window).
 
 ### Training Window
-1460 days of backfilled data from Parquet archive. Changed from 365d→730d (Jul 2026) then 730d→1460d (2026-07-16) to improve long-horizon signal. Row count bounded by a pre-feature-engineering item-stratified subsample (max 400K rows) plus a post-feature-engineering safety cap (max 700K rows).
+1460 days of backfilled data from Parquet archive. Changed from 365d→730d (Jul 2026) then 730d→1460d (2026-07-16) to improve long-horizon signal. Row count bounded by a pre-feature-engineering item-stratified subsample (`max_feature_rows=100K`, was 700K).
 
 ### Retrain Schedule
-- Full retrain Monday: Optuna + 72 global ensemble models + ~180 regime ensemble models (~53 min total on Mac with SKIP_CV)
+- Full retrain Monday: Optuna (cold) or HP reuse (warm) + 36 global ensemble models + optional regime models (~4–16 min total)
 - Predict-only Tue-Sun: load saved models (global + regime both loaded)
 - Drift-triggered: auto-retrain if directional accuracy drops below 60% on 7-day sliding window
 
@@ -173,27 +175,28 @@ A **Ridge regression** model (`alpha=5.0`) trained on ensemble residuals to corr
 
 | Parameter | Value |
 |-----------|-------|
-| `num_leaves` | 31 |
-| `max_depth` | 5 |
-| `min_data_in_leaf` | 15 |
+| `num_leaves` | 47 (fallback) / Optuna-tuned (15–63) |
+| `max_depth` | 5 (fallback) / Optuna-tuned (4–8) |
+| `min_data_in_leaf` | 15 (fallback) / Optuna-tuned (5–30) |
 | `min_gain_to_split` | 0.1 |
-| `learning_rate` | 0.03 |
+| `learning_rate` | 0.01 (fallback) / Optuna-tuned (0.005–0.08) |
 | `num_boost_round` | 1000 (GBDT) / 500 (DART) |
-| `early_stopping` | 50 |
-| `feature_fraction` | 0.7 |
-| `bagging_fraction` | 0.7 |
-| `lambda_l1` | 0.5 |
-| `lambda_l2` | 0.5 |
+| `early_stopping` | 50 (GBDT) / none (DART) |
+| `feature_fraction` | 0.7 / per-ensemble [0.6, 0.7, 0.8] |
+| `data_sample_strategy` | `goss` (q50) / `bagging` (q10/q90) |
+| `lambda_l1` | 0.0 (fallback) / Optuna-tuned (0.0–2.0) |
+| `lambda_l2` | 1.5 (fallback) / Optuna-tuned (0.5–2.0) |
 | `boosting_type` | `gbdt` (3d/7d) / `dart` (14d/30d) |
 | `drop_rate` | 0.05–0.3 (DART, Optuna-tuned) |
 | `max_drop` | 10–100 (DART, Optuna-tuned) |
 | `skip_drop` | 0.2–0.8 (DART, Optuna-tuned) |
-| `max_bin` | 63 (was 255, halved for speed) |
+| `max_bin` | 63 (was 255, reduced for speed) |
 | `feature_pre_filter` | `false` (LGB 4.6 compat) |
-| `N_ENSEMBLES` | 6 (was 9, reduced for speed) |
+| `N_ENSEMBLES` | 3 (was 6, was 9) |
+| `max_feature_rows` | 100K (was 700K) |
 
 ### Training Time (Mac)
-~53 min full retrain with regime models (~30 min global + ~23 min regime). ~17–20 min of Optuna on cold start. With SKIP_CV+HP reuse: ~30 min global + ~23 min regime.
+~14–16 min cold retrain (full Optuna + HP search + CV). ~4–5 min warm retrain (HP cache reuse, SKIP_CV, SKIP_REGIMES). ~17–20 min of Optuna on first-ever cold start. See `docs/architecture/model-optimization.md` for optimization levers.
 
 ---
 
@@ -272,14 +275,15 @@ Baseline = persistence forecast (predicts zero change). Bootstrap CI = 95% perce
 - Calibration: conf_gap_pp, conf_high_interval_cov, conf_calibration_error
 
 ### Known Limitations
-- Walk-forward eval runs on 50 items only (not all 8,691)
+- Walk-forward eval runs on 200 items only (not all 8,691)
 - Fold variance is high (30d std=12.0%, range 42.5%–91.1%)
 - Recent folds degrade during high market volatility
 - Interval coverage drops in volatile periods
+- **q90 GBDT models are broken** — GOSS `data_sample_strategy` is incompatible with extreme quantile regression (alpha=0.9). q90 models terminate at 1-3 boost rounds, causing 39-48% interval coverage on GBDT horizons (3d, 7d). DART horizons (14d, 30d) unaffected (~91% coverage).
 - Rarity features have strong causal signal (+10-12pp permutation test). Weapon-type one-hot and cross-sectional were removed — they showed zero causal signal despite the +0.66pp A/B bundle delta
 - `_apply_multi_source_voting()` uses `groupby().apply()` on 5.5M rows — takes ~3-5 min. Could be vectorized for ~5s but voting logic is correct and this only affects training time, not accuracy
 - **Flat-bias on longer horizons:** The model predicts "flat" too often on 7d/14d/30d when uncertainty is high. In a trending market (Dec 2025: only ~18% of actuals were flat), this penalizes raw DA heavily — 43% of 7d forecasts predicted flat when the item actually moved. The model still adds +29pp over baseline, but confidence calibration tuning could reduce this bias.
-- **VADER social features not in top 20:** After 3 days of production data, none of the 5 social sentiment features rank in the top 20 by gain importance across 122 features. Root cause: VADER is a general-purpose lexicon that scores CS2 market jargon ("BFK CW MW low float") as neutral. Recommendation: replace with ModernFinBERT (ONNX INT8, ~88% accuracy on financial text).
+- **VADER social features not in top 20:** None of the 5 social sentiment features rank in the top 20 by gain importance. Root cause: VADER is a 2014 general-purpose lexicon that scores CS2 market jargon ("BFK CW MW low float") as neutral. Recommendation: replace with ModernFinBERT (ONNX INT8, ~88% accuracy on financial text).
 
 ### Data Quality Audit (2026-07-17)
 A comprehensive audit of the 9.8M-row training set revealed three data quality issues:
