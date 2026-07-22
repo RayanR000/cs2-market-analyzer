@@ -129,17 +129,23 @@ def _write_forecasts_to_db(db, results, model_version, slug_to_id, today):
                 index_elements=["item_id", "forecast_date", "horizon_days"],
                 set_=update_cols,
             )
-            try:
-                db.execute(stmt)
-                db.commit()
-            except Exception as e:
-                logger.warning(f"  Batch insert failed, reconnecting and retrying: {e}")
-                db.rollback()
-                db.close()
-                from database import SessionLocal
-                db = SessionLocal()
-                db.execute(stmt)
-                db.commit()
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    db.execute(stmt)
+                    db.commit()
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"  Batch insert failed (attempt {attempt + 1}/{max_retries}), reconnecting and retrying: {e}")
+                        db.rollback()
+                        db.close()
+                        from database import SessionLocal
+                        db = SessionLocal()
+                    else:
+                        logger.error(f"  Batch insert failed after {max_retries} attempts: {e}")
+                        db.rollback()
+                        raise
 
         from db.parquet import append_table
         append_table("item_forecasts", forecast_rows, ["item_id", "forecast_date", "horizon_days"])

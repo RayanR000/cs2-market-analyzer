@@ -8,13 +8,9 @@ import os
 import sys
 import json
 import logging
-import tempfile
-import uuid
-import multiprocessing as mp
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone, date
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
@@ -93,64 +89,6 @@ def _feature_group(name: str) -> str:
         return "social"
     return "other"
 
-
-def _train_horizon_worker(args):
-    """Train a single horizon in a child process (multiprocessing worker).
-
-    Reads the training DataFrame from a temp Feather file (shared via OS
-    page cache) to avoid pickling the large DataFrame through spawn's OS
-    pipes, which can cause blocking read() stalls when 4 workers start
-    simultaneously. Each child creates its own ItemForecaster since the
-    horizon training body is self-contained (doesn't query DB after
-    build_training_data). Models are serialized to strings for pickling.
-
-    CUDA is disabled in the worker process because the parent's GPU check
-    may not reflect the worker's LightGBM build (e.g. CPU-only pip wheel
-    on a machine with nvidia-smi). Workers always train on CPU.
-    """
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    # Cap OpenMP threads to avoid CPU oversubscription when n_workers
-    # processes each run LightGBM parallel regions concurrently.
-    n_cpus = os.cpu_count() or 1
-    horizon, df_path, base_feature_cols, model_dir, existing_tuned_params, max_rows, horizon_workers = args
-    os.environ["OMP_NUM_THREADS"] = str(max(1, n_cpus // horizon_workers))
-    os.environ["OPENBLAS_NUM_THREADS"] = os.environ["OMP_NUM_THREADS"]
-    df = pd.read_feather(df_path)
-
-    fc = ItemForecaster(db_session=None, model_dir=model_dir)
-    fc._base_feature_cols = list(base_feature_cols)
-    fc.feature_cols = list(base_feature_cols)
-    if existing_tuned_params:
-        fc.tuned_params[horizon] = existing_tuned_params
-
-    fc._train_horizon_inline(horizon, df, max_rows, horizon_workers)
-
-    models = {}
-    for (h, q), ensemble in fc.models.items():
-        if h == horizon:
-            models[(horizon, q)] = [m.model_to_string() for m in ensemble]
-
-    regime_models = {}
-    for (reg, h, q), ensemble in fc.regime_models.items():
-        if h == horizon:
-            regime_models[(reg, horizon, q)] = [m.model_to_string() for m in ensemble]
-
-    return {
-        "horizon": horizon,
-        "models": models,
-        "regime_models": regime_models,
-        "regime_feature_cols": {
-            (h, reg): cols for (h, reg), cols in fc.regime_feature_cols.items() if h == horizon
-        },
-        "tuned_params": fc.tuned_params.get(horizon, {}),
-        "cv_results": fc.cv_results.get(horizon, {}),
-        "confidence_thresholds": fc.confidence_thresholds.get(horizon, {}),
-        "conformal_calibration": fc.conformal_calibration.get(horizon, 0.0),
-        "horizon_feature_cols": fc.horizon_feature_cols.get(horizon, []),
-        "residual_models": {
-            (h, q): m for (h, q), m in fc.residual_models.items() if h == horizon
-        },
-    }
 
 
 class ItemForecaster:
@@ -1675,14 +1613,12 @@ class ItemForecaster:
             ]
             if boosting_type != "dart":
                 opt_callbacks.insert(0, lgb.early_stopping(20))
-            with ThreadPoolExecutor(max_workers=1) as _opt_pool:
-                _opt_future = _opt_pool.submit(
-                    lgb.train, params, dtrain,
-                    num_boost_round=_num_rounds,
-                    valid_sets=[dval],
-                    callbacks=opt_callbacks,
-                )
-                model = _opt_future.result(timeout=600)
+            model = lgb.train(
+                params, dtrain,
+                num_boost_round=_num_rounds,
+                valid_sets=[dval],
+                callbacks=opt_callbacks,
+            )
             return model.best_score["valid_0"]["quantile"]
 
         sampler = optuna.samplers.TPESampler(seed=42)
@@ -2025,6 +1961,9 @@ class ItemForecaster:
         try:
             df = pd.read_parquet(path)
             cache_date_str = df.attrs.get("_cache_date", "")
+            if df.empty:
+                logger.warning(f"  Cache at {path} is empty (0 rows) — will refresh")
+                return None
             logger.info(f"  Loaded engineered feature cache from {path} "
                         f"({len(df):,} rows, cache_date={cache_date_str})")
 
@@ -2112,29 +2051,6 @@ class ItemForecaster:
         vol = vol / max(np.mean(vol), 1e-8)
         return vol.astype(np.float32)
 
-    def _merge_horizon_result(self, result):
-        """Merge results from a _train_horizon_worker back into this instance."""
-        h = result["horizon"]
-
-        for key, model_strs in result["models"].items():
-            self.models[key] = [lgb.Booster(model_str=s) for s in model_strs]
-
-        for key, model_strs in result["regime_models"].items():
-            self.regime_models[key] = [lgb.Booster(model_str=s) for s in model_strs]
-
-        self.regime_feature_cols.update(result["regime_feature_cols"])
-        self.tuned_params[h] = result["tuned_params"]
-        self.cv_results[h] = result["cv_results"]
-        if result["confidence_thresholds"]:
-            self.confidence_thresholds[h] = result["confidence_thresholds"]
-        if result["conformal_calibration"]:
-            self.conformal_calibration[h] = result["conformal_calibration"]
-        self.horizon_feature_cols[h] = result["horizon_feature_cols"]
-        self.residual_models.update(result["residual_models"])
-
-        logger.info(f"  Merged horizon {h}d results: "
-                    f"{len(result['models'])} models, {len(result['regime_models'])} regime models")
-
     def train(self, max_rows: int = 300_000):
         logger.info("=" * 60)
         logger.info("TRAINING LIGHTGBM FORECASTER (ensemble, HP search, walk-forward)")
@@ -2143,45 +2059,10 @@ class ItemForecaster:
         _train_start = datetime.now()
         df = self.build_training_data(days_back=1460, backfilled_only=True)
 
-        # NOTE: feature cache is NOT saved here — build_training_data subsamples
-        # items (~10-15%), so the cache would miss most items at predict time.
-        # The cache is saved from predict()'s fallback path which runs on all items.
-
         self.horizon_feature_cols = {}
 
-        n_workers = min(len(self.HORIZONS), max(1, (os.cpu_count() or 4) // 2))
-        use_parallel = n_workers > 1 and os.cpu_count() is not None and os.cpu_count() >= 4
-
-        if use_parallel:
-            logger.info(f"Training {len(self.HORIZONS)} horizons in parallel "
-                        f"({n_workers} workers on {os.cpu_count()} CPUs)")
-            # Use spawn (not fork) to avoid fork+OpenMP deadlock on macOS.
-            # DataFrame is written to a temp Feather file instead of being
-            # pickled through spawn's OS pipes — 4 workers deserializing a
-            # multi-hundred-MB blob simultaneously can cause pipe read stalls.
-            tmp_path = os.path.join(
-                tempfile.gettempdir(),
-                f"forecaster_df_{os.getpid()}_{uuid.uuid4().hex}.feather"
-            )
-            try:
-                df.to_feather(tmp_path)
-                _mp_ctx = "spawn"
-                pool_ctx = mp.get_context(_mp_ctx)
-                with pool_ctx.Pool(n_workers) as pool:
-                    async_result = pool.map_async(_train_horizon_worker, [
-                        (horizon, tmp_path, self._base_feature_cols, self.model_dir,
-                         self.tuned_params.get(horizon, {}), max_rows, n_workers)
-                        for horizon in self.HORIZONS
-                    ])
-                    results = async_result.get(timeout=7200)
-                for r in results:
-                    self._merge_horizon_result(r)
-            finally:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-        else:
-            for hi, horizon in enumerate(self.HORIZONS, 1):
-                self._train_horizon_inline(horizon, df, max_rows)
+        for hi, horizon in enumerate(self.HORIZONS, 1):
+            self._train_horizon_inline(horizon, df, max_rows)
 
         del df
 
@@ -2192,16 +2073,7 @@ class ItemForecaster:
         logger.info(f"{'='*60}")
 
     def _train_horizon_inline(self, horizon: int, df: pd.DataFrame,
-                               max_rows: int = 300_000, horizon_workers: int = 1):
-        """Train all models for a single forecast horizon.
-
-        Encapsulates the horizon loop body so it can run either inline
-        (sequential) or in a child process (parallel via _train_horizon_worker).
-        Stores results directly into self.models, self.regime_models, etc.
-
-        horizon_workers: number of concurrent horizon processes (1 = sequential).
-                         Used to cap inner parallelism to avoid CPU oversubscription.
-        """
+                                max_rows: int = 300_000):
         logger.info(f"\n{'='*60}")
         logger.info(f"HORIZON {horizon}d")
         logger.info(f"{'='*60}")
@@ -2391,44 +2263,22 @@ class ItemForecaster:
                     q: dict(per_quantile_params[q]) for q in self.QUANTILES
                 }
 
-            # Train ensemble members with capped concurrency to avoid CPU
-            # oversubscription. When horizons also run in parallel
-            # (horizon_workers > 1), split the CPU budget evenly across
-            # horizon processes first, then across ensemble members within
-            # this process — instead of collapsing to fully serial, which
-            # left most cores idle. The Dataset race this used to guard
-            # against is now fixed at the source (construct() before the
-            # pool starts), so concurrent members are safe again.
-            cpu_count = os.cpu_count() or 4
-            if horizon_workers > 1:
-                cpu_budget = max(1, cpu_count // horizon_workers)
-                n_workers = min(self.N_ENSEMBLES, cpu_budget)
-                cpu_per_worker = max(1, cpu_budget // n_workers)
-            else:
-                n_workers = min(self.N_ENSEMBLES, max(1, cpu_count // 2))
-                cpu_per_worker = max(1, cpu_count // n_workers)
+            # Train ensemble members sequentially. No threading or multiprocessing
+            # — LightGBM's internal OpenMP threads already utilize all cores.
+            n_jobs = max(1, (os.cpu_count() or 4) // 2)
             boost_rounds = self.DART_NUM_BOOST_ROUND if boosting_type == "dart" else 1000
             for q in self.QUANTILES:
                 pq = per_quantile_params[q]
-                logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members, {n_workers} workers)...")
+                logger.info(f"  Training {horizon}d p{int(q*100)} ensemble ({self.N_ENSEMBLES} members)...")
                 _ens_start = datetime.now()
                 ensemble_models = []
-                with ThreadPoolExecutor(max_workers=n_workers) as pool:
-                    futures = []
-                    for ei in range(self.N_ENSEMBLES):
-                        p = pq.copy()
-                        p["random_state"] = self.ENSEMBLE_SEEDS[ei]
-                        p["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                        p["n_jobs"] = cpu_per_worker
-                        futures.append(pool.submit(
-                            self._train_ensemble_member, p, dtrain, dval, boost_rounds))
-                    for f in futures:
-                        try:
-                            ensemble_models.append(f.result(timeout=1800))
-                        except TimeoutError:
-                            logger.error(f"  {horizon}d p{int(q*100)} ensemble training "
-                                         f"timed out (>1800s) — possible LightGBM hang")
-                            raise
+                for ei in range(self.N_ENSEMBLES):
+                    p = pq.copy()
+                    p["random_state"] = self.ENSEMBLE_SEEDS[ei]
+                    p["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
+                    p["n_jobs"] = n_jobs
+                    ensemble_models.append(self._train_ensemble_member(
+                        p, dtrain, dval, boost_rounds))
 
                 self.models[(horizon, q)] = ensemble_models
                 _ens_elapsed = (datetime.now() - _ens_start).total_seconds()
@@ -2500,23 +2350,13 @@ class ItemForecaster:
                     for q in self.QUANTILES:
                         pq = per_quantile_params[q]
                         r_ensemble = []
-                        with ThreadPoolExecutor(max_workers=n_workers) as pool:
-                            futures = []
-                            for ei in range(self.N_ENSEMBLES):
-                                p = pq.copy()
-                                p["random_state"] = self.ENSEMBLE_SEEDS[ei]
-                                p["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
-                                p["n_jobs"] = cpu_per_worker
-                                futures.append(pool.submit(
-                                    self._train_ensemble_member, p,
-                                    r_dtrain, r_dval, boost_rounds))
-                            for f in futures:
-                                try:
-                                    r_ensemble.append(f.result(timeout=1800))
-                                except TimeoutError:
-                                    logger.error(f"  {regime} regime {horizon}d p{int(q*100)} "
-                                                 f"training timed out (>1800s)")
-                                    raise
+                        for ei in range(self.N_ENSEMBLES):
+                            p = pq.copy()
+                            p["random_state"] = self.ENSEMBLE_SEEDS[ei]
+                            p["feature_fraction"] = self.ENSEMBLE_FEATURE_FRACTIONS[ei]
+                            p["n_jobs"] = n_jobs
+                            r_ensemble.append(self._train_ensemble_member(
+                                p, r_dtrain, r_dval, boost_rounds))
                         self.regime_models[(regime, horizon, q)] = r_ensemble
 
                     self.regime_feature_cols[(horizon, regime)] = list(self.feature_cols)
@@ -3190,14 +3030,12 @@ class ItemForecaster:
                 params["n_jobs"] = -1
                 params["random_state"] = 42
 
-                with ThreadPoolExecutor(max_workers=1) as _cv_pool:
-                    _cv_future = _cv_pool.submit(
-                        lgb.train, params, dtrain,
-                        num_boost_round=200,
-                        valid_sets=[dval],
-                        callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)]
-                    )
-                    model = _cv_future.result(timeout=600)
+                model = lgb.train(
+                    params, dtrain,
+                    num_boost_round=200,
+                    valid_sets=[dval],
+                    callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)],
+                )
                 lgb_preds.append(model.predict(X_val))
 
                 pred = lgb_preds[0]
