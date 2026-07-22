@@ -124,7 +124,7 @@ class ItemForecaster:
     # (14d, 30d) where dropout regularization helps reduce overfitting.
     WEAK_HORIZONS = [14, 30]
     BOOSTING_TYPE_MAP = {3: "gbdt", 7: "gbdt", 14: "dart", 30: "dart"}
-    N_TRIALS_MAP = {3: 50, 7: 15, 14: 15, 30: 15}
+    N_TRIALS_MAP = {3: 50, 7: 10, 14: 15, 30: 15}
     SKIP_HP_HORIZONS = [3, 14, 30]
     DART_PARAMS = {
         "drop_rate": 0.1,
@@ -1596,10 +1596,14 @@ class ItemForecaster:
                 "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 5, 30, step=5),
                 "min_gain_to_split": 0.1,
                 "feature_fraction": 0.7,
-                "data_sample_strategy": "goss",
-                "top_rate": 0.2,
-                "other_rate": 0.1,
             }
+            if quantile == 0.5:
+                params["data_sample_strategy"] = "goss"
+                params["top_rate"] = 0.2
+                params["other_rate"] = 0.1
+            else:
+                params["data_sample_strategy"] = "bagging"
+                params["subsample"] = 0.8
             # DART-specific hyperparameters
             if boosting_type == "dart":
                 params["drop_rate"] = trial.suggest_float("drop_rate", 0.05, 0.3, log=False)
@@ -1674,7 +1678,6 @@ class ItemForecaster:
         df = self._add_event_features(df, events_df)
         df = self._add_item_metadata_features(df)
         df = self._add_supply_side_features(df)
-        df = self._add_social_features(df)
         return df
 
     # ------------------------------------------------------------------
@@ -1870,7 +1873,7 @@ class ItemForecaster:
 
     def build_training_data(self, days_back: int = 365,
                              backfilled_only: bool = False,
-                             max_feature_rows: int = 200_000) -> pd.DataFrame:
+                             max_feature_rows: int = 100_000) -> pd.DataFrame:
         _t0 = datetime.now()
         price_df = self.fetch_price_history(days_back=days_back, backfilled_only=backfilled_only)
         logger.info(f"  fetch_price_history took {(datetime.now() - _t0).total_seconds():.0f}s")
@@ -2181,6 +2184,13 @@ class ItemForecaster:
                     bp["feature_pre_filter"] = False
                     bp["device"] = "cuda" if _gpu_available() else "cpu"
                     bp["boosting_type"] = boosting_type
+                    if q == 0.5:
+                        bp["data_sample_strategy"] = "goss"
+                        bp["top_rate"] = 0.2
+                        bp["other_rate"] = 0.1
+                    else:
+                        bp["data_sample_strategy"] = "bagging"
+                        bp["subsample"] = 0.8
                     per_quantile_params[q] = bp
             else:
                 _warm_retrain = False
@@ -2199,13 +2209,17 @@ class ItemForecaster:
                         "boosting_type": boosting_type,
                         "min_gain_to_split": 0.1,
                         "feature_fraction": 0.7,
-                        "data_sample_strategy": "goss",
-                        "top_rate": 0.2,
-                        "other_rate": 0.1,
                         "max_bin": self.MAX_BIN,
                         "verbosity": -1,
                         "n_jobs": -1,
                     }
+                    if q == 0.5:
+                        base_params_by_q[q]["data_sample_strategy"] = "goss"
+                        base_params_by_q[q]["top_rate"] = 0.2
+                        base_params_by_q[q]["other_rate"] = 0.1
+                    else:
+                        base_params_by_q[q]["data_sample_strategy"] = "bagging"
+                        base_params_by_q[q]["subsample"] = 0.8
 
                 if skip_hp:
                     logger.info(f"  Skipping HP search for {horizon}d (SKIP_HP_HORIZONS)...")
@@ -2367,11 +2381,14 @@ class ItemForecaster:
             # thresholds and conformal q_hat from the previous training run
             # (restored via load_models) remain valid as long as the
             # distribution hasn't shifted (checked via concept drift).
-            if os.environ.get("SKIP_CV") == "1" or _warm_retrain:
+            # SKIP_CV=1 only applies to GBDT horizons — DART horizons (14d, 30d)
+            # still run CV for proper CQR calibration (~91% coverage).
+            _skip_cv = (os.environ.get("SKIP_CV") == "1" and boosting_type == "gbdt")
+            if _skip_cv or _warm_retrain:
                 if _warm_retrain:
                     logger.info(f"  CV skipped (warm retrain — using cached thresholds)")
                 else:
-                    logger.info(f"  CV skipped (SKIP_CV=1); calibrating from single holdout")
+                    logger.info(f"  CV skipped (SKIP_CV=1, GBDT horizon); calibrating from single holdout")
                 oof_records, cv_metrics, nc_scores = [], [], []
             else:
                 oof_records, cv_metrics, nc_scores = self._cv_evaluate_horizon(tdf, horizon, per_quantile_params)
@@ -2398,8 +2415,8 @@ class ItemForecaster:
                     self.conformal_calibration[horizon] = q_hat
                     logger.info(f"  CQR calibration: q_hat={q_hat:.4f}pp "
                                 f"(n={n_cal}, α={alpha}, target coverage={(1-alpha)*100:.0f}%)")
-            elif os.environ.get("SKIP_CV") == "1":
-                logger.info("  CV skipped (SKIP_CV=1); fallback to single-split calibration")
+            elif _skip_cv:
+                logger.info("  CV skipped (SKIP_CV=1, GBDT horizon); fallback to single-split calibration")
                 self._calibrate_confidence(horizon=horizon, X_val=X_val, y_val=y_val, val_set=val_set)
             else:
                 raise RuntimeError(

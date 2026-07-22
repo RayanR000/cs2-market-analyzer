@@ -1285,8 +1285,8 @@ class TestRegimeSwitching:
             rows = []
             for item_id in range(5):
                 price = 50.0
-                for day_offset in range(300):
-                    d = date(2025, 1, 1) + timedelta(days=day_offset)
+                for day_offset in range(800):
+                    d = date(2024, 1, 1) + timedelta(days=day_offset)
                     # Vary returns to create different regimes
                     price *= 1 + np.random.randn() * 0.02
                     rows.append({
