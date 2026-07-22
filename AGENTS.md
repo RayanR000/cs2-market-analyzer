@@ -38,6 +38,7 @@ price-archive/ops/  — Parquet operational data (events, forecasts, accuracy, s
 - **Operational tables migrated to `price-archive/ops/*.parquet`.** API routes read Parquet first with DB fallback. See `backend/db/parquet.py`.
 - **API client at `frontend/lib/api.ts`.** Update both backend router and this client when adding routes.
 - **Social sentiment features are non-functional.** VADER scores CS2 jargon as neutral — features don't rank in top 20 by gain.
+- **Training is fully sequential.** No multiprocessing or threading in the training path. Horizons, quantiles, and ensemble members all train one at a time. LightGBM's internal OpenMP threads handle CPU parallelism. `n_jobs` is set to `max(1, cpu_count // 2)`.
 
 ## Workflow Rules
 
